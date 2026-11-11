@@ -130,7 +130,7 @@ jobs:
           else
             npx tauri build --bundles ${{ matrix.bundle }}
           fi
-          f=$(ls src-tauri/target/release/bundle/${{ matrix.bundle }}/*.{exe,AppImage} 2>/dev/null | head -n1)
+          f=$(find src-tauri/target/release/bundle/${{ matrix.bundle }} -maxdepth 1 \( -name "*.exe" -o -name "*.AppImage" \) | head -n1)
           cp "$f" "../${{ matrix.out }}"
       - uses: actions/upload-artifact@v4
         with:
