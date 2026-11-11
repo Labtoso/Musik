@@ -61,6 +61,6 @@ cd desktop && npm install && npx tauri dev
 cd android && ./gradlew assembleDebug
 ```
 
-A tag `v*` builds the server binaries, the APK, the Windows setup and the AppImage and publishes them as a release.
+Raising the number in `VERSION` and pushing to `main` builds the server binaries, the APK, the Windows setup and the AppImage and publishes them as release `v<VERSION>` (notes from `.github/releases/v<VERSION>.md`).
 
 © LabtosoStudios
