@@ -1,10 +1,12 @@
+// Black-box tests: start the real server binary on a free port with a temp music folder.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
-import { createApp } from '../src/app.js';
+import net from 'node:net';
+import { spawn } from 'node:child_process';
 
-/** Writes a short silent 16-bit mono WAV file. */
+const BIN = process.env.MUSIK_BIN || path.resolve(import.meta.dirname, '../target/debug/musik-server' + (process.platform === 'win32' ? '.exe' : ''));
+
 export function writeWav(file, seconds = 2, rate = 8000) {
   const samples = seconds * rate;
   const buf = Buffer.alloc(44 + samples * 2);
@@ -26,16 +28,33 @@ export function writeWav(file, seconds = 2, rate = 8000) {
   return buf;
 }
 
+const freePort = () =>
+  new Promise((res) => {
+    const s = net.createServer().listen(0, '127.0.0.1', () => {
+      const p = s.address().port;
+      s.close(() => res(p));
+    });
+  });
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export async function startServer(opts = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'musik-test-'));
   const music = path.join(root, 'music');
   fs.mkdirSync(music, { recursive: true });
   if (opts.files) for (const f of opts.files) writeWav(path.join(music, f), 2);
-  const app = createApp({ dataDir: path.join(root, 'data'), musicDirs: [music], webDir: opts.webDir ?? null, ...opts.config });
-  await app.library.scan();
-  const server = http.createServer(app.handler);
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const base = `http://127.0.0.1:${server.address().port}`;
+  const port = await freePort();
+  const env = { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: path.join(root, 'data'), MUSIC_DIRS: music, SCAN_INTERVAL: '0' };
+  if (opts.webDir) env.WEB_DIR = opts.webDir;
+  const proc = spawn(BIN, [], { env, cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
+  const base = `http://127.0.0.1:${port}`;
+  for (let i = 0; i < 100; i++) {
+    try {
+      const r = await fetch(base + '/api/info');
+      if (r.ok) break;
+    } catch {}
+    await sleep(50);
+  }
   let token = null;
   const api = async (method, p, body, headers = {}) => {
     const res = await fetch(base + p, {
@@ -50,16 +69,25 @@ export async function startServer(opts = {}) {
     } catch {}
     return { status: res.status, json, text, headers: res.headers };
   };
+  /** Waits until the running scan is finished (needs an admin token). */
+  const waitScan = async () => {
+    for (let i = 0; i < 200; i++) {
+      const r = await api('GET', '/api/library');
+      if (r.status === 200 && !r.json.scanning && r.json.lastScan) return r.json;
+      await sleep(25);
+    }
+    throw new Error('scan did not finish');
+  };
   return {
-    app,
     base,
     root,
     music,
     api,
+    waitScan,
     setToken: (t) => (token = t),
     close: async () => {
-      await new Promise((r) => server.close(r));
-      app.db.close();
+      proc.kill();
+      await new Promise((r) => proc.once('exit', r));
       fs.rmSync(root, { recursive: true, force: true });
     }
   };

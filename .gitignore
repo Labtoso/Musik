@@ -15,3 +15,6 @@ push/
 .vscode/
 .DS_Store
 Thumbs.db
+server/target/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

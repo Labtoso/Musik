@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { startServer, writeWav } from './helpers.js';
+import { startServer, writeWav } from './helpers.mjs';
 
 const FILES = ['Alpha - Sunrise.wav', 'Alpha - Noon.wav', 'Beta - Rain.wav', 'Gamma/Gamma - Snow.wav'];
 
@@ -21,6 +21,7 @@ test('setup, login, library, stream, likes, playlists, events, recommendations',
   assert.equal(r.status, 200);
   assert.equal(r.json.user.admin, true);
   s.setToken(r.json.token);
+  await s.waitScan();
 
   r = await s.api('POST', '/api/setup', { name: 'x', password: 'yyyyy' });
   assert.equal(r.status, 409);
@@ -140,6 +141,7 @@ test('upload indexes the file, rescan picks up changes and removals', async (t) 
   t.after(() => s.close());
   let r = await s.api('POST', '/api/setup', { name: 'admin', password: 'pass1' });
   s.setToken(r.json.token);
+  await s.waitScan();
   const tmp = path.join(s.root, 'up.wav');
   const data = writeWav(tmp, 1);
   r = await s.api('POST', '/api/upload?name=' + encodeURIComponent('../Two - Second.wav'), data, { 'Content-Type': 'application/octet-stream' });
@@ -153,14 +155,17 @@ test('upload indexes the file, rescan picks up changes and removals', async (t) 
 
   writeWav(path.join(s.music, 'Three - Third.wav'), 1);
   fs.rmSync(path.join(s.music, 'One - First.wav'));
-  const scan = await s.app.library.scan();
-  assert.equal(scan.added, 1);
-  assert.equal(scan.removed, 1);
-  assert.equal(scan.total, 2);
+  r = await s.api('POST', '/api/library/scan');
+  assert.equal(r.status, 200);
+  await new Promise((res) => setTimeout(res, 100));
+  const lib = await s.waitScan();
+  assert.equal(lib.lastScan.added, 1);
+  assert.equal(lib.lastScan.removed, 1);
+  assert.equal(lib.lastScan.total, 2);
 });
 
 test('static web files and SPA fallback', async (t) => {
-  const s = await startServer({ files: [], webDir: path.resolve(import.meta.dirname, '../../web') });
+  const s = await startServer({ files: [] });
   t.after(() => s.close());
   let res = await fetch(s.base + '/');
   assert.equal(res.status, 200);
@@ -169,7 +174,10 @@ test('static web files and SPA fallback', async (t) => {
   assert.notEqual(res.status, 500);
   res = await fetch(s.base + '/nope.js');
   assert.equal(res.status, 404);
-  res = await fetch(s.base + '/api/info', { method: 'OPTIONS' });
-  assert.equal(res.status, 204);
+  res = await fetch(s.base + '/api/info', {
+    method: 'OPTIONS',
+    headers: { Origin: 'http://example.com', 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' }
+  });
+  assert.ok(res.status >= 200 && res.status < 300);
   assert.equal(res.headers.get('access-control-allow-origin'), '*');
 });

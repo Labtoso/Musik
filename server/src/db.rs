@@ -1,13 +1,11 @@
-import { DatabaseSync } from 'node:sqlite';
-import fs from 'node:fs';
-import path from 'node:path';
+use rusqlite::Connection;
+use std::path::Path;
 
-const SCHEMA = `
+const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE COLLATE NOCASE,
   pass_hash TEXT NOT NULL,
-  salt TEXT NOT NULL,
   admin INTEGER NOT NULL DEFAULT 0,
   created INTEGER NOT NULL
 );
@@ -67,33 +65,24 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
   track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
   PRIMARY KEY (playlist_id, pos)
 );
-CREATE TABLE IF NOT EXISTS settings (
-  key TEXT PRIMARY KEY,
-  value TEXT
-);
-`;
+"#;
 
-export function openDb(dataDir) {
-  let file = ':memory:';
-  if (dataDir) {
-    fs.mkdirSync(dataDir, { recursive: true });
-    file = path.join(dataDir, 'musik.db');
-  }
-  const db = new DatabaseSync(file);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-  db.exec(SCHEMA);
-  return db;
+pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
+    let conn = match data_dir {
+        Some(d) => {
+            std::fs::create_dir_all(d).ok();
+            Connection::open(d.join("musik.db"))?
+        }
+        None => Connection::open_in_memory()?,
+    };
+    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
+    conn.execute_batch(SCHEMA)?;
+    Ok(conn)
 }
 
-/** Runs fn inside a transaction. */
-export function tx(db, fn) {
-  db.exec('BEGIN');
-  try {
-    const r = fn();
-    db.exec('COMMIT');
-    return r;
-  } catch (e) {
-    db.exec('ROLLBACK');
-    throw e;
-  }
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
