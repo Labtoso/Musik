@@ -1,0 +1,10 @@
+services:
+  musik:
+    build: .
+    container_name: musik
+    restart: unless-stopped
+    ports:
+      - "8484:8484"
+    volumes:
+      - ./data:/data
+      - ./music:/music
