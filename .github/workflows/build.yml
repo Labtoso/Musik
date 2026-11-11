@@ -12,20 +12,57 @@ permissions:
   contents: write
 
 jobs:
-  server:
+  test:
     name: Server tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: server/package-lock.json
-      - run: npm ci
+      - name: Unit tests
         working-directory: server
-      - run: npm test
+        run: cargo test
+      - name: API tests
         working-directory: server
+        run: cargo build && node --test tests/api.test.mjs
+
+  server:
+    name: Server ${{ matrix.name }}
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest, target: x86_64-unknown-linux-musl, file: musik-server-linux-x64 }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, file: musik-server-linux-arm64 }
+          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, file: musik-server-windows-x64.exe }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+          key: ${{ matrix.target }}
+      - if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build
+        shell: bash
+        working-directory: server
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
+          cp "target/${{ matrix.target }}/release/musik-server$ext" "../${{ matrix.file }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.name }}
+          path: ${{ matrix.file }}
 
   android:
     name: Android APK
@@ -36,7 +73,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
       - name: Signing key
         env:
@@ -63,51 +99,48 @@ jobs:
           name: android
           path: Musik.apk
 
-  windows:
-    name: Windows setup
-    runs-on: windows-latest
+  desktop:
+    name: Desktop ${{ matrix.name }}
+    strategy:
+      matrix:
+        include:
+          - { name: windows, os: windows-latest, bundle: nsis, out: Musik.exe }
+          - { name: linux, os: ubuntu-22.04, bundle: appimage, out: Musik.AppImage }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - name: Build
-        working-directory: desktop
         shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version; fi
-          npm ci
-          npx electron-builder --win nsis --x64 --publish never
-          cp dist/Musik-Setup.exe ../Musik.exe
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: Musik.exe
-
-  linux:
-    name: Linux AppImage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Build
         working-directory: desktop
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version; fi
           npm ci
-          npx electron-builder --linux AppImage --x64 --publish never
-          cp dist/Musik.AppImage ../Musik.AppImage
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            npx tauri build --bundles ${{ matrix.bundle }} --config "{\"version\":\"${GITHUB_REF_NAME#v}\"}"
+          else
+            npx tauri build --bundles ${{ matrix.bundle }}
+          fi
+          f=$(ls src-tauri/target/release/bundle/${{ matrix.bundle }}/*.{exe,AppImage} 2>/dev/null | head -n1)
+          cp "$f" "../${{ matrix.out }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: linux
-          path: Musik.AppImage
+          name: desktop-${{ matrix.name }}
+          path: ${{ matrix.out }}
 
   release:
     name: Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [server, android, windows, linux]
+    needs: [server, android, desktop]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,5 +155,4 @@ jobs:
           cp deploy/proxmox.sh out/proxmox.sh
           NOTES=".github/releases/${GITHUB_REF_NAME}.md"
           [ -f "$NOTES" ] || NOTES=/dev/null
-          gh release create "$GITHUB_REF_NAME" out/Musik.apk out/Musik.exe out/Musik.AppImage out/proxmox.sh \
-            --title "Musik ${GITHUB_REF_NAME#v}" --notes-file "$NOTES" --latest
+          gh release create "$GITHUB_REF_NAME" out/* --title "Musik ${GITHUB_REF_NAME#v}" --notes-file "$NOTES" --latest
