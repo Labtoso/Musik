@@ -4,14 +4,14 @@
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
 # Optional environment variables:
 #   MUSIC_HOST_DIR=/mnt/pve/nas/music   host folder mounted read-only into the container as /srv/musik
-#   CTID=120  CT_CORES=2  CT_RAM=1024  CT_DISK=8  CT_BRIDGE=vmbr0  CT_STORAGE=local-lvm  BRANCH=main
+#   CTID=120  CT_CORES=2  CT_RAM=512  CT_DISK=8  CT_BRIDGE=vmbr0  CT_STORAGE=local-lvm  BRANCH=main
 set -euo pipefail
 
 REPO="Labtoso/Musik"
 BRANCH="${BRANCH:-main}"
 RAW="https://raw.githubusercontent.com/$REPO/$BRANCH/deploy"
 CORES="${CT_CORES:-2}"
-RAM="${CT_RAM:-1024}"
+RAM="${CT_RAM:-512}"
 DISK="${CT_DISK:-8}"
 BRIDGE="${CT_BRIDGE:-vmbr0}"
 
@@ -58,7 +58,7 @@ if [ -n "$EXISTING" ]; then
   step "Updating Musik in container $EXISTING"
   [ "$(pct status "$EXISTING" | awk '{print $2}')" = "running" ] || pct start "$EXISTING"
   sleep 2
-  run_inside "$EXISTING" "curl -fsSL $RAW/install.sh | bash -s -- --update --branch $BRANCH"
+  run_inside "$EXISTING" "curl -fsSL $RAW/install.sh | bash -s -- --update"
   show_links "$EXISTING"
   exit 0
 fi
@@ -114,5 +114,5 @@ for _ in $(seq 1 60); do
 done
 
 step "Installing Musik inside the container"
-run_inside "$CTID" "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates >/dev/null && curl -fsSL $RAW/install.sh | bash -s -- --branch $BRANCH --music /srv/musik"
+run_inside "$CTID" "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates >/dev/null && curl -fsSL $RAW/install.sh | bash -s -- --music /srv/musik"
 show_links "$CTID"

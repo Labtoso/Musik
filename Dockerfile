@@ -1,10 +1,13 @@
-FROM node:22-bookworm-slim
-WORKDIR /app
-COPY server/package.json server/package-lock.json server/
-RUN cd server && npm ci --omit=dev --no-audit --no-fund
-COPY server server
+FROM rust:1-bookworm AS build
+WORKDIR /src
 COPY web web
-ENV PORT=8484 DATA_DIR=/data MUSIC_DIRS=/music WEB_DIR=/app/web
+COPY server server
+RUN cd server && cargo build --release
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/server/target/release/musik-server /usr/local/bin/musik-server
+ENV PORT=8484 DATA_DIR=/data MUSIC_DIRS=/music
 VOLUME ["/data", "/music"]
 EXPOSE 8484
-CMD ["node", "--disable-warning=ExperimentalWarning", "server/src/index.js"]
+CMD ["musik-server"]

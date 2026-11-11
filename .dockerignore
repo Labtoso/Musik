@@ -1,5 +1,6 @@
-**/node_modules
+server/target
 server/data
 desktop
 android
+site
 .git

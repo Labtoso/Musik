@@ -2,11 +2,11 @@
 # Musik server installer for Debian/Ubuntu (also used inside the Proxmox container).
 # Run again to update. Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash
-#   options: --music <dir>  --port <port>  --branch <name>
+#   options: --music <dir>  --port <port>  --version <tag, e.g. v1.0.0>
 set -euo pipefail
 
 REPO="Labtoso/Musik"
-BRANCH="main"
+VERSION="latest"
 APP_DIR="/opt/musik"
 DATA_DIR="/var/lib/musik"
 MUSIC_DIR="/srv/musik"
@@ -17,7 +17,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --music) MUSIC_DIR="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
-    --branch) BRANCH="$2"; shift 2 ;;
+    --version) VERSION="$2"; shift 2 ;;
+    --branch) shift 2 ;;
     --update) shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -39,38 +40,25 @@ step() { printf '\n==> %s\n' "$*"; }
 step "Installing base packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates xz-utils tar >/dev/null
+apt-get install -y -qq curl ca-certificates >/dev/null
 
-node_major() { command -v node >/dev/null && node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
-node_minor() { command -v node >/dev/null && node -p 'process.versions.node.split(".")[1]' 2>/dev/null || echo 0; }
-if [ "$(node_major)" -lt 22 ] || { [ "$(node_major)" -eq 22 ] && [ "$(node_minor)" -lt 13 ]; }; then
-  step "Installing Node.js 22"
-  case "$(uname -m)" in
-    x86_64) ARCH=x64 ;;
-    aarch64|arm64) ARCH=arm64 ;;
-    *) echo "Unsupported CPU: $(uname -m)" >&2; exit 1 ;;
-  esac
-  BASE="https://nodejs.org/dist/latest-v22.x"
-  FILE="$(curl -fsSL "$BASE/SHASUMS256.txt" | awk -v a="linux-$ARCH.tar.xz" '$2 ~ a"$" {print $2; exit}')"
-  [ -n "$FILE" ] || { echo "Could not find a Node.js download." >&2; exit 1; }
-  curl -fsSL "$BASE/$FILE" | tar -xJ -C /usr/local --strip-components=1
+case "$(uname -m)" in
+  x86_64|amd64) ARCH=x64 ;;
+  aarch64|arm64) ARCH=arm64 ;;
+  *) echo "Unsupported CPU: $(uname -m)" >&2; exit 1 ;;
+esac
+if [ "$VERSION" = "latest" ]; then
+  URL="https://github.com/$REPO/releases/latest/download/musik-server-linux-$ARCH"
+else
+  URL="https://github.com/$REPO/releases/download/$VERSION/musik-server-linux-$ARCH"
 fi
-NODE_BIN="$(command -v node)"
-echo "Node.js $("$NODE_BIN" -v)"
 
-step "Downloading Musik ($BRANCH)"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" | tar -xz -C "$TMP" --strip-components=1
+step "Downloading Musik server ($VERSION, $ARCH)"
 mkdir -p "$APP_DIR"
-rm -rf "$APP_DIR/server.new" "$APP_DIR/web.new"
-cp -r "$TMP/server" "$APP_DIR/server.new"
-cp -r "$TMP/web" "$APP_DIR/web.new"
-(cd "$APP_DIR/server.new" && npm ci --omit=dev --no-audit --no-fund --loglevel=error)
-rm -rf "$APP_DIR/server" "$APP_DIR/web"
-mv "$APP_DIR/server.new" "$APP_DIR/server"
-mv "$APP_DIR/web.new" "$APP_DIR/web"
-cp "$TMP/deploy/install.sh" /usr/local/bin/musik-update
+curl -fL --progress-bar -o "$APP_DIR/musik-server.new" "$URL"
+chmod +x "$APP_DIR/musik-server.new"
+mv -f "$APP_DIR/musik-server.new" "$APP_DIR/musik-server"
+curl -fsSL -o /usr/local/bin/musik-update "https://raw.githubusercontent.com/$REPO/main/deploy/install.sh"
 chmod +x /usr/local/bin/musik-update
 
 step "Setting up service"
@@ -87,7 +75,6 @@ PORT=$PORT
 DATA_DIR=$DATA_DIR
 # Several folders: separate with :
 MUSIC_DIRS=$MUSIC_DIR
-WEB_DIR=$APP_DIR/web
 # Rescan interval in minutes (0 = only on start and on demand)
 SCAN_INTERVAL=30
 SERVER_NAME=Musik
@@ -105,7 +92,8 @@ User=musik
 Group=musik
 Environment=MUSIK_ENV=$ENV_FILE
 EnvironmentFile=$ENV_FILE
-ExecStart=$NODE_BIN --disable-warning=ExperimentalWarning $APP_DIR/server/src/index.js
+ExecStart=$APP_DIR/musik-server
+WorkingDirectory=$DATA_DIR
 Restart=always
 RestartSec=3
 

@@ -1,6 +1,6 @@
 # Musik
 
-Your own music app: a server for Proxmox (or any Linux, Docker, Windows), an Android app, a desktop app for Windows and Linux, and a web app. A recommendation engine learns from what you play, skip and like.
+Your own music app, written mostly in Rust: a server for Proxmox (or any Linux, Docker, Windows), an Android app, a desktop app for Windows and Linux, and a web app. A recommendation engine learns from what you play, skip and like.
 
 **Download page:** https://musik.labtoso.de · **Releases:** https://github.com/Labtoso/Musik/releases/latest
 
@@ -19,7 +19,7 @@ Run it again to update. Optional: `MUSIC_HOST_DIR=/mnt/pve/nas/music` mounts a h
 
 **Docker:** `docker compose up -d --build` (music in `./music`, data in `./data`)
 
-**Windows:** run `server/start.bat` (installs Node.js with winget, uses your Music folder).
+**Windows:** download `musik-server-windows-x64.exe` from the release and start it. It uses your Music folder (or set `MUSIC_DIRS` in a `.env` next to the exe).
 
 Open `http://<server>:8484` and create the first account. It is the admin and can add more users.
 
@@ -45,9 +45,9 @@ Plays, skips (under 30 s or 25 %), full plays and likes are the signals, with a 
 
 | Folder | Content |
 |---|---|
-| `server/` | Node.js server (API, library scan, streaming, recommendations), tests in `server/test` |
-| `web/` | Web app, used by the browser, the desktop app and the Android app |
-| `desktop/` | Electron app for Windows and Linux |
+| `server/` | Rust server (axum, SQLite): API, library scan, streaming, recommendations; the web app is built into the binary |
+| `web/` | Web app (HTML/CSS/JS), used by the browser, the desktop app and the Android app |
+| `desktop/` | Tauri app (Rust) for Windows and Linux |
 | `android/` | Android app (Kotlin, Media3/ExoPlayer) |
 | `deploy/` | Proxmox and Linux installers |
 | `site/` | Download page (musik.labtoso.de) |
@@ -55,11 +55,12 @@ Plays, skips (under 30 s or 25 %), full plays and likes are the signals, with a 
 ## Development
 
 ```bash
-cd server && npm install && npm test && npm start   # http://localhost:8484
-cd desktop && npm install && npm start
+cd server && cargo run                      # http://localhost:8484
+cd server && cargo test && cargo build && node --test tests/api.test.mjs
+cd desktop && npm install && npx tauri dev
 cd android && ./gradlew assembleDebug
 ```
 
-A tag `v*` builds the APK, the Windows setup and the AppImage and publishes them as a release.
+A tag `v*` builds the server binaries, the APK, the Windows setup and the AppImage and publishes them as a release.
 
 © LabtosoStudios

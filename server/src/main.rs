@@ -30,6 +30,10 @@ fn load_env_file(file: &Path) {
 }
 
 fn main() {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("musik-server {VERSION}");
+        return;
+    }
     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."));
     let base = std::env::current_dir().unwrap_or_else(|_| exe_dir.clone());
     load_env_file(&base.join(".env"));
