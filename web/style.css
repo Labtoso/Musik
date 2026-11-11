@@ -345,3 +345,13 @@ body.auth #app { height: 100%; }
 @media (hover: none) {
   .row .more { opacity: 1; }
 }
+
+/* ---------- colours from the cover ---------- */
+#content { transition: background 0.8s ease; }
+@media (min-width: 900px) { .dyn #content { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 55%, var(--bg)) 0, var(--bg) 340px); } }
+.dyn .player { background: linear-gradient(90deg, color-mix(in srgb, var(--dyn-bg) 45%, var(--bg2)), var(--bg2) 60%); }
+.dyn .fs { background: linear-gradient(180deg, var(--dyn-bg) 0%, color-mix(in srgb, var(--dyn-bg) 35%, var(--bg)) 55%, var(--bg) 100%); }
+.dyn .fs-cover .cover.huge { box-shadow: 0 30px 80px -20px color-mix(in srgb, var(--accent) 55%, transparent); }
+@media (max-width: 899px) {
+  .dyn .player { background: color-mix(in srgb, var(--dyn-bg) 70%, var(--surface2)); }
+}

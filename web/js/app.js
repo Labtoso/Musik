@@ -2,6 +2,7 @@ import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put,
 import { Player } from './player.js';
 import { t, setLang, getLang } from './i18n.js';
 import { icon } from './icons.js';
+import { colorFromUrl } from './dyncolor.js';
 
 const RELEASES = 'https://github.com/Labtoso/Musik/releases/latest';
 const VERSION = '1.0.0';
@@ -11,7 +12,7 @@ const esc = (s) =>
 
 // ---------- settings ----------
 const PREFS_KEY = 'musik.prefs';
-const prefs = Object.assign({ lang: (navigator.language || 'de').startsWith('de') ? 'de' : 'en', accent: 'blue', volume: 1, autoplay: true }, (() => {
+const prefs = Object.assign({ lang: (navigator.language || 'de').startsWith('de') ? 'de' : 'en', accent: 'blue', volume: 1, autoplay: true, dynamic: true }, (() => {
   try {
     return JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
   } catch {
@@ -27,6 +28,28 @@ function applyPrefs() {
   setLang(prefs.lang);
   document.documentElement.dataset.accent = prefs.accent;
   window.MusikAndroid?.setAccent?.(prefs.accent);
+}
+// Colours from the current cover ("dynamic colours")
+let dynFor = null;
+function applyDyn(tr) {
+  const root = document.documentElement;
+  const clear = () => {
+    root.classList.remove('dyn');
+    ['--accent', '--accent-ink', '--accent2', '--dyn-bg'].forEach((k) => root.style.removeProperty(k));
+  };
+  const id = prefs.dynamic && tr ? tr.id : null;
+  if (id === dynFor) return;
+  dynFor = id;
+  if (!id) return clear();
+  colorFromUrl(coverUrl(id)).then((p) => {
+    if (dynFor !== id) return;
+    if (!p) return clear();
+    root.style.setProperty('--accent', p.accent);
+    root.style.setProperty('--accent2', p.accent2);
+    root.style.setProperty('--accent-ink', p.ink);
+    root.style.setProperty('--dyn-bg', p.bg);
+    root.classList.add('dyn');
+  });
 }
 applyPrefs();
 
@@ -655,6 +678,7 @@ function renderPlayer() {
     $('#fs-title').textContent = tr.title;
     $('#fs-artist').textContent = artistName(tr);
     document.title = `${tr.title} · ${artistName(tr)}`;
+    applyDyn(tr);
   } else {
     coverBox.dataset.id = '';
     coverBox.innerHTML = coverImg(null, 'md');
@@ -664,6 +688,7 @@ function renderPlayer() {
     $('#fs-title').textContent = t('nothingPlaying');
     $('#fs-artist').textContent = '';
     document.title = 'Musik';
+    applyDyn(null);
   }
   document.querySelectorAll('[data-act="like"]').forEach((b) => {
     b.dataset.like = tr?.id || '';
@@ -841,6 +866,8 @@ async function renderSettings() {
       <div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div></div>
     <div class="set-group"><h3>${t('playback')}</h3>
       <label class="check"><input type="checkbox" id="autoplay" ${prefs.autoplay ? 'checked' : ''}><span>${t('autoplay')}</span></label></div>
+    <div class="set-group"><h3>${t('look')}</h3>
+      <label class="check"><input type="checkbox" id="dyncolor" ${prefs.dynamic ? 'checked' : ''}><span>${t('dynColor')}</span></label></div>
     <div class="set-group"><h3>${t('library')}</h3>
       ${lib ? `<p class="muted">${t('stats', { tracks: lib.tracks, artists: lib.artists, albums: lib.albums })}</p>` : ''}
       <div id="scaninfo" class="muted small"></div>
@@ -970,6 +997,11 @@ document.addEventListener('click', async (e) => {
   }
 });
 document.addEventListener('change', (e) => {
+  if (e.target.id === 'dyncolor') {
+    prefs.dynamic = e.target.checked;
+    savePrefs();
+    applyDyn(player.current);
+  }
   if (e.target.id === 'autoplay') {
     prefs.autoplay = e.target.checked;
     player.autoplay = prefs.autoplay;
