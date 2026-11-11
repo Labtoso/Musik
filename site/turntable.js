@@ -5,7 +5,7 @@ import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
 const ease = (t) => (t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t));
 const easeOut = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 
-function vinylTexture(accent, fontReady) {
+function vinylTexture(accent, fontReady, img) {
   const S = 2048, c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d'), R = S / 2;
@@ -24,6 +24,17 @@ function vinylTexture(accent, fontReady) {
   g.beginPath(); g.arc(0, 0, R * 0.995, 0, Math.PI * 2); g.stroke();
   // label
   const lr = R * 0.33;
+  if (img) {
+    g.save(); g.beginPath(); g.arc(0, 0, lr, 0, Math.PI * 2); g.clip();
+    g.drawImage(img, -lr, -lr, lr * 2, lr * 2);
+    const v = g.createRadialGradient(0, 0, lr * 0.55, 0, 0, lr);
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.35)');
+    g.fillStyle = v; g.fillRect(-lr, -lr, lr * 2, lr * 2);
+    g.restore();
+    g.fillStyle = '#000'; g.beginPath(); g.arc(0, 0, R * 0.018, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.08)'; g.lineWidth = 3; g.beginPath(); g.arc(0, 0, lr, 0, Math.PI * 2); g.stroke();
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; return tex;
+  }
   const grad = g.createRadialGradient(-lr * 0.3, -lr * 0.3, lr * 0.1, 0, 0, lr);
   grad.addColorStop(0, accent.clone().offsetHSL(0, 0, 0.08).getStyle());
   grad.addColorStop(1, accent.clone().offsetHSL(0, 0, -0.08).getStyle());
@@ -62,7 +73,7 @@ function tube(a, b, r, mat) {
   return m;
 }
 
-export function createTurntable(canvas, { accent = '#4c8dff', reduced = false } = {}) {
+export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, tracks = [], onTrack = () => {} } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -128,9 +139,13 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false } 
     d.rotation.y = -a + Math.PI / 2;
     platter.add(d);
   }
+  const mat = new THREE.Mesh(new THREE.CylinderGeometry(1.74, 1.74, 0.012, 128), new THREE.MeshStandardMaterial({ color: 0x15161d, roughness: 0.95, metalness: 0 }));
+  mat.position.y = 0.071; mat.receiveShadow = true;
+  platter.add(mat);
   const vinylMat = new THREE.MeshPhysicalMaterial({ map: vinylTexture(accentCol, false), roughness: 0.42, metalness: 0.05, clearcoat: 0.55, clearcoatRoughness: 0.22 });
   const vinylSide = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.3 });
-  const vinyl = new THREE.Mesh(new THREE.CylinderGeometry(1.72, 1.72, 0.03, 160), [vinylSide, vinylMat, vinylSide]);
+  const vinylMatB = vinylMat.clone();
+  const vinyl = new THREE.Mesh(new THREE.CylinderGeometry(1.72, 1.72, 0.03, 160), [vinylSide, vinylMat, vinylMatB]);
   vinyl.position.y = 0.08; vinyl.castShadow = true; vinyl.receiveShadow = true;
   platter.add(vinyl);
   const spindle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.18, 24), metal);
@@ -203,38 +218,121 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false } 
   addEventListener('pointermove', (e) => { tx = (e.clientX / innerWidth) * 2 - 1; ty = (e.clientY / innerHeight) * 2 - 1; }, { passive: true });
   addEventListener('scroll', () => { scrollT = Math.min(1, scrollY / innerHeight); }, { passive: true });
 
+  // ── records
+  const covers = tracks.map(() => null);
+  const texs = [];
+  const texFor = (i) => texs[i] || vinylMat.map;
+  tracks.forEach((tr, i) => {
+    const im = new Image();
+    im.onload = () => {
+      covers[i] = im; texs[i] = vinylTexture(accentCol, true, im);
+      if (i === cur) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
+    };
+    im.src = tr.cover;
+  });
+
+  // ── camera shots: [azimuth, elevation, distance, target]
+  const SH = {
+    wide: [-0.55, 0.62, wide ? 12.9 : 9.9, [0.5, -0.35, 0]],
+    needle: [-0.15, 0.2, 3.1, [1.35, 0.1, 0.7]],
+    label: [-0.6, 1.05, 4.4, [0, 0.1, 0]],
+    low: [0.75, 0.07, 8.2, [0.5, 0.05, 0]],
+    top: [-0.3, 1.47, 10.5, [0.4, 0, 0]],
+    arm: [-1.15, 0.33, 3.6, [2.0, 0.35, -1.0]],
+    sweep: [-2.2, 0.38, 7.5, [0.4, 0, 0]],
+  };
+  const CLOSE = [['needle', 'label'], ['low', 'arm'], ['top', 'sweep'], ['label', 'needle'], ['arm', 'low']];
+  const T0 = 13.4, C = 12;
+  function shotAt(t) {
+    if (t < 5.4) return 'intro';
+    if (t < 9.4) return 'needle';
+    if (t < T0) return 'label';
+    const k = Math.floor((t - T0) / C), u = t - T0 - k * C;
+    if (u < 6.4) return 'wide';
+    return CLOSE[k % CLOSE.length][u < 9.2 ? 0 : 1];
+  }
+  const lerp = (a, b, k) => a + (b - a) * k;
+  function shotParams(name, t) {
+    if (name === 'intro') {
+      const w = SH.wide, i = easeOut(t / 4.5);
+      return [w[0] + (1 - i) * 0.5, w[1] + (1 - i) * 0.25, w[2] + (1 - i) * 2.6, w[3]];
+    }
+    const s = SH[name];
+    if (name === 'wide') s[2] = wide ? 12.9 : 9.9;
+    const drift = (t % 100) * 0.012; // slow dolly inside a shot
+    return [s[0] + drift * (name === 'sweep' ? 3 : 1) - 0.06, s[1], s[2] * (1 - drift * 0.15), s[3]];
+  }
+  let shot = 'intro', from = null, switchT = 0, lastP = null;
+
   // ── animation timeline (seconds)
   const T_SWING = [0.5, 3.0];   // arm swings over the record
   const T_DROP = [3.0, 4.2];    // needle lowers
   const T_SPIN = [3.4, 5.4];    // platter spins up
   const RPM = (33.333 / 60) * Math.PI * 2;
   const clock = new THREE.Clock();
-  let angle = 0, energy = 0, raf = 0, visible = true, lastT = 0;
+  let angle = 0, energy = 0, raf = 0, visible = true, lastT = 0, cur = 0, shown = -1;
   const fixed = new URLSearchParams(location.search).get('tt');
   const start = reduced ? -10 : 0;
   if (reduced) lastT = 10;
 
   function frame() {
     const t = fixed !== null ? +fixed : clock.getElapsedTime() - start;
-    const swing = ease((t - T_SWING[0]) / (T_SWING[1] - T_SWING[0]));
-    const drop = ease((t - T_DROP[0]) / (T_DROP[1] - T_DROP[0]));
-    const spin = easeOut((t - T_SPIN[0]) / (T_SPIN[1] - T_SPIN[0]));
-    const track = Math.min(1, Math.max(0, (t - T_DROP[1]) / 600));
-    yaw.rotation.y = REST_Y + (PLAY_Y - REST_Y) * swing + (INNER_Y - PLAY_Y) * track;
-    // lifted while swinging, settles onto the record
-    const up = swing < 1 ? 0.16 * Math.sin(Math.min(1, swing * 1.4) * Math.PI * 0.5) + 0.02 : 0.18 * (1 - drop);
-    pitch.rotation.x = -up + (drop >= 1 ? Math.sin(t * 9) * 0.0012 : 0);
+    let armY, up, spin, lift = 0, flip = 0, idx = 0;
+    if (t < T0 || reduced || !tracks.length) {
+      const swing = ease((t - T_SWING[0]) / (T_SWING[1] - T_SWING[0]));
+      const drop = ease((t - T_DROP[0]) / (T_DROP[1] - T_DROP[0]));
+      spin = easeOut((t - T_SPIN[0]) / (T_SPIN[1] - T_SPIN[0]));
+      armY = REST_Y + (PLAY_Y - REST_Y) * swing + (INNER_Y - PLAY_Y) * 0.08 * Math.max(0, (t - T_DROP[1]) / 9);
+      up = swing < 1 ? 0.16 * Math.sin(Math.min(1, swing * 1.4) * Math.PI * 0.5) + 0.02 : 0.18 * (1 - drop);
+    } else {
+      // record change every C seconds: lift arm, park it, flip in the next record, play again
+      const k = Math.floor((t - T0) / C), r = t - T0 - k * C;
+      idx = (k + 1) % tracks.length;
+      const prev = k % tracks.length;
+      const ph = (a, b) => ease((r - a) / (b - a));
+      const raise = ph(0, 0.7), park = ph(0.7, 1.9), back = ph(3.6, 4.9), drop = ph(4.9, 5.7);
+      armY = lerp(lerp(INNER_Y * 0.08 + PLAY_Y * 0.92, REST_Y, park), PLAY_Y, back) + (INNER_Y - PLAY_Y) * 0.08 * Math.max(0, (r - 5.7) / 6);
+      up = r < 4.9 ? 0.18 * raise : 0.18 * (1 - drop);
+      spin = r < 0.4 ? 1 : r < 2.2 ? 1 - ease((r - 0.4) / 1.8) : r < 5.3 ? 0 : easeOut((r - 5.3) / 1.6);
+      const f = Math.min(1, Math.max(0, (r - 1.9) / 1.7));
+      lift = Math.sin(f * Math.PI) * 1.1;
+      flip = ease(f) * Math.PI;
+      if (f < 1) idx = prev;
+      if (f > 0 && f < 1) {
+        vinylMat.map = texFor(prev); vinylMatB.map = texFor((k + 1) % tracks.length);
+      } else {
+        vinylMat.map = texFor(idx);
+        flip = 0;
+      }
+    }
+    if (idx !== cur || shown < 0) {
+      cur = idx; shown = idx;
+      vinylMat.map = texFor(idx); vinylMat.needsUpdate = true;
+      if (tracks.length) onTrack(idx);
+    }
+    vinylMat.needsUpdate = vinylMatB.needsUpdate = true;
+    yaw.rotation.y = armY;
+    pitch.rotation.x = -up + (up < 0.01 ? Math.sin(t * 9) * 0.0012 : 0);
+    vinyl.position.y = 0.08 + lift;
+    vinyl.rotation.x = flip;
     const dt = Math.min(0.05, Math.max(0, t - lastT)); lastT = t;
     angle += RPM * spin * dt;
     platter.rotation.y = -angle;
 
+    // camera
+    const want = scrollT > 0.05 ? 'wide' : shotAt(t);
+    if (want !== shot) { from = lastP; shot = want; switchT = t; }
+    let P = shotParams(shot, t);
+    const blend = from ? ease((t - switchT) / 1.7) : 1;
+    if (from && blend < 1) {
+      P = [lerp(from[0], P[0], blend), lerp(from[1], P[1], blend), lerp(from[2], P[2], blend), P[3].map((v, i) => lerp(from[3][i], v, blend))];
+    }
+    lastP = P;
     mx += (tx - mx) * 0.04; my += (ty - my) * 0.04;
-    const intro = easeOut(t / 4.5);
-    const dist = (wide ? 15.5 : 12.5) - 2.6 * intro;
-    const az = -0.55 + mx * 0.18 + (1 - intro) * 0.5 + scrollT * 0.4;
-    const el = 0.62 + my * -0.06 + (1 - intro) * 0.25 - scrollT * 0.15;
-    camera.position.set(Math.sin(az) * Math.cos(el) * dist + 0.4, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist);
-    camera.lookAt(0.5, -0.35, 0);
+    const az = P[0] + mx * 0.12 + scrollT * 0.4, el = Math.min(1.5, P[1] - my * 0.04 - scrollT * 0.12), d = P[2];
+    const T = P[3];
+    camera.position.set(T[0] + Math.sin(az) * Math.cos(el) * d, T[1] + Math.sin(el) * d, T[2] + Math.cos(az) * Math.cos(el) * d);
+    camera.lookAt(T[0], T[1], T[2]);
     rim.intensity = 40 + energy * 160;
     fill.intensity = 12 + energy * 50;
     renderer.render(scene, camera);
@@ -246,15 +344,10 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false } 
   }).observe(canvas);
   raf = requestAnimationFrame(frame);
 
-  document.fonts.load('italic 800 40px Fraunces').then(() => {
-    vinylMat.map.dispose(); vinylMat.map = vinylTexture(accentCol, true); vinylMat.needsUpdate = true;
-  }).catch(() => {});
-
   return {
     setAccent(hex) {
       accentCol.set(hex);
       rim.color.set(hex); fill.color.set(hex); cart.material.color.set(hex);
-      vinylMat.map.dispose(); vinylMat.map = vinylTexture(accentCol, document.fonts.check('italic 800 40px Fraunces')); vinylMat.needsUpdate = true;
     },
     setEnergy(v) { energy = v; }
   };

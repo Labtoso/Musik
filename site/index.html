@@ -90,6 +90,7 @@ body.set-open .panel { transform: none; }
 .wash { position: absolute; border-radius: 50%; filter: blur(80px); pointer-events: none; opacity: .38; }
 .wash.a { width: 46vw; height: 46vw; right: 6%; top: 8%; background: var(--accent); }
 .wash.b { width: 30vw; height: 30vw; right: -6%; top: 46%; background: var(--accent2); opacity: .22; }
+.hero::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(90deg, rgba(6,7,13,.92) 0%, rgba(6,7,13,.7) 30%, rgba(6,7,13,0) 55%); }
 .hero::after { content: ''; position: absolute; inset: auto 0 0 0; height: 40%; background: linear-gradient(transparent, var(--bg)); pointer-events: none; z-index: 1; }
 .deck { position: absolute; aspect-ratio: 1; width: min(42vw, 600px); right: 6%; top: 50%; transform: translateY(-50%); }
 .record { position: absolute; inset: 0; border-radius: 50%; background:
@@ -105,6 +106,41 @@ body.set-open .panel { transform: none; }
 .arm { position: absolute; right: -4%; top: -6%; width: 34%; height: 78%; transform-origin: 78% 10%; transform: rotate(0deg); transition: transform 1.1s cubic-bezier(.4,0,.2,1); pointer-events: none; filter: drop-shadow(0 18px 18px rgba(0,0,0,.6)); }
 .hz { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; width: 100%; pointer-events: none; z-index: 2; }
 .glowbg { position: absolute; inset: 0; pointer-events: none; transition: opacity .2s; opacity: .5; }
+
+/* now playing hud */
+.np { position: absolute; z-index: 3; right: var(--gut); bottom: 150px; display: flex; align-items: center; gap: 14px; padding: 10px 18px 10px 10px; min-width: 300px; max-width: 360px; border-radius: 18px; background: rgba(13,15,25,.55); border: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); box-shadow: 0 20px 60px -20px rgba(0,0,0,.8); transition: opacity .5s, transform .5s; }
+.np.swap { opacity: 0; transform: translateY(10px); }
+.np img { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; flex: none; background: var(--bg2); }
+.npx { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.npx small { font: 500 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.npx b { font: italic 700 20px/1.15 var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.npx span { font-size: 13px; color: var(--muted); }
+.npbar { height: 3px; border-radius: 3px; background: rgba(255,255,255,.12); margin-top: 8px; overflow: hidden; }
+.npbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+.npbar i.run { animation: prog 12s linear forwards; }
+@keyframes prog { from { width: 0; } to { width: 100%; } }
+.eq { display: flex; align-items: flex-end; gap: 3px; height: 22px; }
+.eq i { width: 3px; border-radius: 2px; background: var(--accent); animation: eq 1s ease-in-out infinite; }
+.eq i:nth-child(1) { animation-delay: -.2s; } .eq i:nth-child(2) { animation-delay: -.7s; } .eq i:nth-child(3) { animation-delay: -.4s; } .eq i:nth-child(4) { animation-delay: -.9s; } .eq i:nth-child(5) { animation-delay: -.1s; }
+@keyframes eq { 0%, 100% { height: 25%; } 50% { height: 100%; } }
+
+/* player gallery */
+.gal { overflow: hidden; }
+.ring { position: relative; height: 720px; perspective: 1800px; margin: 0 calc(var(--gut) * -1); cursor: grab; touch-action: pan-y; user-select: none; }
+.ring:active { cursor: grabbing; }
+.carousel { position: absolute; left: 50%; top: 30px; width: 0; height: 0; transform-style: preserve-3d; }
+.ph { position: absolute; margin: 0; width: 290px; height: 628px; left: -145px; top: 0; border-radius: 34px; padding: 7px; background: linear-gradient(160deg, #2b2f40, #10121b 45%, #1b1e2b); box-shadow: 0 0 0 1px rgba(255,255,255,.07) inset, 0 40px 80px -30px #000; backface-visibility: hidden; transition: filter .3s; }
+.ph img { width: 100%; height: 100%; display: block; border-radius: 28px; object-fit: cover; pointer-events: none; }
+.ring-floor { position: absolute; left: 10%; right: 10%; bottom: 20px; height: 90px; border-radius: 50%; background: radial-gradient(closest-side, rgba(var(--acc-rgb), .35), transparent); filter: blur(20px); }
+.drag { text-align: center; color: var(--dim); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; margin: 0 0 70px; }
+.screens { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; perspective: 1400px; }
+.scr { margin: 0; border-radius: 12px; overflow: hidden; background: var(--bg2); border: 1px solid var(--line2); transform: rotateX(var(--rx, 24deg)) translateY(var(--ty, 40px)); transform-origin: 50% 100%; transition: transform .2s linear, box-shadow .3s; box-shadow: 0 30px 60px -30px #000; }
+.scr:hover { box-shadow: 0 30px 80px -20px rgba(var(--acc-rgb), .45); }
+.scr img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; }
+.bar3 { display: flex; align-items: center; gap: 6px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.bar3 i { width: 9px; height: 9px; border-radius: 50%; background: var(--line2); }
+.bar3 span { margin-left: 10px; font: 11px var(--mono); color: var(--dim); }
+.scr figcaption { padding: 12px 14px; font-size: 14px; color: var(--muted); }
 
 /* marquee */
 .marq { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; white-space: nowrap; padding: 18px 0; }
@@ -240,6 +276,15 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
   .chain::before { display: none; }
   .mix, .pane { grid-template-columns: 1fr; }
 }
+@media (max-width: 1000px) {
+  .htxt { grid-row: 3; margin-top: 26px; }
+  .hero::before { display: none; }
+  .np { position: relative; right: auto; bottom: auto; margin: -70px auto 0; grid-row: 2; justify-self: center; min-width: 0; width: min(100%, 360px); }
+  .screens { grid-template-columns: 1fr; }
+  .ring { height: 520px; }
+  .ph { width: 200px; height: 433px; left: -100px; border-radius: 28px; }
+  .ph img { border-radius: 22px; }
+}
 @media (max-width: 640px) {
   .bar nav a:not(:last-child) { display: none; }
   .dl { grid-template-columns: 1fr auto; gap: 12px 16px; padding: 26px 16px; }
@@ -262,7 +307,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 <header class="bar">
   <button class="gear" id="gear" aria-label="Einstellungen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   <a class="word" href="#"><svg class="disc" viewBox="0 0 512 512" aria-hidden="true"><circle cx="256" cy="256" r="248" fill="#0a0b10" stroke="#2a2e42" stroke-width="8"/><g fill="none" stroke="#252838" stroke-width="10"><circle cx="256" cy="256" r="210"/><circle cx="256" cy="256" r="170"/><circle cx="256" cy="256" r="134"/></g><path d="M256 20a236 236 0 0 1 200 110" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="14" stroke-linecap="round"/><circle cx="256" cy="256" r="98" fill="var(--accent)"/><circle cx="256" cy="256" r="16" fill="#0a0b10"/></svg>Musik</a>
-  <nav><a href="#a1" data-t="nav1"></a><a href="#a2" data-t="nav2"></a><a href="#b2" data-t="nav3"></a><a href="#b1" data-t="nav4"></a></nav>
+  <nav><a href="#a1" data-t="nav1"></a><a href="#player" data-t="navP"></a><a href="#a2" data-t="nav2"></a><a href="#b2" data-t="nav3"></a><a href="#b1" data-t="nav4"></a></nav>
 </header>
 
 <div class="scrim" id="scrim"></div>
@@ -279,7 +324,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 
 <section class="hero" id="hero">
   <div class="glowbg" id="glowbg"><div class="wash a"></div><div class="wash b"></div></div>
-  <div>
+  <div class="htxt">
     <h1 data-h="h1"></h1>
     <p class="lead" data-h="lead"></p>
     <div class="ctas">
@@ -302,6 +347,11 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
       </svg>
     </div>
   </div>
+  <div class="np" id="np" aria-live="polite">
+    <img id="npc" alt="">
+    <div class="npx"><small data-t="nowPlaying"></small><b id="npt"></b><span id="npa"></span><div class="npbar"><i id="npbar"></i></div></div>
+    <div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
   <canvas class="hz" id="hz"></canvas>
 </section>
 
@@ -316,8 +366,29 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
   </div>
 </section>
 
+<section class="track gal" id="player">
+  <div class="th rv"><div class="no"><b>A2</b>2:14 – 5:02</div><div><h2 data-h="gh"></h2><p data-t="gp"></p></div></div>
+  <div class="ring rv" id="ring" aria-label="Screenshots">
+    <div class="carousel" id="carousel">
+      <figure class="ph"><img src="shots/m-np1.webp" alt="" loading="lazy"></figure>
+      <figure class="ph"><img src="shots/m-home.webp" alt="" loading="lazy"></figure>
+      <figure class="ph"><img src="shots/m-np2.webp" alt="" loading="lazy"></figure>
+      <figure class="ph"><img src="shots/m-album.webp" alt="" loading="lazy"></figure>
+      <figure class="ph"><img src="shots/m-np3.webp" alt="" loading="lazy"></figure>
+      <figure class="ph"><img src="shots/m-np4.webp" alt="" loading="lazy"></figure>
+    </div>
+    <div class="ring-floor"></div>
+  </div>
+  <p class="drag mono" data-t="drag"></p>
+  <div class="screens body">
+    <figure class="scr rv"><div class="bar3"><i></i><i></i><i></i><span>musik · Start</span></div><img src="shots/d-home.webp" alt="" loading="lazy"><figcaption data-t="c1"></figcaption></figure>
+    <figure class="scr rv"><div class="bar3"><i></i><i></i><i></i><span>musik · Album</span></div><img src="shots/d-album.webp" alt="" loading="lazy"><figcaption data-t="c2"></figcaption></figure>
+    <figure class="scr rv"><div class="bar3"><i></i><i></i><i></i><span>musik · Bibliothek</span></div><img src="shots/d-lib.webp" alt="" loading="lazy"><figcaption data-t="c3"></figcaption></figure>
+  </div>
+</section>
+
 <section class="track" id="a2">
-  <div class="th rv"><div class="no"><b>A2</b>2:14 – 5:30</div><div><h2 data-h="a2h"></h2><p data-t="a2p"></p></div></div>
+  <div class="th rv"><div class="no"><b>A3</b>5:02 – 8:10</div><div><h2 data-h="a2h"></h2><p data-t="a2p"></p></div></div>
   <div class="body mix">
     <div class="rv">
       <div class="weights">
@@ -343,7 +414,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 </section>
 
 <section class="track" id="b1">
-  <div class="th rv"><div class="no"><b>B1</b>5:30 – 7:02</div><div><h2 data-h="b1h"></h2><p data-t="b1p"></p></div></div>
+  <div class="th rv"><div class="no"><b>B1</b>8:10 – 9:44</div><div><h2 data-h="b1h"></h2><p data-t="b1p"></p></div></div>
   <div class="body rv">
     <div class="dls">
       <a class="dl" data-os="android" href="https://github.com/Labtoso/Musik/releases/latest/download/Musik.apk"><div class="n">Android</div><div class="d"><p data-t="android"></p><small>Musik.apk · Android 8+</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
@@ -355,7 +426,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 </section>
 
 <section class="track" id="b2">
-  <div class="th rv"><div class="no"><b>B2</b>7:02 – 8:00</div><div><h2 data-h="b2h"></h2><p data-t="b2p"></p></div></div>
+  <div class="th rv"><div class="no"><b>B2</b>9:44 – 10:40</div><div><h2 data-h="b2h"></h2><p data-t="b2p"></p></div></div>
   <div class="body rv">
     <div class="tabs"><button data-tab="px" class="on">Proxmox</button><button data-tab="deb">Debian</button><button data-tab="dock">Docker</button><button data-tab="win">Windows</button></div>
     <div class="pane on" data-pane="px">
@@ -387,7 +458,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 </section>
 
 <section class="track" id="b3">
-  <div class="th rv"><div class="no"><b>B3</b>8:00 – ∞</div><div><h2 data-h="b3h"></h2></div></div>
+  <div class="th rv"><div class="no"><b>B3</b>10:40 – ∞</div><div><h2 data-h="b3h"></h2></div></div>
   <div class="body notes rv">
     <div><h4 data-t="q1"></h4><p data-h="a1"></p></div>
     <div><h4 data-t="q2"></h4><p data-h="a2"></p></div>
@@ -406,7 +477,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 <script>
 const T = {
   de: {
-    nav1: 'Aufbau', nav2: 'Der Mix', nav3: 'Server', nav4: 'Download',
+    nav1: 'Aufbau', navP: 'Player', nav2: 'Der Mix', nowPlaying: 'Läuft gerade', drag: '← ziehen zum Drehen →', gh: 'So sieht’s<br><em>aus.</em>', gp: 'Echte Bilder aus der App, mit echter Musik. Dein Mix, deine Alben, der Player im Vollbild. Auf dem Handy wie am PC.', c1: 'Start mit „Mix für dich“, sortiert nach deinem Geschmack', c2: 'Album-Ansicht mit Cover, Jahr und Laufzeit', c3: 'Deine Bibliothek, sortiert nach Alben', nav3: 'Server', nav4: 'Download',
     settings: 'Einstellungen', lang: 'Sprache', accent: 'Akzentfarbe', blue: 'Blau', green: 'Grün', purple: 'Lila',
     h1: 'Deine Musik,<br><em>zuhause</em><br>gehostet.',
     lead: 'Ein Server in deinem Proxmox, Apps für <b>Android, Windows und Linux</b>. Kein Abo, keine Werbung, keine fremde Cloud. Dafür ein Mix, der mitbekommt, was du wirklich hörst.',
@@ -453,7 +524,7 @@ const T = {
     all: 'Alle Versionen'
   },
   en: {
-    nav1: 'Setup', nav2: 'The mix', nav3: 'Server', nav4: 'Download',
+    nav1: 'Setup', navP: 'Player', nav2: 'The mix', nowPlaying: 'Now playing', drag: '← drag to spin →', gh: 'Here’s how<br>it <em>looks.</em>', gp: 'Real shots from the app with real music. Your mix, your albums, the full-screen player. On the phone and on the PC.', c1: 'Home with “Your mix”, sorted by your taste', c2: 'Album view with cover, year and length', c3: 'Your library, sorted by album', nav3: 'Server', nav4: 'Download',
     settings: 'Settings', lang: 'Language', accent: 'Accent colour', blue: 'Blue', green: 'Green', purple: 'Purple',
     h1: 'Your music,<br><em>hosted</em><br>at home.',
     lead: 'A server in your Proxmox, apps for <b>Android, Windows and Linux</b>. No subscription, no ads, no one else’s cloud. Instead, a mix that notices what you actually listen to.',
@@ -698,6 +769,31 @@ function render() {
 }
 
 resetDemo(); render();
+
+/* 3D carousel of phone shots */
+(() => {
+  const ring = $('#ring'), car = $('#carousel'), items = $$('.ph', car), n = items.length;
+  let rot = 0, vel = 0, drag = null, R = 0;
+  const layout = () => { const w = items[0].offsetWidth; R = Math.round((w + 46) / (2 * Math.tan(Math.PI / n))); items.forEach((el, i) => (el.style.transform = `rotateY(${i * 360 / n}deg) translateZ(${R}px)`)); };
+  layout(); addEventListener('resize', layout);
+  ring.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, r: rot }; vel = 0; ring.setPointerCapture(e.pointerId); });
+  ring.addEventListener('pointermove', (e) => { if (!drag) return; const nr = drag.r + (e.clientX - drag.x) * 0.25; vel = nr - rot; rot = nr; });
+  const end = () => (drag = null);
+  ring.addEventListener('pointerup', end); ring.addEventListener('pointercancel', end);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  (function loop() {
+    if (!drag) { vel *= 0.95; rot += vel + (reduce ? 0 : -0.12); }
+    car.style.transform = `translateZ(${-R}px) rotateX(-6deg) rotateY(${rot}deg)`;
+    items.forEach((el, i) => { const a = (((i * 360 / n + rot) % 360) + 360) % 360; const f = Math.cos(a * Math.PI / 180); el.style.filter = `brightness(${(0.45 + 0.55 * Math.max(0, f)).toFixed(2)})`; });
+    requestAnimationFrame(loop);
+  })();
+  const scr = $$('.scr');
+  const onScroll = () => scr.forEach((el, i) => {
+    const r = el.getBoundingClientRect(), p = Math.min(1, Math.max(0, (innerHeight - r.top) / (innerHeight * 0.7) - i * 0.08));
+    el.style.setProperty('--rx', (24 * (1 - p)).toFixed(2) + 'deg'); el.style.setProperty('--ty', (40 * (1 - p)).toFixed(1) + 'px');
+  });
+  addEventListener('scroll', onScroll, { passive: true }); onScroll();
+})();
 const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .1 });
 $$('.rv').forEach((el) => io.observe(el));
 fetch('https://api.github.com/repos/Labtoso/Musik/releases/latest').then((r) => (r.ok ? r.json() : null)).then((r) => { if (r && r.tag_name) { release = r; render(); } }).catch(() => {});
@@ -706,7 +802,24 @@ fetch('https://api.github.com/repos/Labtoso/Musik/releases/latest').then((r) => 
 import { createTurntable } from './turntable.js';
 try {
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-  window.__tt = createTurntable(document.getElementById('tt'), { accent, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
+  const TRACKS = [
+    ['Nightdrive', 'Neon Coast', 'nightdrive'], ['Velvet Hours', 'Mira Vale', 'velvet_hours'], ['Glass City', 'Oktav', 'glass_city'],
+    ['Summer Static', 'Fennec', 'summer_static'], ['Afterglow', 'Solace Unit', 'afterglow'], ['Paper Planes', 'Juno Park', 'paper_planes'], ['Weekend Tapes', 'The Lanterns', 'weekend_tapes']
+  ].map(([title, artist, c]) => ({ title, artist, cover: 'shots/covers/' + c + '.webp' }));
+  const np = document.getElementById('np'), bar = document.getElementById('npbar');
+  const onTrack = (i) => {
+    const tr = TRACKS[i];
+    np.classList.add('swap');
+    setTimeout(() => {
+      document.getElementById('npc').src = tr.cover;
+      document.getElementById('npt').textContent = tr.title;
+      document.getElementById('npa').textContent = tr.artist;
+      bar.classList.remove('run'); void bar.offsetWidth; bar.classList.add('run');
+      bar.style.animationDuration = (i === 0 ? 13.4 : 12) + 's';
+      np.classList.remove('swap');
+    }, i === 0 ? 0 : 450);
+  };
+  window.__tt = createTurntable(document.getElementById('tt'), { tracks: TRACKS, onTrack, accent, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
   document.body.classList.add('has3d');
 } catch (e) { console.warn('3D off', e); }
 </script>
