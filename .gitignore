@@ -1,0 +1,17 @@
+node_modules/
+server/data/
+server/.env
+desktop/dist/
+desktop/web/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/web/
+android/local.properties
+android/*.jks
+*.keystore
+push/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
