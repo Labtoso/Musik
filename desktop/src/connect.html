@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Musik</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #111214; color: #ececee; font: 14px/1.45 'Segoe UI Variable Text', 'Segoe UI', Roboto, system-ui, sans-serif; display: grid; place-items: center; padding: 20px; }
+  form { width: 100%; max-width: 380px; background: #1d1f23; border: 1px solid #2c2f35; border-radius: 18px; padding: 26px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; margin-bottom: 18px; }
+  .brand svg { width: 26px; height: 26px; color: #4c8dff; }
+  h2 { font-size: 18px; margin: 0 0 14px; }
+  label span { display: block; font-size: 12.5px; color: #9a9ca3; margin-bottom: 5px; }
+  input { width: 100%; height: 40px; padding: 0 12px; border-radius: 7px; border: 1px solid #2c2f35; background: #111214; color: inherit; font: inherit; outline: none; }
+  input:focus { border-color: #4c8dff; }
+  p { color: #9a9ca3; font-size: 12.5px; margin: 8px 0 0; }
+  .err { color: #e5484d; min-height: 20px; font-size: 13px; }
+  button { width: 100%; height: 42px; border: 0; border-radius: 7px; background: #4c8dff; color: #0b1220; font: inherit; font-weight: 600; cursor: pointer; margin-top: 6px; }
+  button:disabled { opacity: 0.5; }
+</style>
+</head>
+<body>
+<form id="f">
+  <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17.5V6l10-2v11.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></svg>Musik</div>
+  <h2 id="h"></h2>
+  <label><span id="l"></span><input id="s" placeholder="http://192.168.1.50:8484" autofocus></label>
+  <p id="help"></p>
+  <p class="err" id="e"></p>
+  <button id="b"></button>
+</form>
+<script>
+  const de = (navigator.language || 'de').startsWith('de');
+  const T = de
+    ? { h: 'Mit Server verbinden', l: 'Server-Adresse', help: 'Die Adresse zeigt der Server beim Start an, z. B. http://192.168.1.50:8484', b: 'Verbinden', offline: 'Server nicht erreichbar. Adresse prüfen.', notmusik: 'Unter dieser Adresse läuft kein Musik-Server.' }
+    : { h: 'Connect to server', l: 'Server address', help: 'The server prints its address on start, e.g. http://192.168.1.50:8484', b: 'Connect', offline: 'Server not reachable. Check the address.', notmusik: 'No Musik server at this address.' };
+  document.documentElement.lang = de ? 'de' : 'en';
+  for (const k of ['h', 'l', 'help', 'b']) document.getElementById(k).textContent = T[k];
+  const q = new URLSearchParams(location.search);
+  const s = document.getElementById('s');
+  const e = document.getElementById('e');
+  s.value = q.get('server') || '';
+  e.textContent = T[q.get('error')] || '';
+  document.getElementById('f').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const b = document.getElementById('b');
+    b.disabled = true;
+    e.textContent = '';
+    const r = await window.musikDesktop.connect(s.value);
+    if (r !== 'ok') {
+      e.textContent = T[r] || T.offline;
+      b.disabled = false;
+    }
+  };
+</script>
+</body>
+</html>

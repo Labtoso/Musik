@@ -855,7 +855,7 @@ async function renderSettings() {
       <p class="muted small">${t('server')}: ${esc(conn.server)}</p>
       <div class="stack">
         <button class="btn" data-chpw>${t('changePassword')}</button>
-        ${sameOrigin ? '' : `<button class="btn" data-chserver>${t('changeServer')}</button>`}
+        ${sameOrigin && !window.musikDesktop && !window.MusikAndroid ? '' : `<button class="btn" data-chserver>${t('changeServer')}</button>`}
         <button class="btn" data-logout>${t('logout')}</button>
       </div></div>
     ${user.admin ? `<div class="set-group"><h3>${t('users')}</h3><div id="userlist" class="muted small">…</div><button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button></div>` : ''}
@@ -926,6 +926,8 @@ document.addEventListener('click', async (e) => {
       await post('/api/logout').catch(() => {});
       logout();
     } else if (el.matches('[data-chserver]')) {
+      if (window.musikDesktop) return window.musikDesktop.changeServer();
+      if (window.MusikAndroid) return window.MusikAndroid.changeServer();
       conn.server = '';
       logout();
     } else if (el.matches('[data-chpw]')) {

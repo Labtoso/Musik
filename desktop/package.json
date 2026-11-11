@@ -1,0 +1,53 @@
+{
+  "name": "musik-desktop",
+  "productName": "Musik",
+  "version": "1.0.0",
+  "description": "Musik desktop app",
+  "author": "LabtosoStudios",
+  "license": "MIT",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "dist:linux": "electron-builder --linux AppImage --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "de.labtoso.musik",
+    "productName": "Musik",
+    "copyright": "© LabtosoStudios",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png",
+      "publisherName": "LabtosoStudios"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Musik",
+      "artifactName": "Musik-Setup.exe"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png",
+      "category": "Audio",
+      "artifactName": "Musik.AppImage"
+    },
+    "publish": null
+  },
+  "repository": "github:Labtoso/Musik"
+}
