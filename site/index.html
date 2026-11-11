@@ -62,6 +62,7 @@ body.set-open .panel { transform: none; }
 .choice button.on { color: var(--paper); }
 .choice button.on::after { background: var(--paper); border-color: var(--paper); }
 .choice i { width: 22px; height: 22px; border-radius: 50%; }
+.choice i.dynsw { background: conic-gradient(#ff6b6b, #ffd166, #2fd283, #38d6ff, #9b6dff, #ff6fd8, #ff6b6b); }
 .panel small { margin-top: auto; font: 12px var(--mono); color: var(--dim); }
 
 /* ── hero ── */
@@ -134,13 +135,11 @@ body.set-open .panel { transform: none; }
 .ring-floor { position: absolute; left: 10%; right: 10%; bottom: 20px; height: 90px; border-radius: 50%; background: radial-gradient(closest-side, rgba(var(--acc-rgb), .35), transparent); filter: blur(20px); }
 .drag { text-align: center; color: var(--dim); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; margin: 0 0 70px; }
 .screens { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; perspective: 1400px; }
-.scr { margin: 0; border-radius: 12px; overflow: hidden; background: var(--bg2); border: 1px solid var(--line2); transform: rotateX(var(--rx, 24deg)) translateY(var(--ty, 40px)); transform-origin: 50% 100%; transition: transform .2s linear, box-shadow .3s; box-shadow: 0 30px 60px -30px #000; }
-.scr:hover { box-shadow: 0 30px 80px -20px rgba(var(--acc-rgb), .45); }
-.scr img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; }
-.bar3 { display: flex; align-items: center; gap: 6px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
-.bar3 i { width: 9px; height: 9px; border-radius: 50%; background: var(--line2); }
-.bar3 span { margin-left: 10px; font: 11px var(--mono); color: var(--dim); }
-.scr figcaption { padding: 12px 14px; font-size: 14px; color: var(--muted); }
+.scr { margin: 0; transform: translateY(var(--ty, 40px)) scale(var(--sc, .96)); transition: transform .2s linear; }
+.scr img { box-shadow: 0 40px 90px -40px rgba(var(--acc-rgb), .55), 0 20px 50px -30px #000; transition: box-shadow .6s; }
+.scr:hover img { box-shadow: 0 40px 100px -30px rgba(var(--acc-rgb), .8), 0 20px 50px -30px #000; }
+.scr img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; border-radius: 14px; }
+.scr figcaption { padding: 16px 2px 0; font-size: 15px; color: var(--muted); }
 
 /* marquee */
 .marq { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; white-space: nowrap; padding: 18px 0; }
@@ -264,7 +263,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 
 @media (max-width: 1000px) {
   .hero { grid-template-columns: 1fr; padding-top: 96px; padding-bottom: 120px; min-height: 0; }
-  .stage { position: relative; left: auto; grid-row: 1; height: min(92vw, 560px); margin: -40px calc(var(--gut) * -1) 0; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+  .stage { position: relative; left: auto; grid-row: 1; height: min(112vw, 600px); margin: -40px calc(var(--gut) * -1) 0; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
   .deck { width: 78vw; right: 11vw; }
   .wash.a { width: 90vw; height: 90vw; right: -10%; top: 0; }
   .wash.b { width: 60vw; height: 60vw; top: 30%; }
@@ -318,6 +317,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
     <button data-a="blue"><i style="background:#4c8dff"></i><span data-t="blue"></span></button>
     <button data-a="green"><i style="background:#3dbb7a"></i><span data-t="green"></span></button>
     <button data-a="purple"><i style="background:#9b7bff"></i><span data-t="purple"></span></button>
+    <button data-dyn><i class="dynsw"></i><span data-t="dynColor"></span></button>
   </div></div>
   <small>Musik · LabtosoStudios</small>
 </aside>
@@ -381,9 +381,9 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
   </div>
   <p class="drag mono" data-t="drag"></p>
   <div class="screens body">
-    <figure class="scr rv"><div class="bar3"><i></i><i></i><i></i><span>musik · Start</span></div><img src="shots/d-home.webp" alt="" loading="lazy"><figcaption data-t="c1"></figcaption></figure>
-    <figure class="scr rv"><div class="bar3"><i></i><i></i><i></i><span>musik · Album</span></div><img src="shots/d-album.webp" alt="" loading="lazy"><figcaption data-t="c2"></figcaption></figure>
-    <figure class="scr rv"><div class="bar3"><i></i><i></i><i></i><span>musik · Bibliothek</span></div><img src="shots/d-lib.webp" alt="" loading="lazy"><figcaption data-t="c3"></figcaption></figure>
+    <figure class="scr rv"><img src="shots/d-home.webp" alt="" loading="lazy"><figcaption data-t="c1"></figcaption></figure>
+    <figure class="scr rv"><img src="shots/d-album.webp" alt="" loading="lazy"><figcaption data-t="c2"></figcaption></figure>
+    <figure class="scr rv"><img src="shots/d-lib.webp" alt="" loading="lazy"><figcaption data-t="c3"></figcaption></figure>
   </div>
 </section>
 
@@ -477,7 +477,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 <script>
 const T = {
   de: {
-    nav1: 'Aufbau', navP: 'Player', nav2: 'Der Mix', nowPlaying: 'Läuft gerade', drag: '← ziehen zum Drehen →', gh: 'So sieht’s<br><em>aus.</em>', gp: 'Echte Bilder aus der App, mit echter Musik. Dein Mix, deine Alben, der Player im Vollbild. Auf dem Handy wie am PC.', c1: 'Start mit „Mix für dich“, sortiert nach deinem Geschmack', c2: 'Album-Ansicht mit Cover, Jahr und Laufzeit', c3: 'Deine Bibliothek, sortiert nach Alben', nav3: 'Server', nav4: 'Download',
+    nav1: 'Aufbau', navP: 'Player', nav2: 'Der Mix', nowPlaying: 'Läuft gerade', dynColor: 'Aus dem Cover', drag: '← ziehen zum Drehen →', gh: 'So sieht’s<br><em>aus.</em>', gp: 'Echte Bilder aus der App, mit echter Musik. Dein Mix, deine Alben, der Player im Vollbild. Auf dem Handy wie am PC.', c1: 'Start mit „Mix für dich“, sortiert nach deinem Geschmack', c2: 'Album-Ansicht mit Cover, Jahr und Laufzeit', c3: 'Deine Bibliothek, sortiert nach Alben', nav3: 'Server', nav4: 'Download',
     settings: 'Einstellungen', lang: 'Sprache', accent: 'Akzentfarbe', blue: 'Blau', green: 'Grün', purple: 'Lila',
     h1: 'Deine Musik,<br><em>zuhause</em><br>gehostet.',
     lead: 'Ein Server in deinem Proxmox, Apps für <b>Android, Windows und Linux</b>. Kein Abo, keine Werbung, keine fremde Cloud. Dafür ein Mix, der mitbekommt, was du wirklich hörst.',
@@ -524,7 +524,7 @@ const T = {
     all: 'Alle Versionen'
   },
   en: {
-    nav1: 'Setup', navP: 'Player', nav2: 'The mix', nowPlaying: 'Now playing', drag: '← drag to spin →', gh: 'Here’s how<br>it <em>looks.</em>', gp: 'Real shots from the app with real music. Your mix, your albums, the full-screen player. On the phone and on the PC.', c1: 'Home with “Your mix”, sorted by your taste', c2: 'Album view with cover, year and length', c3: 'Your library, sorted by album', nav3: 'Server', nav4: 'Download',
+    nav1: 'Setup', navP: 'Player', nav2: 'The mix', nowPlaying: 'Now playing', dynColor: 'From the cover', drag: '← drag to spin →', gh: 'Here’s how<br>it <em>looks.</em>', gp: 'Real shots from the app with real music. Your mix, your albums, the full-screen player. On the phone and on the PC.', c1: 'Home with “Your mix”, sorted by your taste', c2: 'Album view with cover, year and length', c3: 'Your library, sorted by album', nav3: 'Server', nav4: 'Download',
     settings: 'Settings', lang: 'Language', accent: 'Accent colour', blue: 'Blue', green: 'Green', purple: 'Purple',
     h1: 'Your music,<br><em>hosted</em><br>at home.',
     lead: 'A server in your Proxmox, apps for <b>Android, Windows and Linux</b>. No subscription, no ads, no one else’s cloud. Instead, a mix that notices what you actually listen to.',
@@ -577,6 +577,8 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return v; };
 let lang = store('musik.site.lang') || ((navigator.language || 'de').toLowerCase().startsWith('de') ? 'de' : 'en');
 let accent = store('musik.site.accent') || 'blue';
+let dyn = store('musik.site.dyn') !== '0';
+window.siteDyn = () => dyn;
 const ua = navigator.userAgent;
 const os = /Android/i.test(ua) ? 'android' : /Windows/i.test(ua) ? 'windows' : (/Linux/i.test(ua) && !/CrOS/i.test(ua)) ? 'linux' : null;
 const names = { android: 'Android', windows: 'Windows', linux: 'Linux' };
@@ -743,7 +745,8 @@ $('#close').addEventListener('click', () => openSet(false));
 $('#scrim').addEventListener('click', () => openSet(false));
 addEventListener('keydown', (e) => { if (e.key === 'Escape') openSet(false); });
 $$('[data-l]').forEach((b) => b.addEventListener('click', () => { lang = b.dataset.l; store('musik.site.lang', lang); render(); }));
-$$('[data-a]').forEach((b) => b.addEventListener('click', () => { accent = b.dataset.a; store('musik.site.accent', accent); render(); if (window.__tt) window.__tt.setAccent(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()); }));
+$('[data-dyn]').addEventListener('click', () => { dyn = !dyn; store('musik.site.dyn', dyn ? '1' : '0'); render(); window.__dynApply && window.__dynApply(); });
+$$('[data-a]').forEach((b) => b.addEventListener('click', () => { accent = b.dataset.a; dyn = false; store('musik.site.dyn', '0'); store('musik.site.accent', accent); render(); window.__dynApply && window.__dynApply(); if (window.__tt) window.__tt.setAccent(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()); }));
 
 function render() {
   const d = T[lang];
@@ -752,7 +755,8 @@ function render() {
   $$('[data-t]').forEach((el) => (el.textContent = d[el.dataset.t] ?? ''));
   $$('[data-h]').forEach((el) => (el.innerHTML = d[el.dataset.h] ?? ''));
   $$('[data-l]').forEach((b) => b.classList.toggle('on', b.dataset.l === lang));
-  $$('[data-a]').forEach((b) => b.classList.toggle('on', b.dataset.a === accent));
+  $$('[data-a]').forEach((b) => b.classList.toggle('on', !dyn && b.dataset.a === accent));
+  $('[data-dyn]').classList.toggle('on', dyn);
   $('#listen span').textContent = playing ? d.listenStop : d.listen;
   const main = $('#main-dl');
   if (os) {
@@ -790,7 +794,7 @@ resetDemo(); render();
   const scr = $$('.scr');
   const onScroll = () => scr.forEach((el, i) => {
     const r = el.getBoundingClientRect(), p = Math.min(1, Math.max(0, (innerHeight - r.top) / (innerHeight * 0.7) - i * 0.08));
-    el.style.setProperty('--rx', (24 * (1 - p)).toFixed(2) + 'deg'); el.style.setProperty('--ty', (40 * (1 - p)).toFixed(1) + 'px');
+    el.style.setProperty('--sc', (0.96 + 0.04 * p).toFixed(3)); el.style.setProperty('--ty', (40 * (1 - p)).toFixed(1) + 'px');
   });
   addEventListener('scroll', onScroll, { passive: true }); onScroll();
 })();
@@ -807,6 +811,40 @@ try {
     ['Summer Static', 'Fennec', 'summer_static'], ['Afterglow', 'Solace Unit', 'afterglow'], ['Paper Planes', 'Juno Park', 'paper_planes'], ['Weekend Tapes', 'The Lanterns', 'weekend_tapes']
   ].map(([title, artist, c]) => ({ title, artist, cover: 'shots/covers/' + c + '.webp' }));
   const np = document.getElementById('np'), bar = document.getElementById('npbar');
+  const root = document.documentElement;
+  const hsl2rgb = (h, s, l) => { const k = (n) => (n + h * 12) % 12, a = s * Math.min(l, 1 - l), f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)); return [f(0), f(8), f(4)].map((v) => Math.round(v * 255)); };
+  function coverColor(img) {
+    const c = document.createElement('canvas'); c.width = c.height = 40;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 40, 40);
+    const px = g.getImageData(0, 0, 40, 40).data, bins = Array.from({ length: 36 }, () => ({ w: 0, h: 0, s: 0 }));
+    for (let i = 0; i < px.length; i += 4) {
+      const r = px[i] / 255, gg = px[i + 1] / 255, b = px[i + 2] / 255, max = Math.max(r, gg, b), min = Math.min(r, gg, b), l = (max + min) / 2;
+      if (max === min) continue;
+      const d = max - min, s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (s < 0.18 || l < 0.08 || l > 0.94) continue;
+      const h = (max === r ? (gg - b) / d + (gg < b ? 6 : 0) : max === gg ? (b - r) / d + 2 : (r - gg) / d + 4) / 6;
+      const w = s * (1 - Math.abs(l - 0.5) * 1.4), bin = bins[Math.floor(h * 36) % 36];
+      bin.w += w; bin.h += h * w; bin.s += s * w;
+    }
+    let best = 0, bw = -1;
+    for (let i = 0; i < 36; i++) { const w = bins[(i + 35) % 36].w * 0.5 + bins[i].w + bins[(i + 1) % 36].w * 0.5; if (w > bw) { bw = w; best = i; } }
+    const bn = bins[best]; if (bn.w < 12) return null;
+    const h = bn.h / bn.w, s = Math.min(0.85, Math.max(0.5, bn.s / bn.w));
+    return { a: hsl2rgb(h, s, 0.64), a2: hsl2rgb((h + 0.08) % 1, Math.min(0.9, s + 0.05), 0.62), ink: hsl2rgb(h, 0.6, 0.09) };
+  }
+  let lastCol = null;
+  window.__dynApply = () => {
+    const keys = ['--accent', '--accent2', '--acc-rgb', '--ink'];
+    if (!window.siteDyn() || !lastCol) keys.forEach((k) => root.style.removeProperty(k));
+    else {
+      const rgb = (v) => `rgb(${v.join(',')})`;
+      root.style.setProperty('--accent', rgb(lastCol.a)); root.style.setProperty('--accent2', rgb(lastCol.a2));
+      root.style.setProperty('--acc-rgb', lastCol.a.join(',')); root.style.setProperty('--ink', rgb(lastCol.ink));
+    }
+    if (window.__tt) window.__tt.setAccent(getComputedStyle(root).getPropertyValue('--accent').trim());
+  };
+  const imgs = {};
+  const colorFor = (src) => imgs[src] || (imgs[src] = new Promise((res) => { const im = new Image(); im.onload = () => { try { res(coverColor(im)); } catch { res(null); } }; im.onerror = () => res(null); im.src = src; }));
   const onTrack = (i) => {
     const tr = TRACKS[i];
     np.classList.add('swap');
@@ -815,9 +853,10 @@ try {
       document.getElementById('npt').textContent = tr.title;
       document.getElementById('npa').textContent = tr.artist;
       bar.classList.remove('run'); void bar.offsetWidth; bar.classList.add('run');
-      bar.style.animationDuration = (i === 0 ? 13.4 : 12) + 's';
+      bar.style.animationDuration = (i === 0 ? 40.4 : 46) + 's';
       np.classList.remove('swap');
     }, i === 0 ? 0 : 450);
+    colorFor(tr.cover).then((c) => { lastCol = c; window.__dynApply(); });
   };
   window.__tt = createTurntable(document.getElementById('tt'), { tracks: TRACKS, onTrack, accent, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
   document.body.classList.add('has3d');
