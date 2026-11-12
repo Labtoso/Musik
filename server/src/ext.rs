@@ -16,6 +16,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub const SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS spotify_tokens (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  client_id TEXT NOT NULL,
+  access TEXT NOT NULL,
+  refresh TEXT NOT NULL DEFAULT '',
+  exp INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS user_settings (
   user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   data TEXT NOT NULL
@@ -259,7 +266,13 @@ struct ImportIn {
     name: String,
     url: String,
     cover: String,
+    /// description, owner, followers … shown like on the platform
+    meta: Value,
     items: Vec<ItemIn>,
+}
+fn meta_text(v: &Value) -> String {
+    let t = if v.is_object() { v.to_string() } else { "{}".into() };
+    if t.len() > 8000 { "{}".into() } else { t }
 }
 
 fn clip(s: &str, n: usize) -> String {
@@ -317,8 +330,8 @@ async fn create_import(State(st): State<St>, Auth(u, _): Auth, req: Request) -> 
     let mut db = st.db.lock().unwrap();
     let now = now_ms();
     db.execute(
-        "INSERT INTO imports (user_id, source, name, url, cover, created, updated) VALUES (?,?,?,?,?,?,?)",
-        params![u.id, clip(&b.source, 20), name, clip(&b.url, 1000), clip(&b.cover, 1000), now, now],
+        "INSERT INTO imports (user_id, source, name, url, cover, created, updated, meta) VALUES (?,?,?,?,?,?,?,?)",
+        params![u.id, clip(&b.source, 20), name, clip(&b.url, 1000), clip(&b.cover, 1000), now, now, meta_text(&b.meta)],
     )
     .ok();
     let id = db.last_insert_rowid();
@@ -341,6 +354,12 @@ async fn replace_import(
             params![clip(&b.name, 120), id],
         )
         .ok();
+    }
+    if b.meta.is_object() {
+        db.execute("UPDATE imports SET meta = ? WHERE id = ?", params![meta_text(&b.meta), id]).ok();
+    }
+    if !b.cover.trim().is_empty() {
+        db.execute("UPDATE imports SET cover = ? WHERE id = ?", params![clip(&b.cover, 1000), id]).ok();
     }
     if !b.items.is_empty() {
         let src: String = db
@@ -429,15 +448,16 @@ fn import_items(db: &Connection, u: &crate::auth::User, id: i64) -> Vec<Value> {
 async fn get_import(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
     let db = st.db.lock().unwrap();
     own_import(&db, u.id, id)?;
-    let (source, name, url, cover, updated): (String, String, String, String, i64) = db
+    let (source, name, url, cover, updated, meta): (String, String, String, String, i64, String) = db
         .query_row(
-            "SELECT source, name, url, cover, updated FROM imports WHERE id = ?",
+            "SELECT source, name, url, cover, updated, meta FROM imports WHERE id = ?",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         )
         .map_err(|_| nf())?;
+    let meta: Value = serde_json::from_str(&meta).unwrap_or_else(|_| json!({}));
     Ok(Json(
-        json!({ "id": id, "source": source, "name": name, "url": url, "cover": cover, "updated": updated, "items": import_items(&db, &u, id) }),
+        json!({ "id": id, "source": source, "name": name, "url": url, "cover": cover, "updated": updated, "meta": meta, "items": import_items(&db, &u, id) }),
     ))
 }
 

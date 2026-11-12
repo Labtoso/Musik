@@ -913,10 +913,23 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-splogin]')) {
     const id = $('#spclient')?.value.trim();
     if (id && id !== settings.spotifyClientId) await saveSettings({ spotifyClientId: id }).catch(() => {});
-    spotify.login().catch((err) => toast(errorText(err)));
+    const btn = e.target.closest('[data-splogin]');
+    btn.disabled = true;
+    btn.textContent = t('spotifyWaiting');
+    spotify
+      .login()
+      .then((ok) => {
+        toast(ok ? t('spotifyConnected') : t('spotify_login'));
+        render();
+      })
+      .catch((err) => {
+        btn.disabled = false;
+        btn.textContent = t('spotifyConnect');
+        toast(errorText(err));
+      });
   }
   if (e.target.closest('[data-splogout]')) {
-    spotify.logout();
+    await spotify.logout();
     render();
   }
   if (e.target.closest('[data-sptoken]')) {
@@ -963,28 +976,65 @@ views.add = async (params) => {
     ${mine}
     <p class="muted small srcnote">${t('sourcesHint')} <a href="#/sources">${t('manageSources')}</a></p>`;
 };
+/** A small status pill that stays on screen while an import runs, also when you go elsewhere. */
+function importStatus(text, pct) {
+  let el = $('#impstatus');
+  if (text == null) {
+    el?.classList.remove('show');
+    return;
+  }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'impstatus';
+    el.className = 'impstatus';
+    el.innerHTML = '<span class="spin"></span><span class="txt"></span><span class="bar"><i></i></span>';
+    document.body.appendChild(el);
+  }
+  el.querySelector('.txt').textContent = text;
+  el.querySelector('.bar').hidden = pct == null;
+  el.querySelector('.bar i').style.width = Math.max(3, Math.min(100, pct || 0)) + '%';
+  el.classList.add('show');
+}
 async function previewImport(job) {
   const box = $('#importprev');
   if (!box) return;
-  box.innerHTML = `<div class="loading"></div><p class="muted">${t('importing')}</p>`;
+  const progress = (n, total) => {
+    const pct = total ? (n / total) * 100 : null;
+    importStatus(t('importLoading', { n, total: total || '…' }), pct);
+    const b = $('#importprev');
+    if (b) b.innerHTML = `<div class="impprog"><b>${t('importLoading', { n, total: total || '…' })}</b><span class="bar"><i style="width:${Math.max(3, pct || 3)}%"></i></span></div>`;
+  };
+  box.innerHTML = `<div class="impprog"><b>${t('importing')}</b><span class="bar indet"><i></i></span></div>`;
+  importStatus(t('importing'));
   try {
-    const data = await job();
+    const data = await job(progress);
     if (!data.items?.length) throw new Error('empty_import');
+    importStatus(null);
     state.pendingImport = data;
-    box.innerHTML = `<div class="impprev">
-      <label class="field"><span>${t('playlistName')}</span><input id="impname" value="${esc(data.name || '')}"></label>
-      <p class="muted">${srcBadge(data.source)} ${t('importFound', { n: data.items.length })}</p>
+    const m = data.meta || {};
+    const box2 = $('#importprev') || box;
+    box2.innerHTML = `<div class="impprev">
+      <div class="imphead">${data.cover ? `<div class="cover lg"><img alt="" src="${esc(data.cover)}"></div>` : ''}<div>
+        <label class="field"><span>${t('playlistName')}</span><input id="impname" value="${esc(data.name || '')}"></label>
+        ${m.description ? `<p class="muted small impdesc">${esc(m.description)}</p>` : ''}
+        <p class="muted">${srcBadge(data.source)} ${m.owner ? esc(m.owner) + ' · ' : ''}${t('importFound', { n: data.items.length })}${m.duration ? ' · ' + fmtLong(m.duration) : ''}</p></div></div>
       <div class="stack"><button class="btn primary" data-impsave>${icon('check')}${t('importSave')}</button></div>
       <ol class="implist">${data.items.slice(0, 30).map((x) => `<li><b>${esc(x.title)}</b> <span class="muted">${esc(x.artist || '')}</span></li>`).join('')}${data.items.length > 30 ? '<li class="muted">…</li>' : ''}</ol></div>`;
   } catch (err) {
-    box.innerHTML = `<p class="err">${esc(errorText(err))}</p>`;
+    importStatus(null);
+    const b = $('#importprev') || box;
+    b.innerHTML = `<p class="err">${esc(errorText(err))}</p>`;
   }
+}
+function fmtLong(sec) {
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+  return h ? t('hoursMin', { h, m }) : t('minutes', { m });
 }
 document.addEventListener('submit', (e) => {
   if (e.target.id !== 'importform') return;
   e.preventDefault();
   const link = e.target.elements.link.value.trim();
-  if (link) previewImport(() => fetchLink(link));
+  if (link) previewImport((p) => fetchLink(link, p));
 });
 document.addEventListener('change', (e) => {
   if (e.target.id !== 'importfile' || !e.target.files[0]) return;
@@ -993,15 +1043,22 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('click', async (e) => {
   const sp = e.target.closest('[data-spimport]');
-  if (sp) previewImport(() => (sp.dataset.spimport === 'liked' ? spotifyLiked() : spotifyPlaylist(sp.dataset.spimport)));
+  if (sp) previewImport((p) => (sp.dataset.spimport === 'liked' ? spotifyLiked(p) : spotifyPlaylist(sp.dataset.spimport, undefined, p)));
   if (e.target.closest('[data-impsave]') && state.pendingImport) {
     const d = state.pendingImport;
     const name = $('#impname')?.value.trim() || d.name || t('imported');
+    const btn = e.target.closest('[data-impsave]');
+    btn.disabled = true;
+    importStatus(t('importMatching', { n: d.items.length }));
     try {
-      const r = await saveImport({ source: d.source, name, url: d.url || '', cover: d.cover || '', items: d.items });
+      const r = await saveImport({ source: d.source, name, url: d.url || '', cover: d.cover || '', meta: d.meta || {}, items: d.items });
       state.pendingImport = null;
+      importStatus(null);
+      toast(t('importDone', { name }));
       go('#/imported/' + r.id);
     } catch (err) {
+      btn.disabled = false;
+      importStatus(null);
       toast(errorText(err));
     }
   }
@@ -1020,12 +1077,14 @@ views.imported = async (params, id) => {
     extCovers.set('imp:' + id, r.cover);
     coverId = 'imp:' + id;
   }
+  const m = r.meta || {};
+  const dur = r.items.reduce((n, x) => n + (x.duration || 0), 0);
   return (
     detailHeader({
       coverId,
-      kind: t('imported'),
+      kind: t('playlist'),
       title: r.name,
-      sub: `${srcBadge(r.source)} ${t('importedOf', { local, total: r.items.length })}`,
+      sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge(r.source)} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(r.items.length)}${dur ? ', ' + fmtLong(dur) : ''} · ${t('importedOf', { local, total: r.items.length })}`,
       actions: listActions('imp') + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-immenu="${r.id}" title="…">${icon('more')}</button>`
     }) + trackList(tracks)
   );
@@ -1060,10 +1119,13 @@ document.addEventListener('click', (e) => {
           icon: 'download',
           run: async () => {
             try {
-              const d = info.url === 'spotify:liked' ? await spotifyLiked() : await fetchLink(info.url);
-              await put(`/api/imports/${id}`, { items: d.items });
+              const d = info.url === 'spotify:liked' ? await spotifyLiked((n, tot) => importStatus(t('importLoading', { n, total: tot }), (n / tot) * 100)) : await fetchLink(info.url);
+              importStatus(t('importMatching', { n: d.items.length }));
+              await put(`/api/imports/${id}`, { items: d.items, meta: d.meta || undefined, cover: d.cover || '' });
+              importStatus(null);
               render();
             } catch (err) {
+              importStatus(null);
               toast(errorText(err));
             }
           }

@@ -4,6 +4,7 @@
 import { streamUrl, coverUrl, post, get } from './api.js';
 import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showStage } from './engines.js';
 import { toBands } from './viz.js';
+import { findOnYouTube } from './sources.js';
 
 export const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
@@ -129,7 +130,8 @@ class HtmlEngine extends EventTarget {
     const it = this.items[i];
     if (!it) return;
     this.index = i;
-    const ad = it.ext ? this.#adapter(it.ext.player) : null;
+    const kind = it.ext?.player === 'ytfind' ? 'youtube' : it.ext?.player;
+    const ad = it.ext ? this.#adapter(kind) : null;
     if (this.active && this.active !== ad) this.active.stop();
     if (it.ext) {
       this.audio.pause();
@@ -139,7 +141,20 @@ class HtmlEngine extends EventTarget {
         return setTimeout(() => this.#advance('error'), 300);
       }
       ad.setVolume?.(this.volume);
-      ad.load(it.ext.id, pos, autoplay, it.ext.url).catch(() => this.#emit('error', { message: 'playback' }));
+      if (it.ext.player === 'ytfind') {
+        // name and artist from Spotify, the sound from YouTube
+        findOnYouTube(it.ext.id, it.ext.query)
+          .then((vid) => {
+            if (this.items[this.index] !== it) return;
+            if (!vid) throw new Error('notfound');
+            return ad.load(vid, pos, autoplay, '');
+          })
+          .catch(() => {
+            if (this.items[this.index] !== it) return;
+            this.#emit('error', { message: 'playback' });
+            setTimeout(() => this.items[this.index] === it && this.#advance('error'), 1200);
+          });
+      } else ad.load(it.ext.id, pos, autoplay, it.ext.url).catch(() => this.#emit('error', { message: 'playback' }));
       this.#emit('index', { index: i, reason });
       return;
     }

@@ -4,6 +4,7 @@ mod db;
 mod ext;
 mod library;
 mod recommend;
+mod spotify;
 mod update;
 
 use api::{AppState, VERSION};

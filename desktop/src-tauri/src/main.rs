@@ -175,6 +175,23 @@ fn open_saved(app: AppHandle, window: WebviewWindow) {
     }
 }
 
+/// Open a page in the system browser (Spotify sign-in and other outside links).
+fn open_browser(url: &str) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("cmd").arg("/C").raw_arg(format!("start \"\" \"{}\"", url.replace('"', "%22"))).creation_flags(0x0800_0000).spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
+}
+
 fn home_url() -> &'static str {
     if cfg!(windows) {
         "http://tauri.localhost/index.html"
@@ -202,6 +219,14 @@ fn main() {
                 // dark from the first frame, no white flash before the page has loaded
                 .theme(Some(tauri::Theme::Dark))
                 .background_color(tauri::window::Color(17, 18, 20, 255))
+                // the Spotify sign-in belongs in the real browser, Musik waits for it
+                .on_navigation(|url| {
+                    if url.host_str() == Some("accounts.spotify.com") {
+                        open_browser(url.as_str());
+                        return false;
+                    }
+                    true
+                })
                 .initialization_script(&init)
                 .build()?;
             let cfg = load_config(&handle);

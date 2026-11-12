@@ -453,6 +453,10 @@ class MainActivity : ComponentActivity() {
             }
             runCatching { startActivity(Intent.createChooser(send, null)) }
         }
+        @JavascriptInterface fun openExternal(url: String) {
+            if (!url.startsWith("https://")) return
+            main.post { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+        }
         @JavascriptInterface fun copy(text: String) {
             main.post {
                 val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager

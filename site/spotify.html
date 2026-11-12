@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>Musik · Spotify</title>
+<style>html,body{background:#07080d;color:#eceef6;font:16px/1.5 system-ui,sans-serif;margin:0;height:100%;display:grid;place-items:center;text-align:center}div{padding:24px;max-width:440px}b{display:block;font-size:21px;margin-bottom:8px}a{color:#f6b54a}</style>
+</head>
+<body>
+<div><b id="h">Connecting Spotify …</b><span id="t">One moment, you are being sent back to your Musik server.</span></div>
+<script>
+  // Spotify sends the browser here; the state says which Musik server started the sign-in.
+  (function () {
+    const q = new URLSearchParams(location.search);
+    let server = '';
+    try {
+      const s = (q.get('state') || '').replace(/-/g, '+').replace(/_/g, '/');
+      server = JSON.parse(atob(s + '==='.slice((s.length + 3) % 4))).s || '';
+    } catch (e) {}
+    if (!/^https?:\/\/[^/]+$/.test(server)) {
+      document.getElementById('h').textContent = 'Something is missing';
+      document.getElementById('t').textContent = 'Start the Spotify connection again in the Musik app.';
+      return;
+    }
+    location.replace(server + '/api/spotify/callback' + location.search);
+  })();
+</script>
+</body>
+</html>

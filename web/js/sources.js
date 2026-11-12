@@ -1,5 +1,5 @@
 // Other platforms: which ones are on, logins, reading playlists, and turning their songs into queue items.
-import { get, put, post, extCovers } from './api.js';
+import { get, put, post, api, conn, extCovers } from './api.js';
 
 export const SOURCES = ['local', 'youtube', 'ytmusic', 'spotify', 'soundcloud', 'deezer', 'files'];
 /** Sources whose songs can be played inside the app (the rest only import and match). */
@@ -68,11 +68,29 @@ export function extTrack(it) {
   };
 }
 export const isExt = (t) => !!t?.ext;
+/** Open a page in the system browser: Android and the desktop app hand it over, a browser opens a tab. */
+export function openExternal(url) {
+  try {
+    if (window.MusikAndroid?.openExternal) return window.MusikAndroid.openExternal(url);
+  } catch {}
+  if (window.musikDesktop) {
+    // the desktop app catches this navigation and opens the browser instead
+    location.href = url;
+    return;
+  }
+  window.open(url, '_blank', 'noopener');
+}
 
 /** Turn import items into playable tracks: local first, then the platform if it is on. */
 export function playableItems(items) {
   return items.map((it) => {
     if (it.local) return { ...it.local, _pos: it.pos };
+    // Spotify songs play through YouTube when a YouTube key is there (name and artist come from Spotify)
+    if (it.source === 'spotify' && settings.youtubeKey && it.title) {
+      const tr = extTrack(it);
+      tr.ext = { ...tr.ext, player: 'ytfind', query: `${it.artist} ${it.title}`.trim() };
+      return { ...tr, _pos: it.pos };
+    }
     const canPlay = PLAYABLE.includes(it.source) && enabled(it.source) && it.ext_id && !(it.source === 'spotify' && !spotify.connected());
     return canPlay ? { ...extTrack(it), _pos: it.pos } : null;
   });
@@ -94,64 +112,64 @@ function spSave(v) {
   } catch {}
 }
 const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// The sign-in runs in the system browser; the server keeps the tokens (also the refresh token),
+// so every app on every device stays connected. A pasted token still works as a fallback.
+const spState = { server: false, access: '', exp: 0 };
 export const spotify = {
-  redirectUri: () => location.origin + '/',
-  canLogin: () => !!(window.crypto && crypto.subtle) && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname)),
+  redirectUri: () => 'https://musik.labtoso.de/spotify.html',
+  canLogin: () => true,
   connected: () => {
     const s = spLoad();
-    return !!(s.access && (s.refresh || s.exp > Date.now()));
+    return spState.server || !!(s.access && s.exp > Date.now());
+  },
+  /** Ask the server once on start whether this account is connected. */
+  async init() {
+    try {
+      spState.server = !!(await api('GET', '/api/spotify/status')).connected;
+    } catch {
+      spState.server = false;
+    }
+    return spState.server;
   },
   async login() {
     const id = settings.spotifyClientId;
     if (!id) throw new Error('spotify_no_client');
-    if (!this.canLogin()) throw new Error('spotify_https');
-    const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
-    const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-    const state = b64url(crypto.getRandomValues(new Uint8Array(12)));
-    sessionStorage.setItem('musik.sp.pkce', JSON.stringify({ verifier, state, back: location.hash }));
-    const q = new URLSearchParams({ response_type: 'code', client_id: id, scope: SP_SCOPES, redirect_uri: this.redirectUri(), code_challenge_method: 'S256', code_challenge: challenge, state });
-    location.href = 'https://accounts.spotify.com/authorize?' + q;
+    const r = await api('POST', '/api/spotify/start', { client_id: id, origin: conn.server || location.origin });
+    openExternal(r.url);
+    // wait for the browser to finish
+    for (let i = 0; i < 120; i++) {
+      await new Promise((res) => setTimeout(res, 2500));
+      if (await this.init()) return true;
+    }
+    return false;
   },
-  /** Called on start: finishes the login when Spotify sent us back with ?code= */
   async finishLogin() {
-    const q = new URLSearchParams(location.search);
-    if (!q.has('code') && !q.has('error')) return false;
-    let saved = {};
-    try {
-      saved = JSON.parse(sessionStorage.getItem('musik.sp.pkce')) || {};
-    } catch {}
-    sessionStorage.removeItem('musik.sp.pkce');
-    history.replaceState(null, '', location.pathname + (saved.back || '#/sources'));
-    if (q.get('state') !== saved.state || !q.get('code')) return false;
-    const r = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: this.redirectUri(), client_id: settings.spotifyClientId, code_verifier: saved.verifier })
-    });
-    if (!r.ok) return false;
-    const j = await r.json();
-    spSave({ access: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in - 60) * 1000 });
-    return true;
+    return this.init();
   },
   setToken(token) {
     spSave({ access: token.trim(), refresh: '', exp: Date.now() + 55 * 60 * 1000 });
   },
-  logout() {
+  async logout() {
     localStorage.removeItem(SP_KEY);
+    spState.server = false;
+    spState.access = '';
+    await api('POST', '/api/spotify/disconnect').catch(() => {});
   },
   async token() {
+    if (spState.access && spState.exp > Date.now() + 30000) return spState.access;
+    if (spState.server) {
+      try {
+        const r = await api('GET', '/api/spotify/token');
+        spState.access = r.access;
+        spState.exp = r.exp;
+        return r.access;
+      } catch (e) {
+        if (e.status === 401 || e.status === 404) spState.server = false;
+      }
+    }
     const s = spLoad();
     if (s.access && s.exp > Date.now()) return s.access;
-    if (!s.refresh) throw new Error('spotify_login');
-    const r = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: s.refresh, client_id: settings.spotifyClientId })
-    });
-    if (!r.ok) throw new Error('spotify_login');
-    const j = await r.json();
-    spSave({ access: j.access_token, refresh: j.refresh_token || s.refresh, exp: Date.now() + (j.expires_in - 60) * 1000 });
-    return j.access_token;
+    throw new Error('spotify_login');
   },
   async api(path, opts = {}) {
     const r = await fetch('https://api.spotify.com/v1' + path, { ...opts, headers: { Authorization: 'Bearer ' + (await this.token()), 'Content-Type': 'application/json', ...(opts.headers || {}) } });
@@ -161,12 +179,13 @@ export const spotify = {
     if (!r.ok) throw new Error('spotify_' + r.status);
     return r.json();
   },
-  async all(path, pick = (j) => j) {
+  async all(path, pick = (j) => j, onProgress) {
     const out = [];
     let next = path;
-    for (let n = 0; next && n < 100; n++) {
+    for (let n = 0; next && n < 200; n++) {
       const j = pick(await this.api(next.replace('https://api.spotify.com/v1', '')));
       out.push(...(j.items || []));
+      onProgress?.(out.length, j.total || out.length);
       next = j.next;
     }
     return out;
@@ -347,12 +366,12 @@ export function parseLink(raw) {
 }
 
 /** Load a playlist / album from any platform → { source, name, url, cover, items } */
-export async function fetchLink(raw) {
+export async function fetchLink(raw, onProgress) {
   const L = parseLink(raw);
   if (!L) throw new Error('bad_link');
   const url = String(raw).trim();
   if (L.source === 'spotify') {
-    if (L.kind === 'playlist') return spotifyPlaylist(L.id, url);
+    if (L.kind === 'playlist') return spotifyPlaylist(L.id, url, onProgress);
     if (L.kind === 'album') {
       const a = await spotify.api(`/albums/${L.id}`);
       const items = (await spotify.all(`/albums/${L.id}/tracks?limit=50`)).map((t) => spotify.item(t, a)).filter(Boolean);
@@ -377,21 +396,52 @@ export async function fetchLink(raw) {
   return { source: L.source, name: L.source === 'ytmusic' ? 'YouTube Music' : 'YouTube', url, cover: items[0]?.cover || '', items };
 }
 
-export async function spotifyPlaylist(id, url = `https://open.spotify.com/playlist/${id}`) {
-  const p = await spotify.api(`/playlists/${id}?fields=name,images,owner(display_name)`);
+const unhtml = (h) => {
+  const d = document.createElement('div');
+  d.innerHTML = String(h || '').replace(/<[^>]*>/g, '');
+  return d.textContent.trim();
+};
+/** A Spotify playlist with everything it shows there: cover, description, owner, followers, songs. */
+export async function spotifyPlaylist(id, url = `https://open.spotify.com/playlist/${id}`, onProgress) {
+  const p = await spotify.api(`/playlists/${id}?fields=name,description,images,owner(display_name),followers(total),tracks(total),items(total)`);
   let raw;
   try {
-    raw = await spotify.all(`/playlists/${id}/items?limit=50`);
-  } catch {
-    raw = await spotify.all(`/playlists/${id}/tracks?limit=50`).catch(() => []);
+    raw = await spotify.all(`/playlists/${id}/items?limit=50`, undefined, onProgress);
+  } catch (e) {
+    if (e.message === 'spotify_login') throw e;
+    raw = await spotify.all(`/playlists/${id}/tracks?limit=50`, undefined, onProgress).catch((e2) => {
+      throw e2.message === 'spotify_forbidden' || e.message === 'spotify_forbidden' ? new Error('spotify_not_own') : e2;
+    });
   }
   const items = raw.map((x) => spotify.item(x.item || x.track)).filter(Boolean);
   if (!items.length) throw new Error('spotify_not_own');
-  return { source: 'spotify', name: p.name, url, cover: p.images?.[0]?.url || '', items };
+  const meta = { description: unhtml(p.description), owner: p.owner?.display_name || '', followers: p.followers?.total || 0, total: items.length, duration: items.reduce((n, x) => n + (x.duration || 0), 0) };
+  return { source: 'spotify', name: p.name, url, cover: p.images?.[0]?.url || '', meta, items };
 }
-export async function spotifyLiked() {
-  const items = (await spotify.all('/me/tracks?limit=50')).map((x) => spotify.item(x.track)).filter(Boolean);
-  return { source: 'spotify', name: 'Spotify Lieblingssongs', url: 'spotify:liked', cover: '', items };
+export async function spotifyLiked(onProgress) {
+  const items = (await spotify.all('/me/tracks?limit=50', undefined, onProgress)).map((x) => spotify.item(x.track)).filter(Boolean);
+  const meta = { description: '', owner: '', followers: 0, total: items.length, duration: items.reduce((n, x) => n + (x.duration || 0), 0) };
+  return { source: 'spotify', name: 'Spotify Lieblingssongs', url: 'spotify:liked', cover: '', meta, items };
+}
+/** YouTube video for a song (Spotify name + artist), remembered on this device. */
+const YT_MAP = 'musik.ytmap';
+export async function findOnYouTube(key, query) {
+  let map = {};
+  try {
+    map = JSON.parse(localStorage.getItem(YT_MAP)) || {};
+  } catch {}
+  if (map[key]) return map[key];
+  const hits = await searchYouTube(query, 'youtube');
+  const id = hits[0]?.ext?.id || '';
+  if (id) {
+    map[key] = id;
+    const keys = Object.keys(map);
+    if (keys.length > 3000) delete map[keys[0]];
+    try {
+      localStorage.setItem(YT_MAP, JSON.stringify(map));
+    } catch {}
+  }
+  return id;
 }
 
 // ---------- files: CSV (e.g. Exportify), M3U, plain text ----------
