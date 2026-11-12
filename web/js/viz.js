@@ -160,7 +160,8 @@ export class Visualizer {
   #ring(g, w, h, dpr, bass) {
     const cx = w / 2;
     const cy = h / 2;
-    const side = Math.min(w, h);
+    // the canvas is 136% of the cover box (CSS), the ring keeps its size relative to the box
+    const side = Math.min(w, h) / 1.36;
     const r0 = side * 0.33 * (1 + bass * 0.04);
     const len = side * 0.16;
     const n = 96;

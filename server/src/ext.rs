@@ -726,7 +726,8 @@ fn find_video(st: &St, uid: i64, title: &str, artist: &str, duration: f64, q: &s
     if term.is_empty() {
         return Err(ApiError::new(400, "bad_query"));
     }
-    let ck = format!("{}:{}", if embed { "e" } else { "s" }, norm(&term));
+    // the whole "artist - title" (ext::norm would cut at " - " and give every song of an artist one key)
+    let ck = format!("{}:{}|{}", if embed { "e" } else { "s" }, crate::yt::plain(&first), crate::yt::plain(if title.is_empty() { q } else { title }));
     let cached: Option<(String, i64)> = {
         let db = st.db.lock().unwrap();
         db.query_row("SELECT vid, found FROM yt_find WHERE q = ?", [&ck], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -740,20 +741,29 @@ fn find_video(st: &St, uid: i64, title: &str, artist: &str, duration: f64, q: &s
         }
     }
     let t2 = if title.is_empty() { term.clone() } else { title.to_string() };
-    let videos = crate::yt::search(&term);
-    let reached = videos.is_ok();
+    // YouTube (like the bot) and YouTube Music at the same time
+    let (videos, songs) = std::thread::scope(|sc| {
+        let a = sc.spawn(|| crate::yt::search(&term));
+        let b = sc.spawn(|| crate::yt::music_search(&term));
+        (a.join().unwrap_or(Err(String::new())), b.join().unwrap_or(Err(String::new())))
+    });
+    let reached = videos.is_ok() || songs.is_ok();
     let videos = videos.unwrap_or_default();
+    let songs = crate::yt::as_candidates(&songs.unwrap_or_default());
     let mut cands = crate::yt::msik_order(&videos, &t2, artist, duration);
-    // exactly the bot when nothing passes: YouTube's first hit
-    if cands.is_empty() {
-        cands.extend(videos.iter().filter_map(|v| v["id"].as_str().map(String::from)).take(1));
-    }
-    if embed {
-        // YouTube Music as a second source for the player fallback
-        if let Ok(sg) = crate::yt::music_search(&term) {
-            cands.extend(crate::yt::msik_order(&crate::yt::as_candidates(&sg), &t2, artist, duration));
+    let exact = crate::yt::msik_order(&songs, &t2, artist, duration);
+    // check it is the recording from Spotify: when the bot's pick differs in length (music video
+    // with intro, other version) and YouTube Music has the song with the same length, that one wins
+    let len = |id: &str, l: &[Value]| l.iter().find(|v| v["id"] == id).and_then(|v| v["duration"].as_f64()).unwrap_or(0.0);
+    if duration > 0.0 {
+        if let Some(e) = exact.iter().find(|e| (len(e, &songs) - duration).abs() <= 3.0) {
+            let first_off = cands.first().map(|c| (len(c, &videos) - duration).abs()).unwrap_or(f64::MAX);
+            if first_off > 3.0 {
+                cands.insert(0, e.clone());
+            }
         }
     }
+    cands.extend(exact);
     let mut seen = std::collections::HashSet::new();
     cands.retain(|c| !skip.contains(c) && seen.insert(c.clone()));
     let vid = if embed {

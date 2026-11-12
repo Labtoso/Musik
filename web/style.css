@@ -75,7 +75,13 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .icon-btn.sm .ic { width: 16px; height: 16px; }
 .icon-btn.lg .ic { width: 28px; height: 28px; }
 .icon-btn.on { color: var(--accent); }
-.like.on { color: var(--accent); }
+.like.on { color: #1ed760; }
+/* liked like on Spotify: green heart with a short pop */
+.like svg { transition: transform 0.15s ease; }
+.like:hover svg { transform: scale(1.06); }
+.like.on svg { animation: heartpop 0.32s cubic-bezier(0.3, 1.6, 0.5, 1); }
+@keyframes heartpop { 0% { transform: scale(0.6); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .like.on svg { animation: none; } }
 .linkbtn { color: var(--muted); font-size: 12.5px; }
 .linkbtn:hover { color: var(--text); }
 .playpause {
@@ -587,6 +593,9 @@ body:has(.fs-queue.open) .ext-stage.in-fs { visibility: hidden; }
 /* ---------- visualizer ---------- */
 .fs-cover { position: relative; }
 .fs-cover canvas.viz { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
+/* the ring may reach past the cover box (over title and top bar) instead of being cut off */
+.fs[data-viz='ring'] .fs-cover canvas.viz { inset: -18%; width: 136%; height: 136%; z-index: 0; }
+.fs[data-viz='ring'] .fs-cover { overflow: visible; z-index: 2; }
 .fs:not([data-viz='off'])[data-viz] canvas.viz { display: block; }
 .fs-cover .cover.huge { transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.2, 1), opacity 0.35s, filter 0.35s; position: relative; z-index: 1; }
 .fs[data-viz='ring'] .fs-cover .cover.huge { transform: scale(calc(0.56 * var(--pulse, 1))); border-radius: 50%; transition: transform 0.08s linear, border-radius 0.35s; }

@@ -82,6 +82,13 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
     conn.execute_batch(crate::ext::SCHEMA)?;
     // columns added later (fails harmlessly when they exist)
     let _ = conn.execute("ALTER TABLE imports ADD COLUMN meta TEXT NOT NULL DEFAULT '{}'", []);
+    // after every update the remembered YouTube matches are looked up again (better matching each time)
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);")?;
+    let seen: Option<String> = conn.query_row("SELECT v FROM kv WHERE k = 'version'", [], |r| r.get(0)).ok();
+    if seen.as_deref() != Some(crate::api::VERSION) {
+        conn.execute("DELETE FROM yt_find", [])?;
+        conn.execute("INSERT INTO kv (k, v) VALUES ('version', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", [crate::api::VERSION])?;
+    }
     Ok(conn)
 }
 

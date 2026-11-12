@@ -381,7 +381,18 @@ class NativeEngine extends EventTarget {
 
 // The server streams YouTube sound itself (yt-dlp, like the Msik bot) when it can
 let serverStreams = true;
-get('/api/info').then((i) => (serverStreams = i?.ytdlp !== false)).catch(() => {});
+get('/api/info')
+  .then((i) => {
+    serverStreams = i?.ytdlp !== false;
+    // after an update the songs are looked up again: forget what this device remembered
+    try {
+      if (i?.version && localStorage.getItem('musik.ytver') !== i.version) {
+        Object.keys(localStorage).filter((k) => k.startsWith('musik.ytmap')).forEach((k) => localStorage.removeItem(k));
+        localStorage.setItem('musik.ytver', i.version);
+      }
+    } catch {}
+  })
+  .catch(() => {});
 const viaSearch = (x) => x.player === 'ytfind' || x.source === 'deezer' || x.source === 'spotify';
 const viaVideo = (x) => x.source === 'youtube' || x.source === 'ytmusic';
 /** Songs whose sound the server streams like a song of its own */

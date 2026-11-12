@@ -223,7 +223,7 @@ pub fn as_candidates(songs: &[Value]) -> Vec<Value> {
 }
 
 /// Lower case, letters and digits only (keeps brackets' content, unlike `ext::norm`)
-fn plain(s: &str) -> String {
+pub fn plain(s: &str) -> String {
     s.to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -398,5 +398,12 @@ mod tests {
         // a live song stays live
         let l = vec![json!({"id":"l","title":"Green Day - Basket Case (Live)","channel":"Green Day","duration":200.0})];
         assert_eq!(msik_order(&l, "Basket Case - Live", "Green Day", 200.0), vec!["l".to_string()]);
+    }
+
+    #[test]
+    fn other_songs_of_the_artist_never_match() {
+        let v = vec![json!({"id":"s","title":"Red Hot Chili Peppers - Scar Tissue [Official Music Video]","channel":"Red Hot Chili Peppers","duration":217.0})];
+        assert!(msik_order(&v, "Californication", "Red Hot Chili Peppers", 329.0).is_empty());
+        assert_eq!(msik_order(&v, "Scar Tissue", "Red Hot Chili Peppers", 215.0), vec!["s".to_string()]);
     }
 }
