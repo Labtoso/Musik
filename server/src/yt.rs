@@ -215,6 +215,7 @@ pub fn music_search(query: &str) -> Result<Vec<Value>, String> {
 }
 
 /// Songs as candidates for `best` (artist counts as the channel)
+#[allow(dead_code)]
 pub fn as_candidates(songs: &[Value]) -> Vec<Value> {
     songs
         .iter()
@@ -238,6 +239,7 @@ const NOT_ORIGINAL: &[&str] = &[
 /// Like the Msik bot: YouTube's own order for "<artist> - <title>" decides, the first hit wins.
 /// On top of the bot, versions that are not the original (piano, cover, live, ...) are left out
 /// unless the song itself is one, the artist or title has to show up, and the length has to fit.
+#[allow(dead_code)]
 pub fn msik_order(videos: &[Value], title: &str, artist: &str, duration: f64) -> Vec<String> {
     let tn = plain(title);
     let an = plain(artist);
@@ -264,6 +266,43 @@ pub fn msik_order(videos: &[Value], title: &str, artist: &str, duration: f64) ->
         })
         .filter_map(|v| v["id"].as_str().map(String::from))
         .collect()
+}
+
+/// The recording from Spotify among YouTube Music songs: the artist has to be one of the song's
+/// artists, the title has to fit, versions that are not the original (live, piano, karaoke, ...)
+/// only when the song is one, and of what is left the closest length wins (same recording),
+/// YouTube Music's own order breaking ties.
+pub fn pick_song(songs: &[Value], title: &str, artist: &str, duration: f64) -> Vec<String> {
+    let tn = plain(&crate::ext::norm(title));
+    let tfull = plain(title);
+    let first = plain(artist.split(',').next().unwrap_or(""));
+    let tw: Vec<&str> = tn.split_whitespace().collect();
+    let mut ok: Vec<(f64, usize, String)> = Vec::new();
+    for (i, s) in songs.iter().enumerate() {
+        let st = plain(s["title"].as_str().unwrap_or(""));
+        let sa = plain(s["artist"].as_str().unwrap_or(""));
+        let sbase = plain(&crate::ext::norm(s["title"].as_str().unwrap_or("")));
+        if !first.is_empty() && !sa.contains(&first) {
+            continue;
+        }
+        let words_in = |hay: &str| tw.iter().filter(|w| hay.split_whitespace().any(|h| h == **w)).count() as f64 / tw.len().max(1) as f64;
+        if words_in(&sbase) < 0.75 || (sbase.split_whitespace().count() as f64) > (tw.len() as f64 + 3.0) {
+            continue;
+        }
+        let pad = format!(" {st} ");
+        if NOT_ORIGINAL.iter().any(|b| { let b = plain(b); pad.contains(&format!(" {b} ")) && !tfull.contains(&b) }) {
+            continue;
+        }
+        let d = s["duration"].as_f64().unwrap_or(0.0);
+        let off = if duration > 0.0 && d > 0.0 { (d - duration).abs() } else { 0.0 };
+        if duration > 0.0 && d > 0.0 && off > (duration * 0.12).max(15.0) {
+            continue;
+        }
+        // whole seconds count, small differences (rounding, 1-2 s) are the same recording
+        ok.push(((off / 3.0).floor(), i, s["id"].as_str().unwrap_or("").to_string()));
+    }
+    ok.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal).then(a.1.cmp(&b.1)));
+    ok.into_iter().map(|x| x.2).filter(|x| !x.is_empty()).collect()
 }
 
 fn words(s: &str) -> Vec<String> {
@@ -405,5 +444,35 @@ mod tests {
         let v = vec![json!({"id":"s","title":"Red Hot Chili Peppers - Scar Tissue [Official Music Video]","channel":"Red Hot Chili Peppers","duration":217.0})];
         assert!(msik_order(&v, "Californication", "Red Hot Chili Peppers", 329.0).is_empty());
         assert_eq!(msik_order(&v, "Scar Tissue", "Red Hot Chili Peppers", 215.0), vec!["s".to_string()]);
+    }
+
+    #[test]
+    fn picks_the_spotify_recording_on_youtube_music() {
+        let s = |id: &str, t: &str, a: &str, d: f64| json!({"id": id, "title": t, "artist": a, "duration": d});
+        let songs = vec![
+            s("tribute", "Californication", "Rock Tribute Band", 330.0),
+            s("live", "Californication (Live)", "Red Hot Chili Peppers", 345.0),
+            s("rerec", "Californication", "Red Hot Chili Peppers", 312.0),
+            s("orig", "Californication", "Red Hot Chili Peppers", 329.0),
+            s("scar", "Scar Tissue", "Red Hot Chili Peppers", 215.0),
+            s("piano", "Californication (Piano Version)", "Red Hot Chili Peppers", 329.0),
+        ];
+        assert_eq!(pick_song(&songs, "Californication", "Red Hot Chili Peppers", 329.0).first().map(String::as_str), Some("orig"));
+        assert_eq!(pick_song(&songs, "Scar Tissue", "Red Hot Chili Peppers", 215.0), vec!["scar".to_string()]);
+        assert!(pick_song(&songs, "When I Come Around", "Green Day", 178.0).is_empty());
+        // Spotify titles with extras still match
+        assert_eq!(pick_song(&songs, "Scar Tissue - Remastered", "Red Hot Chili Peppers, Someone", 216.0), vec!["scar".to_string()]);
+    }
+
+    #[test]
+    fn parses_a_real_music_answer() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/ytm-search.json");
+        let v = parse_music(&serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap());
+        assert!(v.len() >= 5);
+        assert_eq!(v[0]["title"], "SICKO MODE");
+        assert_eq!(v[0]["artist"], "Travis Scott");
+        assert_eq!(v[0]["album"], "ASTROWORLD");
+        assert_eq!(v[0]["duration"], 313.0);
+        assert_eq!(pick_song(&v, "SICKO MODE", "Travis Scott, Drake", 312.8).first().map(String::as_str), Some("NQbkGDoD7B0"));
     }
 }

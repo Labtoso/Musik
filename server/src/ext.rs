@@ -741,29 +741,18 @@ fn find_video(st: &St, uid: i64, title: &str, artist: &str, duration: f64, q: &s
         }
     }
     let t2 = if title.is_empty() { term.clone() } else { title.to_string() };
-    // YouTube (like the bot) and YouTube Music at the same time
-    let (videos, songs) = std::thread::scope(|sc| {
-        let a = sc.spawn(|| crate::yt::search(&term));
-        let b = sc.spawn(|| crate::yt::music_search(&term));
-        (a.join().unwrap_or(Err(String::new())), b.join().unwrap_or(Err(String::new())))
-    });
-    let reached = videos.is_ok() || songs.is_ok();
-    let videos = videos.unwrap_or_default();
-    let songs = crate::yt::as_candidates(&songs.unwrap_or_default());
-    let mut cands = crate::yt::msik_order(&videos, &t2, artist, duration);
-    let exact = crate::yt::msik_order(&songs, &t2, artist, duration);
-    // check it is the recording from Spotify: when the bot's pick differs in length (music video
-    // with intro, other version) and YouTube Music has the song with the same length, that one wins
-    let len = |id: &str, l: &[Value]| l.iter().find(|v| v["id"] == id).and_then(|v| v["duration"].as_f64()).unwrap_or(0.0);
-    if duration > 0.0 {
-        if let Some(e) = exact.iter().find(|e| (len(e, &songs) - duration).abs() <= 3.0) {
-            let first_off = cands.first().map(|c| (len(c, &videos) - duration).abs()).unwrap_or(f64::MAX);
-            if first_off > 3.0 {
-                cands.insert(0, e.clone());
+    // only YouTube Music songs (the album tracks, the same recordings as on Spotify), no videos
+    let mut reached = false;
+    let mut cands: Vec<String> = Vec::new();
+    for q in [format!("{first} {t2}"), format!("{t2} {artist}")] {
+        if let Ok(sg) = crate::yt::music_search(&q) {
+            reached = true;
+            cands = crate::yt::pick_song(&sg, &t2, artist, duration);
+            if !cands.is_empty() {
+                break;
             }
         }
     }
-    cands.extend(exact);
     let mut seen = std::collections::HashSet::new();
     cands.retain(|c| !skip.contains(c) && seen.insert(c.clone()));
     let vid = if embed {

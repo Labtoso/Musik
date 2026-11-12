@@ -37,11 +37,16 @@ class HtmlEngine extends EventTarget {
     a.addEventListener('error', () => {
       if (this.index < 0) return;
       const cur = this.items[this.index];
-      if (cur?.streamed && cur.url) {
-        // the server could not stream it: the official YouTube player as a fallback
+      if (cur?.streamed && cur.url && viaVideo(cur.ext)) {
+        // a YouTube video the server could not stream: the official YouTube player as a fallback
         cur.url = '';
         cur.streamed = false;
         return this.#load(this.index, 0, true, 'retry');
+      }
+      // Spotify / Deezer songs never fall back to random YouTube videos (re-recordings, covers)
+      if (cur?.streamed) {
+        this.#emit('error', { message: 'song_not_on_ytm' });
+        return setTimeout(() => this.#advance('error'), 800);
       }
       this.#emit('error', { message: 'playback' });
       // skip broken files instead of stopping
