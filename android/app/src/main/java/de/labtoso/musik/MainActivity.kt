@@ -385,6 +385,10 @@ class MainActivity : ComponentActivity() {
             }
             runCatching { startActivity(Intent.createChooser(send, null)) }
         }
+        @JavascriptInterface fun getLang(): String = prefs.getString("lang", "") ?: ""
+        @JavascriptInterface fun setLang(lang: String) {
+            if (lang == "de" || lang == "en") prefs.edit().putString("lang", lang).apply()
+        }
         @JavascriptInterface fun setAccent(name: String) {
             prefs.edit().putString("accent", name).apply()
         }

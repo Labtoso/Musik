@@ -474,7 +474,7 @@ footer a { color: var(--muted); }
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const accent = store('musik.site.accent');
   if (accent) document.documentElement.dataset.accent = accent;
-  let lang = (location.hash.startsWith('#en-') && 'en') || store('musik.site.lang') || ((navigator.language || 'de').toLowerCase().startsWith('de') ? 'de' : 'en');
+  let lang = location.hash.startsWith('#de-') ? 'de' : location.hash.startsWith('#en-') ? 'en' : store('musik.site.lang') === 'de' ? 'de' : 'en';
   let spy = null;
 
   function render() {

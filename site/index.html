@@ -630,7 +630,7 @@ const T = {
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return v; };
-let lang = store('musik.site.lang') || ((navigator.language || 'de').toLowerCase().startsWith('de') ? 'de' : 'en');
+let lang = store('musik.site.lang') === 'de' ? 'de' : 'en';
 let accent = store('musik.site.accent') || 'blue';
 let dyn = store('musik.site.dyn') !== '0';
 window.siteDyn = () => dyn;

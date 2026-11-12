@@ -70,7 +70,9 @@
 <audio id="au" preload="none"></audio>
 <script>
 (() => {
-  const de = (navigator.language || 'de').startsWith('de');
+  let pl = '';
+  try { pl = JSON.parse(localStorage.getItem('musik.prefs') || '{}').lang || ''; } catch {}
+  const de = pl === 'de';
   const T = de
     ? { play: 'Abspielen', save: 'In meiner Bibliothek speichern', saved: 'Gespeichert', open: 'In der App öffnen', notFound: 'Dieser Link ist nicht (mehr) gültig.', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'Auf anderen Plattformen', login: 'Melde dich in der App an, um zu speichern.', songs: 'Songs', on: 'Geteilt von' }
     : { play: 'Play', save: 'Save to my library', saved: 'Saved', open: 'Open in the app', notFound: 'This link is not valid (anymore).', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'On other platforms', login: 'Sign in in the app to save.', songs: 'songs', on: 'Shared from' };

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -20,9 +20,11 @@
   .err { color: #e5484d; min-height: 20px; font-size: 13px; }
   button { width: 100%; height: 42px; border: 0; border-radius: 7px; background: #4c8dff; color: #0b1220; font: inherit; font-weight: 600; cursor: pointer; margin-top: 6px; }
   button:disabled { opacity: 0.5; }
+  .lang { position: fixed; top: 14px; right: 16px; width: auto; height: auto; margin: 0; padding: 6px 10px; border-radius: 16px; background: transparent; border: 1px solid #2c2f35; color: #9a9ca3; font-size: 12.5px; font-weight: 600; }
 </style>
 </head>
 <body>
+<button type="button" class="lang" id="lang"></button>
 <form id="f">
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17.5V6l10-2v11.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></svg>Musik</div>
   <h2 id="h"></h2>
@@ -32,7 +34,16 @@
   <button id="b"></button>
 </form>
 <script>
-  const de = (navigator.language || 'de').startsWith('de');
+  let saved = '';
+  try { saved = localStorage.getItem('musik.lang') || ''; } catch {}
+  const de = saved === 'de';
+  const langBtn = document.getElementById('lang');
+  langBtn.textContent = de ? 'English' : 'Deutsch';
+  langBtn.onclick = () => {
+    const l = de ? 'en' : 'de';
+    try { try { localStorage.setItem('musik.lang', l); } catch {} } catch {}
+    location.reload();
+  };
   const T = de
     ? { h: 'Mit Server verbinden', l: 'Server-Adresse', help: 'Die Adresse zeigt der Server beim Start an, z. B. http://192.168.1.50:8484', b: 'Verbinden', connecting: 'Verbinde …', offline: 'Server nicht erreichbar. Adresse prüfen.', notmusik: 'Unter dieser Adresse läuft kein Musik-Server.' }
     : { h: 'Connect to server', l: 'Server address', help: 'The server prints its address on start, e.g. http://192.168.1.50:8484', b: 'Connect', connecting: 'Connecting …', offline: 'Server not reachable. Check the address.', notmusik: 'No Musik server at this address.' };

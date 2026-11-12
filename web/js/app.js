@@ -16,7 +16,15 @@ const esc = (s) =>
 
 // ---------- settings ----------
 const PREFS_KEY = 'musik.prefs';
-const prefs = Object.assign({ lang: (navigator.language || 'de').startsWith('de') ? 'de' : 'en', accent: 'blue', volume: 1, autoplay: true, dynamic: true }, (() => {
+// English unless the person picked a language (kept on this device, in the Android app and on the server)
+const nativeLang = (() => {
+  try {
+    return window.MusikAndroid?.getLang?.() || '';
+  } catch {
+    return '';
+  }
+})();
+const prefs = Object.assign({ lang: nativeLang || 'en', accent: 'blue', volume: 1, autoplay: true, dynamic: true }, (() => {
   try {
     return JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
   } catch {
@@ -27,6 +35,15 @@ function savePrefs() {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {}
+}
+/** Remember a language choice everywhere it can be read again: this browser, the Android app, the account. */
+function rememberLang(lang) {
+  prefs.lang = lang;
+  savePrefs();
+  try {
+    window.MusikAndroid?.setLang?.(lang);
+  } catch {}
+  if (conn.token) saveSettings({ lang }).catch(() => {});
 }
 function applyPrefs() {
   setLang(prefs.lang);
@@ -1447,8 +1464,7 @@ document.addEventListener('click', async (e) => {
   if (el.matches('[data-settings]')) return openSettings();
   if (el.matches('#scrim,[data-closesettings]')) return closeSettings();
   if (el.dataset.lang) {
-    prefs.lang = el.dataset.lang;
-    savePrefs();
+    rememberLang(el.dataset.lang);
     applyPrefs();
     buildShell();
     $('#settings').classList.add('open');
@@ -1617,8 +1633,7 @@ async function showLogin(errorMsg = '') {
     showLogin();
   });
   form.querySelector('[data-authlang]').onclick = () => {
-    prefs.lang = getLang() === 'de' ? 'en' : 'de';
-    savePrefs();
+    rememberLang(getLang() === 'de' ? 'en' : 'de');
     applyPrefs();
     showLogin(err);
   };
@@ -1727,6 +1742,16 @@ function startApp() {
   renderPlayer();
   loadSettings()
     .then(async () => {
+      // the account's language wins, so it survives reinstalls and other addresses (home / on the go)
+      if ((settings.lang === 'de' || settings.lang === 'en') && settings.lang !== prefs.lang) {
+        prefs.lang = settings.lang;
+        savePrefs();
+        try {
+          window.MusikAndroid?.setLang?.(prefs.lang);
+        } catch {}
+        applyPrefs();
+        buildShell();
+      } else if (!settings.lang) saveSettings({ lang: prefs.lang }).catch(() => {});
       await spotify.finishLogin().catch(() => false);
       if (!settings.setupDone && state.route !== 'welcome') go('#/welcome');
       else render();
