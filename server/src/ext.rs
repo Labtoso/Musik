@@ -843,7 +843,8 @@ async fn proxy_audio(vid: String, headers: axum::http::HeaderMap) -> Response {
     let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(String::from);
     let res = tokio::task::spawn_blocking(move || {
         for attempt in 0..2 {
-            let s = crate::ytdl::stream(&vid).map_err(|e| {
+            // a link from the light way that does not play: ask yt-dlp the second time
+            let s = crate::ytdl::stream_with(&vid, attempt > 0).map_err(|e| {
                 eprintln!("yt-dlp {vid}: {e}");
                 ApiError::new(502, "youtube_unreachable")
             })?;

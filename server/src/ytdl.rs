@@ -17,6 +17,7 @@ struct Bins {
 }
 static BINS: OnceLock<Mutex<Bins>> = OnceLock::new();
 static READY: OnceLock<()> = OnceLock::new();
+static TMP: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct Stream {
@@ -99,6 +100,9 @@ fn unzip_one(zip: &Path, name: &str, to: &Path) -> Result<(), String> {
 /// Finds or fetches yt-dlp and a JavaScript runtime in the background; playback waits for it.
 pub fn init(data_dir: &Path) {
     let bin = data_dir.join("bin");
+    let tmp = bin.join("tmp");
+    std::fs::create_dir_all(&tmp).ok();
+    TMP.set(tmp).ok();
     std::thread::spawn(move || {
         let exe = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
         let local = bin.join(exe);
@@ -178,6 +182,9 @@ fn run(args: &[&str], js: Option<&str>, timeout: Duration) -> Result<String, Str
     if let Some(j) = js {
         c.args(["--js-runtimes", j]);
     }
+    if let Some(t) = TMP.get() {
+        c.env("TMPDIR", t).env("TEMP", t).env("TMP", t);
+    }
     c.args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
     #[cfg(windows)]
     {
@@ -226,23 +233,90 @@ fn expires(url: &str) -> Instant {
     Instant::now() + hard.min(Duration::from_secs(5 * 3600))
 }
 
-/// The audio stream of a video (cached until the link expires).
-pub fn stream(vid: &str) -> Result<Stream, String> {
-    let cache = STREAMS.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(s) = cache.lock().unwrap().get(vid) {
-        if s.until > Instant::now() {
-            return Ok(s.clone());
+/// Apps of YouTube whose answers carry ready stream links (no player code to solve, so no yt-dlp,
+/// no extra processes and almost no memory). Tried in this order.
+const CLIENTS: &[(&str, &str, &str, &str, &str)] = &[
+    // name, version, id header, user agent, extra context (JSON object body)
+    (
+        "ANDROID_VR",
+        "1.60.19",
+        "28",
+        "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+        r#"{"deviceMake":"Oculus","deviceModel":"Quest 3","androidSdkVersion":32,"osName":"Android","osVersion":"12L"}"#,
+    ),
+    (
+        "IOS",
+        "20.10.4",
+        "5",
+        "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+        r#"{"deviceMake":"Apple","deviceModel":"iPhone16,2","osName":"iPhone","osVersion":"18.3.2.22D82"}"#,
+    ),
+];
+
+/// Picks the audio format every player can play: m4a (itag 140) first, then the best other audio.
+pub fn pick_audio(player: &serde_json::Value) -> Option<String> {
+    let fmts = player["streamingData"]["adaptiveFormats"].as_array()?;
+    let audio: Vec<&serde_json::Value> = fmts
+        .iter()
+        .filter(|f| f["mimeType"].as_str().map(|m| m.starts_with("audio/")).unwrap_or(false) && f["url"].is_string())
+        // dubbed tracks are marked, the original has no track or is the default one
+        .filter(|f| f["audioTrack"].is_null() || f["audioTrack"]["audioIsDefault"].as_bool().unwrap_or(true))
+        .collect();
+    audio
+        .iter()
+        .filter(|f| f["mimeType"].as_str().unwrap_or("").starts_with("audio/mp4"))
+        .max_by_key(|f| f["bitrate"].as_i64().unwrap_or(0))
+        .or_else(|| audio.iter().max_by_key(|f| f["bitrate"].as_i64().unwrap_or(0)))
+        .and_then(|f| f["url"].as_str().map(String::from))
+}
+
+fn direct(vid: &str) -> Result<Stream, String> {
+    let mut last = String::from("no client answered");
+    for (name, version, id, ua, extra) in CLIENTS {
+        let mut client: serde_json::Value = serde_json::from_str(extra).unwrap_or_else(|_| serde_json::json!({}));
+        client["clientName"] = (*name).into();
+        client["clientVersion"] = (*version).into();
+        client["hl"] = "en".into();
+        client["gl"] = "DE".into();
+        let body = serde_json::json!({ "context": { "client": client }, "videoId": vid, "contentCheckOk": true, "racyCheckOk": true });
+        let res = ureq::post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+            .set("content-type", "application/json")
+            .set("user-agent", ua)
+            .set("x-youtube-client-name", id)
+            .set("x-youtube-client-version", version)
+            .set("origin", "https://www.youtube.com")
+            .timeout(Duration::from_secs(8))
+            .send_json(body);
+        let json: serde_json::Value = match res.map_err(|e| e.to_string()).and_then(|r| r.into_json().map_err(|e| e.to_string())) {
+            Ok(j) => j,
+            Err(e) => {
+                last = format!("{name}: {e}");
+                continue;
+            }
+        };
+        match pick_audio(&json) {
+            Some(url) => {
+                return Ok(Stream { until: expires(&url), url, headers: vec![("User-Agent".into(), ua.to_string())] });
+            }
+            None => last = format!("{name}: {}", json["playabilityStatus"]["reason"].as_str().or(json["playabilityStatus"]["status"].as_str()).unwrap_or("no audio")),
         }
     }
+    Err(last)
+}
+
+/// Only one yt-dlp at a time: each run needs a lot of memory on a small server.
+static YTDLP_LOCK: Mutex<()> = Mutex::new(());
+
+fn via_ytdlp(vid: &str) -> Result<Stream, String> {
     wait_ready();
+    let _one = YTDLP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let url = format!("https://www.youtube.com/watch?v={vid}");
     // m4a first: every player (browser, WebView, Android, Safari) can play it
     let args = ["-j", "--no-playlist", "-f", "bestaudio[ext=m4a]/bestaudio/best", url.as_str()];
     let js = bins().lock().unwrap().js.clone();
-    let out = match run(&args, js.as_deref(), Duration::from_secs(30)) {
+    let out = match run(&args, js.as_deref(), Duration::from_secs(40)) {
         Ok(o) => o,
-        // like the bot: the other way round if the first way fails
-        Err(e) if js.is_some() => run(&args, None, Duration::from_secs(30)).map_err(|_| e)?,
+        Err(e) if js.is_some() => run(&args, None, Duration::from_secs(40)).map_err(|_| e)?,
         Err(e) => return Err(e),
     };
     let info: serde_json::Value = serde_json::from_str(&out).map_err(|e| e.to_string())?;
@@ -251,7 +325,34 @@ pub fn stream(vid: &str) -> Result<Stream, String> {
         .as_object()
         .map(|h| h.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string()))).collect())
         .unwrap_or_default();
-    let s = Stream { until: expires(&u), url: u, headers };
+    Ok(Stream { until: expires(&u), url: u, headers })
+}
+
+/// Lookups of the same video wait for each other instead of running twice.
+static BUSY: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+
+/// The audio stream of a video (cached until the link expires). `deep`: skip the light way and
+/// ask yt-dlp (after a link from the light way did not play).
+pub fn stream_with(vid: &str, deep: bool) -> Result<Stream, String> {
+    let cache = STREAMS.get_or_init(|| Mutex::new(HashMap::new()));
+    let busy = BUSY.get_or_init(|| Mutex::new(std::collections::HashSet::new()));
+    let t = Instant::now();
+    loop {
+        if !deep {
+            if let Some(s) = cache.lock().unwrap().get(vid) {
+                if s.until > Instant::now() {
+                    return Ok(s.clone());
+                }
+            }
+        }
+        if busy.lock().unwrap().insert(vid.to_string()) || t.elapsed() > Duration::from_secs(60) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let r = if deep { via_ytdlp(vid) } else { direct(vid).or_else(|e| via_ytdlp(vid).map_err(|e2| format!("{e}; yt-dlp: {e2}"))) };
+    busy.lock().unwrap().remove(vid);
+    let s = r?;
     let mut c = cache.lock().unwrap();
     if c.len() > 300 {
         let now = Instant::now();
@@ -259,6 +360,10 @@ pub fn stream(vid: &str) -> Result<Stream, String> {
     }
     c.insert(vid.to_string(), s.clone());
     Ok(s)
+}
+
+pub fn stream(vid: &str) -> Result<Stream, String> {
+    stream_with(vid, false)
 }
 
 pub fn forget(vid: &str) {
@@ -282,5 +387,64 @@ mod tests {
         assert!(soon <= std::time::Instant::now() + std::time::Duration::from_secs(1));
         let later = super::expires("https://r1.googlevideo.com/videoplayback?x=1");
         assert!(later > std::time::Instant::now() + std::time::Duration::from_secs(3000));
+    }
+
+    /// Against the real YouTube (not in the normal test run): `cargo test live -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_songs_resolve_and_stream() {
+        let songs = [
+            ("Californication", "Red Hot Chili Peppers", 329.0),
+            ("Scar Tissue", "Red Hot Chili Peppers", 215.0),
+            ("When I Come Around", "Green Day", 178.0),
+            ("Under the Bridge", "Red Hot Chili Peppers", 264.0),
+            ("In the End", "Linkin Park", 216.0),
+            ("Handwerker", "Mickie Krause, Julian Sommer", 0.0),
+        ];
+        let mut bad = 0;
+        for (title, artist, dur) in songs {
+            let first = artist.split(',').next().unwrap().trim();
+            let found = crate::yt::music_search(&format!("{first} {title}"));
+            let list = match found {
+                Ok(l) => l,
+                Err(e) => {
+                    println!("SEARCH FAILED {title}: {e}");
+                    bad += 1;
+                    continue;
+                }
+            };
+            println!("{title}: {} songs on YouTube Music", list.len());
+            for s in list.iter().take(5) {
+                println!("    {} | {} | {} | {}s | {}", s["id"], s["title"], s["artist"], s["duration"], s["album"]);
+            }
+            let pick = crate::yt::pick_song(&list, title, artist, dur);
+            let Some(id) = pick.first() else {
+                println!("  NO PICK");
+                bad += 1;
+                continue;
+            };
+            let chosen = list.iter().find(|s| s["id"] == id.as_str()).unwrap();
+            println!("  PICK {id}: {} by {} ({}s, want {dur}s)", chosen["title"], chosen["artist"], chosen["duration"]);
+            match super::direct(id) {
+                Ok(s) => {
+                    let mut req = ureq::get(&s.url).set("range", "bytes=0-65535");
+                    for (k, v) in &s.headers {
+                        req = req.set(k, v);
+                    }
+                    match req.call() {
+                        Ok(r) => println!("  STREAM ok: {} {} {:?}", r.status(), r.header("content-type").unwrap_or(""), r.header("content-range")),
+                        Err(e) => {
+                            println!("  STREAM link refused: {e}");
+                            bad += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("  DIRECT failed: {e}");
+                    bad += 1;
+                }
+            }
+        }
+        assert_eq!(bad, 0, "{bad} problems, see output");
     }
 }
