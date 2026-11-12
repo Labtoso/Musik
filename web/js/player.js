@@ -2,12 +2,19 @@
 //  - HtmlEngine: <audio> element (browser, desktop)
 //  - NativeEngine: Android bridge (ExoPlayer service, keeps playing in background)
 import { streamUrl, coverUrl, post, get } from './api.js';
+import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, showStage } from './engines.js';
+
+export const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
 class HtmlEngine extends EventTarget {
   constructor() {
     super();
     this.audio = new Audio();
     this.audio.preload = 'auto';
+    this.audio.crossOrigin = 'anonymous';
+    this.adapters = {};
+    this.active = null; // adapter of another platform, or null for <audio>
+    this.volume = 1;
     this.items = [];
     this.index = -1;
     this.repeat = 'off';
@@ -37,6 +44,55 @@ class HtmlEngine extends EventTarget {
   #emit(type, detail) {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
+  #adapter(kind) {
+    if (this.adapters[kind]) return this.adapters[kind];
+    const Cls = { youtube: YouTubeAdapter, soundcloud: SoundCloudAdapter, spotify: SpotifyAdapter }[kind];
+    if (!Cls) return null;
+    const ad = new Cls();
+    const mine = (fn) => (ev) => ad === this.active && fn(ev.detail || {});
+    ad.addEventListener('time', mine((d) => this.#emit('time', d)));
+    ad.addEventListener('playing', mine((d) => this.#emit('playing', d)));
+    ad.addEventListener('buffering', mine((d) => this.#emit('buffering', d)));
+    ad.addEventListener('error', mine((d) => {
+      this.#emit('error', { message: d.message || 'playback' });
+      setTimeout(() => ad === this.active && this.#advance('error'), 1200);
+    }));
+    ad.addEventListener('ended', mine(() => {
+      if (this.repeat === 'one') {
+        const it = this.items[this.index];
+        ad.load(it.ext.id, 0, true, it.ext.url);
+        return this.#emit('index', { index: this.index, reason: 'repeat' });
+      }
+      this.#advance('ended');
+    }));
+    this.adapters[kind] = ad;
+    return ad;
+  }
+  // ---------- equalizer (WebAudio, only for songs from the server) ----------
+  setEq(eq) {
+    this.eq = eq;
+    if (!eq?.on && !this.ctx) return;
+    try {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AC();
+        const src = this.ctx.createMediaElementSource(this.audio);
+        this.pre = this.ctx.createGain();
+        this.filters = EQ_FREQS.map((f, i) => {
+          const b = this.ctx.createBiquadFilter();
+          b.type = i === 0 ? 'lowshelf' : i === EQ_FREQS.length - 1 ? 'highshelf' : 'peaking';
+          b.frequency.value = f;
+          b.Q.value = 1.1;
+          return b;
+        });
+        [src, this.pre, ...this.filters].reduce((a, b) => (a.connect(b), b)).connect(this.ctx.destination);
+      }
+      const on = !!eq?.on;
+      this.filters.forEach((b, i) => (b.gain.value = on ? Number(eq.gains?.[i]) || 0 : 0));
+      this.pre.gain.value = on ? Math.pow(10, (Number(eq.pre) || 0) / 20) : 1;
+      if (this.ctx.state === 'suspended' && !this.audio.paused) this.ctx.resume();
+    } catch {}
+  }
   #advance(reason) {
     if (this.index + 1 < this.items.length) this.#load(this.index + 1, 0, true, reason);
     else if (this.repeat === 'all' && this.items.length) this.#load(0, 0, true, reason);
@@ -49,6 +105,23 @@ class HtmlEngine extends EventTarget {
     const it = this.items[i];
     if (!it) return;
     this.index = i;
+    const ad = it.ext ? this.#adapter(it.ext.player) : null;
+    if (this.active && this.active !== ad) this.active.stop();
+    if (it.ext) {
+      this.audio.pause();
+      this.active = ad;
+      if (!ad) {
+        this.#emit('index', { index: i, reason });
+        return setTimeout(() => this.#advance('error'), 300);
+      }
+      ad.setVolume?.(this.volume);
+      ad.load(it.ext.id, pos, autoplay, it.ext.url).catch(() => this.#emit('error', { message: 'playback' }));
+      this.#emit('index', { index: i, reason });
+      return;
+    }
+    this.active = null;
+    showStage('');
+    if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
     this.audio.src = it.url;
     if (pos) {
       const seek = () => {
@@ -65,6 +138,9 @@ class HtmlEngine extends EventTarget {
     if (index >= 0 && index < items.length) this.#load(index, pos, autoplay, 'user');
     else {
       this.index = -1;
+      this.active?.stop();
+      this.active = null;
+      showStage('');
       this.audio.removeAttribute('src');
       this.audio.load();
     }
@@ -77,7 +153,7 @@ class HtmlEngine extends EventTarget {
     this.items.splice(i, 1);
     if (i < this.index) this.index--;
     else if (i === this.index) {
-      if (this.index < this.items.length) this.#load(this.index, 0, !this.audio.paused, 'user');
+      if (this.index < this.items.length) this.#load(this.index, 0, this.playing, 'user');
       else this.setQueue(this.items, -1);
     }
   }
@@ -93,13 +169,18 @@ class HtmlEngine extends EventTarget {
   }
   play() {
     if (this.index < 0 && this.items.length) return this.#load(0, 0, true, 'user');
+    if (this.active) return this.active.play();
+    if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
     this.audio.play().catch(() => {});
   }
   pause() {
+    if (this.active) return this.active.pause();
     this.audio.pause();
   }
   seek(sec) {
-    if (Number.isFinite(sec)) this.audio.currentTime = sec;
+    if (!Number.isFinite(sec)) return;
+    if (this.active) return this.active.seek(sec);
+    this.audio.currentTime = sec;
   }
   next() {
     if (this.index + 1 < this.items.length) this.#load(this.index + 1, 0, true, 'user');
@@ -110,16 +191,18 @@ class HtmlEngine extends EventTarget {
     else this.seek(0);
   }
   setVolume(v) {
-    this.audio.volume = Math.max(0, Math.min(1, v));
+    this.volume = Math.max(0, Math.min(1, v));
+    this.audio.volume = this.volume;
+    this.active?.setVolume?.(this.volume);
   }
   setRepeat(mode) {
     this.repeat = mode;
   }
   get position() {
-    return this.audio.currentTime || 0;
+    return this.active ? this.active.position : this.audio.currentTime || 0;
   }
   get playing() {
-    return !this.audio.paused;
+    return this.active ? this.active.playing : !this.audio.paused;
   }
 }
 
@@ -195,6 +278,7 @@ class NativeEngine extends EventTarget {
 }
 
 function toItem(t) {
+  if (t.ext) return { id: t.id, ext: t.ext, url: '', title: t.title, artist: t.artist || '', album: t.album || '', artwork: coverUrl(t.id), duration: t.duration || 0 };
   return {
     id: t.id,
     url: streamUrl(t.id),
@@ -212,7 +296,9 @@ export class Player extends EventTarget {
   constructor() {
     super();
     this.native = !!window.MusikAndroid;
-    this.engine = this.native ? new NativeEngine(window.MusikAndroid) : new HtmlEngine();
+    this.nativeEngine = this.native ? new NativeEngine(window.MusikAndroid) : null;
+    this.htmlEngine = null;
+    this.engine = this.native ? this.nativeEngine : this.#html();
     this.queue = [];
     this.original = null; // order before shuffle
     this.index = -1;
@@ -231,8 +317,32 @@ export class Player extends EventTarget {
     } catch {
       this.pending = [];
     }
-    const e = this.engine;
-    e.addEventListener('time', (ev) => {
+    if (this.nativeEngine) this.#bind(this.nativeEngine);
+    setInterval(() => this.flushEvents(), 20000);
+    addEventListener('pagehide', () => this.#finishListen('partial', true));
+    this.#mediaSession();
+  }
+
+  #html() {
+    if (!this.htmlEngine) {
+      this.htmlEngine = new HtmlEngine();
+      if (this.eq) this.htmlEngine.setEq(this.eq);
+      this.#bind(this.htmlEngine);
+    }
+    return this.htmlEngine;
+  }
+  /** On Android, songs from other platforms can only play in the app view, so the queue moves there. */
+  #pickEngine(list) {
+    if (!this.native) return;
+    const want = list.some((t) => t.ext) ? this.#html() : this.nativeEngine;
+    if (want === this.engine) return;
+    this.engine.pause();
+    this.engine = want;
+  }
+
+  #bind(e) {
+    const mine = (fn) => (ev) => e === this.engine && fn(ev);
+    e.addEventListener('time', mine((ev) => {
       const { position, duration } = ev.detail;
       if (this.listen && this.playing) {
         const d = position - this.listen.last;
@@ -242,20 +352,28 @@ export class Player extends EventTarget {
       this.position = position;
       if (duration) this.duration = duration;
       this.#emit('time');
-    });
-    e.addEventListener('playing', (ev) => {
+    }));
+    e.addEventListener('playing', mine((ev) => {
       this.playing = ev.detail.playing;
       this.#emit('state');
-    });
-    e.addEventListener('buffering', (ev) => {
+    }));
+    e.addEventListener('buffering', mine((ev) => {
       this.buffering = ev.detail.buffering;
       this.#emit('state');
-    });
-    e.addEventListener('error', () => this.#emit('error'));
-    e.addEventListener('index', (ev) => this.#onIndex(ev.detail.index, ev.detail.reason));
-    setInterval(() => this.flushEvents(), 20000);
-    addEventListener('pagehide', () => this.#finishListen('partial', true));
-    this.#mediaSession();
+    }));
+    e.addEventListener('error', mine((ev) => ((this.lastError = ev.detail?.message), this.#emit('error'))));
+    e.addEventListener('index', mine((ev) => this.#onIndex(ev.detail.index, ev.detail.reason)));
+  }
+
+  /** Equalizer settings { on, pre, gains[10] } for the browser and the Android player. */
+  setEq(eq) {
+    this.eq = eq;
+    this.htmlEngine?.setEq(eq);
+    if (this.native) {
+      try {
+        window.MusikAndroid.setEq?.(JSON.stringify(eq));
+      } catch {}
+    }
   }
 
   #emit(type) {
@@ -271,6 +389,7 @@ export class Player extends EventTarget {
     const l = this.listen;
     if (!l) return;
     this.listen = null;
+    if (typeof l.id !== 'number') return; // songs from other platforms do not count
     const dur = l.duration || this.duration || 0;
     let kind = kindHint;
     if (kind === 'auto') kind = dur && l.played >= dur * 0.9 ? 'complete' : 'partial';
@@ -317,11 +436,11 @@ export class Player extends EventTarget {
   }
 
   async #maybeExtend() {
-    if (!this.autoplay || this.repeat !== 'off' || this.fetchingMore || !this.current) return;
+    if (!this.autoplay || this.repeat !== 'off' || this.fetchingMore || !this.current || this.current.ext) return;
     if (this.queue.length - this.index - 1 >= 2) return;
     this.fetchingMore = true;
     try {
-      const exclude = this.queue.slice(-200).map((t) => t.id).join(',');
+      const exclude = this.queue.slice(-200).map((t) => t.id).filter((id) => typeof id === 'number').join(',');
       const more = await get(`/api/recommend/radio/${this.current.id}?limit=10&exclude=${exclude}`);
       if (more.length) this.add(more, false);
     } catch {
@@ -343,11 +462,12 @@ export class Player extends EventTarget {
       list = this.#localShuffle(list);
       idx = 0;
       this.shuffled = true;
-      this.#smartShuffle(list.map((t) => t.id), 0);
+      if (!list.some((t) => t.ext)) this.#smartShuffle(list.map((t) => t.id), 0);
     }
     this.queue = list;
     this.index = -1;
     this.listen = null;
+    this.#pickEngine(list);
     this.engine.setQueue(list.map(toItem), idx, 0, true);
     this.#emit('change');
   }
@@ -392,7 +512,7 @@ export class Player extends EventTarget {
       const upcoming = this.#localShuffle(this.queue.slice(this.index + 1));
       this.shuffled = true;
       this.#replaceUpcoming(upcoming);
-      this.#smartShuffle(this.queue.map((t) => t.id), this.index);
+      if (!this.queue.some((t) => t.ext)) this.#smartShuffle(this.queue.map((t) => t.id), this.index);
     } else {
       this.shuffled = false;
       if (this.original && this.current) {
@@ -404,10 +524,21 @@ export class Player extends EventTarget {
     }
   }
 
+  /** Android: a song from another platform joined a queue that runs in the background service. */
+  #moveToHtml() {
+    if (!this.native || this.engine === this.htmlEngine) return false;
+    const pos = this.position, playing = this.playing;
+    this.engine.pause();
+    this.engine = this.#html();
+    this.engine.setQueue(this.queue.map(toItem), this.index, pos, playing);
+    return true;
+  }
+
   add(tracks, toast = true) {
     if (!this.queue.length) return this.playList(tracks, 0);
     const at = this.queue.length;
     this.queue.push(...tracks);
+    if (tracks.some((t) => t.ext) && this.#moveToHtml()) return (this.#emit('change'), toast);
     this.engine.insert(at, tracks.map(toItem));
     this.#emit('change');
     return toast;
@@ -417,6 +548,7 @@ export class Player extends EventTarget {
     if (!this.queue.length) return this.playList(tracks, 0);
     const at = this.index + 1;
     this.queue.splice(at, 0, ...tracks);
+    if (tracks.some((t) => t.ext) && this.#moveToHtml()) return this.#emit('change');
     this.engine.insert(at, tracks.map(toItem));
     this.#emit('change');
   }

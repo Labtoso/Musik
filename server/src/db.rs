@@ -75,8 +75,11 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
         }
         None => Connection::open_in_memory()?,
     };
-    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
+    )?;
     conn.execute_batch(SCHEMA)?;
+    conn.execute_batch(crate::ext::SCHEMA)?;
     Ok(conn)
 }
 

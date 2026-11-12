@@ -440,3 +440,96 @@ code.addr { display: inline-block; padding: 6px 10px; border-radius: 10px; backg
   .row { padding: 6px 0; }
   .row .like:not(.on) { visibility: hidden; }
 }
+
+/* ---------- 1.3: platforms, import, share, lyrics, equalizer ---------- */
+p.lead { position: static; width: auto; height: auto; display: block; max-width: 620px; margin-bottom: 18px; }
+.src {
+  display: inline-grid; place-items: center; min-width: 22px; height: 18px; padding: 0 5px; border-radius: 4px;
+  font-size: 10px; font-weight: 750; letter-spacing: 0.02em; background: var(--surface2); color: var(--muted); vertical-align: 1px;
+}
+.src-spotify { background: #1db95422; color: #1ed760; }
+.src-youtube { background: #ff000022; color: #ff5c5c; }
+.src-ytmusic { background: #ff004422; color: #ff6b8a; }
+.src-soundcloud { background: #ff550022; color: #ff8a3d; }
+.src-deezer { background: #a238ff22; color: #c58cff; }
+.src-local, .src-files { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.like-slot { display: grid; place-items: center; width: 36px; }
+.row.off { opacity: 0.4; }
+.row.off:hover { background: transparent; }
+
+.srcgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 22px; }
+.srccard {
+  display: flex; align-items: flex-start; gap: 12px; padding: 14px; border-radius: var(--r-card); background: var(--surface);
+  border: 1px solid var(--line); transition: border-color 0.12s, background 0.12s;
+}
+.srccard:hover { background: var(--surface2); }
+.srccard.on { border-color: var(--accent); }
+.srccard input { margin: 2px 0 0; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.srccard .src { margin-top: 1px; }
+.srctext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.accesses { display: grid; gap: 12px; max-width: 620px; }
+.access { padding: 16px; border-radius: var(--r-card); background: var(--surface); }
+.access.hide { display: none; }
+.access h3 { color: var(--text); font-size: 15px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 18px; background: var(--surface2); font-weight: 600; }
+.pill.ok { color: #3dbb7a; background: #3dbb7a1c; }
+.pill .ic { width: 16px; height: 16px; }
+.wizard-actions { margin-top: 22px; }
+
+.importform { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0 8px; max-width: 880px; }
+.importform .field { flex: 1 1 320px; margin-bottom: 0; }
+.importform .stack { margin: 0; }
+.importform .field input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border-radius: var(--r-ctl); border: 1px solid var(--line); background: var(--bg); outline: none; }
+.importform input:focus { border-color: var(--accent); }
+.impprev { max-width: 620px; margin: 16px 0 10px; padding: 16px; border-radius: var(--r-card); background: var(--surface); }
+.implist { margin: 12px 0 0; padding-left: 22px; max-height: 320px; overflow-y: auto; }
+.implist li { padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.err { color: var(--danger); }
+.dim { opacity: 0.45; pointer-events: none; }
+
+/* lyrics */
+.lyrbody.big { max-width: 760px; }
+.lyrics p { font-size: 22px; line-height: 1.35; font-weight: 700; margin: 0 0 14px; color: var(--text); transition: color 0.2s, opacity 0.2s; }
+.lyrics.synced p { color: var(--muted); opacity: 0.75; cursor: pointer; }
+.lyrics.synced p:hover { opacity: 1; }
+.lyrics.synced p.on { color: var(--text); opacity: 1; }
+.lyrsrc { margin-top: 22px; }
+.fs-lyrics { top: 18%; padding: 22px 22px 60px; background: color-mix(in srgb, var(--dyn-bg, var(--accent)) 30%, var(--bg2)); }
+.fs-lyrics .lyrics p { font-size: 24px; }
+
+/* equalizer */
+.eq { margin-top: 10px; transition: opacity 0.15s; }
+.eq .select { margin-bottom: 14px; }
+.eqbands { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; max-width: 560px; margin-bottom: 14px; }
+.band { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.band input {
+  writing-mode: vertical-lr; direction: rtl; -webkit-appearance: none; appearance: none; background: transparent;
+  width: 28px; height: 140px; margin: 0; padding: 0; cursor: pointer;
+}
+.band input::-webkit-slider-runnable-track { width: 4px; height: 100%; border-radius: 2px; background: #3a3d44; }
+.band input::-moz-range-track { width: 4px; border-radius: 2px; background: #3a3d44; }
+.band input::-moz-range-progress { background: transparent; }
+.band input::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); margin: 0 0 0 -6px; border: 0; opacity: 1; }
+.eqpre input::-webkit-slider-runnable-track { background: #3a3d44; }
+.eqpre input::-webkit-slider-thumb { opacity: 1; background: var(--accent); }
+.band input::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 0; }
+.eqpre { max-width: 360px; }
+.eqpre input { padding: 0; border: 0; height: 24px; accent-color: var(--accent); }
+
+/* stage for YouTube / SoundCloud players (their terms want the player visible) */
+.ext-stage {
+  position: fixed; right: 16px; bottom: calc(var(--bar) + 12px); width: 256px; height: 144px; z-index: 30;
+  border-radius: var(--r-card); overflow: hidden; background: #000; box-shadow: 0 10px 34px #000a; display: none;
+}
+.ext-stage[data-kind='yt'], .ext-stage[data-kind='sc'] { display: block; }
+.ext-stage.in-fs { z-index: 45; border-radius: 8px; box-shadow: none; }
+.ext-yt, .ext-sc, .ext-yt iframe, .ext-sc iframe { width: 100%; height: 100%; border: 0; display: block; }
+.ext-stage[data-kind='yt'] .ext-sc, .ext-stage[data-kind='sc'] .ext-yt { display: none; }
+body:has(.fs-queue.open) .ext-stage.in-fs { visibility: hidden; }
+@media (max-width: 899px) {
+  .ext-stage { right: 12px; width: 176px; height: 99px; bottom: calc(var(--bar) + 76px + var(--safe-b)); }
+  .eqbands { gap: 2px; }
+  .band input { height: 120px; }
+  .lyrics p { font-size: 20px; }
+  .srcgrid { grid-template-columns: 1fr; }
+}

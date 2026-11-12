@@ -477,6 +477,8 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
     <div><h4 data-t="q4"></h4><p data-h="a4"></p></div>
     <div><h4 data-t="q5"></h4><p data-h="a5"></p></div>
     <div><h4 data-t="q6"></h4><p data-h="a6"></p></div>
+    <div><h4 data-t="q7"></h4><p data-h="a7"></p></div>
+    <div><h4 data-t="q8"></h4><p data-h="a8"></p></div>
   </div>
 </section>
 
@@ -494,7 +496,7 @@ const T = {
     lead: 'Ein Server in deinem Proxmox, Apps für <b>Android, Windows und Linux</b>. Kein Abo, keine Werbung, keine fremde Cloud. Dafür ein Mix, der mitbekommt, was du wirklich hörst.',
     dlFor: 'Für {os} laden', dlAll: 'Apps laden', listen: 'Reinhören', listenStop: 'Stopp',
     metaVer: 'Version', metaFree: 'Kostenlos', metaOs: 'Open Source',
-    marq: ['Proxmox', 'FLAC', 'Android', 'Rust', 'OGG', 'Windows', 'Playlists', 'Linux', 'MP3', 'Radio', 'Mehrere Nutzer', 'Hintergrund-Wiedergabe'],
+    marq: ['Proxmox', 'FLAC', 'Android', 'Rust', 'OGG', 'Windows', 'Playlists', 'Linux', 'MP3', 'Radio', 'Mehrere Nutzer', 'Hintergrund-Wiedergabe', 'Equalizer', 'Songtexte', 'Teilen', 'Spotify-Import'],
     a1h: 'Drei Teile.<br><em>Ein Signal.</em>', a1p: 'Deine Dateien bleiben bei dir. Der Server liest sie ein, merkt sich, was du hörst, und streamt an jede App, die du verbindest.',
     s1: 'Deine Musik', s1p: 'Ein Ordner voller Songs. Cover und Tags liest der Server selbst aus.', s1a: 'Ordner einbinden', s1b: 'Oder in der App hochladen',
     s2: 'Der Server', s2p: 'Ein kleines Programm in Rust, als Container in Proxmox. Braucht kaum Speicher und hält alles zusammen.', s2a: 'Proxmox-Container', s2b: 'Mix-Algorithmus', s2c: 'Nutzer, Playlists, Likes',
@@ -530,12 +532,14 @@ const T = {
     win1: '<code>musik-server-windows-x64.exe</code> laden und starten. Er nimmt deinen Musik-Ordner.',
     win2: 'Andere Ordner kommen in eine <code>.env</code> neben der exe: <code>MUSIC_DIRS=D:\\Musik</code>.',
     b3h: 'Liner <em>Notes.</em>',
-    q1: 'Wo liegt meine Musik?', a1: 'Nur auf deinem Server. Nichts geht an fremde Dienste, die Apps streamen direkt von dir.',
+    q1: 'Wo liegt meine Musik?', a1: 'Deine Dateien nur auf deinem Server, die Apps streamen direkt von dir. Andere Plattformen kommen nur dazu, wenn du sie einschaltest.',
     q2: 'Geht das unterwegs?', a2: 'Ja, über Tailscale. Der Installer richtet es auf Wunsch mit ein, ohne Portfreigabe. Unterwegs wechselt die App von selbst auf die Tailscale-Adresse. Die Schritte stehen unter Server, Tab Unterwegs.',
     q3: 'Wie viele Leute?', a3: 'So viele du willst. Der erste Account ist Admin und legt weitere an. Jeder hat eigene Playlists, Likes und einen eigenen Mix.',
     q4: 'Wie kommen neue Songs rein?', a4: 'Datei in den Ordner legen oder in der App hochladen. Der Server schaut alle 30 Minuten nach, oder sofort mit „Bibliothek neu einlesen“.',
     q5: 'Was braucht der Server?', a5: 'Sehr wenig. Ein Kern und 512 MB RAM reichen. Läuft auf x64 und ARM, also auch auf einem Raspberry Pi.',
     q6: 'Und Updates?', a6: 'Installationsbefehl erneut ausführen. Deine Daten, Playlists und Likes bleiben. Neue Apps gibt es immer hier.',
+    q7: 'Geht auch Spotify oder YouTube?', a7: 'Ja, wenn du willst. Beim ersten Start wählst du, woher Songs kommen dürfen: lokal, YouTube, YouTube Music, Spotify, SoundCloud. Playlists holst du per Link oder Datei rein, Deezer und Exportify-CSV gehen auch. Was du selbst hast, spielt immer lokal. Der Rest läuft über die offiziellen Player der Plattform.',
+    q8: 'Teilen, Equalizer, Songtexte?', a8: 'Alles drin. Songs, Alben und Playlists teilst du per Link, auch an Leute ohne Konto. Wer die App hat, speichert sie mit einem Tipp. Dazu ein 10-Band-Equalizer und Songtexte, die beim Hören mitlaufen.',
     all: 'Alle Versionen'
   },
   en: {
@@ -545,7 +549,7 @@ const T = {
     lead: 'A server in your Proxmox, apps for <b>Android, Windows and Linux</b>. No subscription, no ads, no one else’s cloud. Instead, a mix that notices what you actually listen to.',
     dlFor: 'Get it for {os}', dlAll: 'Get the apps', listen: 'Listen', listenStop: 'Stop',
     metaVer: 'Version', metaFree: 'Free', metaOs: 'Open source',
-    marq: ['Proxmox', 'FLAC', 'Android', 'Rust', 'OGG', 'Windows', 'Playlists', 'Linux', 'MP3', 'Radio', 'Several users', 'Background playback'],
+    marq: ['Proxmox', 'FLAC', 'Android', 'Rust', 'OGG', 'Windows', 'Playlists', 'Linux', 'MP3', 'Radio', 'Several users', 'Background playback', 'Equalizer', 'Lyrics', 'Sharing', 'Spotify import'],
     a1h: 'Three parts.<br><em>One signal.</em>', a1p: 'Your files stay with you. The server reads them in, remembers what you play and streams to every app you connect.',
     s1: 'Your music', s1p: 'A folder full of songs. The server reads covers and tags on its own.', s1a: 'Mount a folder', s1b: 'Or upload in the app',
     s2: 'The server', s2p: 'A small program written in Rust, running as a container in Proxmox. Uses hardly any memory and ties it all together.', s2a: 'Proxmox container', s2b: 'Mix algorithm', s2c: 'Users, playlists, likes',
@@ -581,12 +585,14 @@ const T = {
     win1: 'Download <code>musik-server-windows-x64.exe</code> and run it. It uses your Music folder.',
     win2: 'Other folders go into a <code>.env</code> next to the exe: <code>MUSIC_DIRS=D:\\Music</code>.',
     b3h: 'Liner <em>notes.</em>',
-    q1: 'Where is my music?', a1: 'Only on your server. Nothing goes to third parties, the apps stream straight from you.',
+    q1: 'Where is my music?', a1: 'Your files stay on your server, the apps stream straight from you. Other platforms only join in when you switch them on.',
     q2: 'Does it work on the go?', a2: 'Yes, over Tailscale. The installer sets it up if you want, no port forwarding. Away from home the app switches to the Tailscale address by itself. The steps are under Server, tab On the go.',
     q3: 'How many people?', a3: 'As many as you like. The first account is admin and adds others. Everyone gets their own playlists, likes and mix.',
     q4: 'How do new songs get in?', a4: 'Drop files into the folder or upload them in the app. The server checks every 30 minutes, or right away with “Rescan library”.',
     q5: 'What does the server need?', a5: 'Very little. One core and 512 MB RAM. Runs on x64 and ARM, so a Raspberry Pi works too.',
     q6: 'And updates?', a6: 'Run the install command again. Your data, playlists and likes stay. New apps are always here.',
+    q7: 'Does Spotify or YouTube work too?', a7: 'Yes, if you want. On first start you pick where songs may come from: local, YouTube, YouTube Music, Spotify, SoundCloud. Bring playlists in by link or file, Deezer and Exportify CSV work too. Whatever you own plays locally. The rest runs through each platform’s official player.',
+    q8: 'Sharing, equalizer, lyrics?', a8: 'All in. Share songs, albums and playlists by link, even with people without an account. Anyone with the app saves them with one tap. Plus a 10-band equalizer and lyrics that follow along.',
     all: 'All versions'
   }
 };

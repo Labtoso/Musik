@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111214">
+<meta name="color-scheme" content="dark">
+<title>Musik</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+  :root { --bg:#111214; --surface:#1d1f23; --surface2:#25272c; --line:#2c2f35; --text:#ececee; --muted:#9a9ca3; --accent:#4c8dff; --ink:#0b1220; color-scheme:dark; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; min-height:100%; }
+  body { background:var(--bg); color:var(--text); font:15px/1.45 'Segoe UI Variable Text','Segoe UI',Roboto,system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; }
+  a { color:inherit; text-decoration:none; }
+  button { font:inherit; color:inherit; background:none; border:0; padding:0; cursor:pointer; }
+  .wrap { max-width:760px; margin:0 auto; padding:calc(24px + env(safe-area-inset-top,0px)) 16px calc(120px + env(safe-area-inset-bottom,0px)); }
+  .head { display:flex; gap:22px; align-items:flex-end; margin-bottom:22px; position:relative; }
+  .head::before { content:''; position:fixed; inset:0 0 auto 0; height:340px; background:linear-gradient(var(--tint,#2a3550), transparent); opacity:.55; z-index:-1; }
+  .cover { width:200px; height:200px; border-radius:8px; background:var(--surface2) center/cover; flex:none; box-shadow:0 12px 40px #0008; }
+  .kind { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  h1 { font-size:clamp(26px,6vw,46px); line-height:1.05; margin:6px 0 8px; letter-spacing:-.02em; }
+  .sub { color:var(--muted); }
+  .actions { display:flex; gap:12px; align-items:center; margin:8px 0 18px; flex-wrap:wrap; }
+  .play { width:56px; height:56px; border-radius:50%; background:var(--accent); color:var(--ink); display:grid; place-items:center; }
+  .play svg { width:26px; height:26px; }
+  .btn { height:38px; padding:0 16px; border-radius:20px; border:1px solid var(--line); font-weight:600; display:inline-flex; align-items:center; gap:8px; text-decoration:none; }
+  .btn:hover { border-color:var(--muted); }
+  .row { display:grid; grid-template-columns:28px 44px 1fr auto; gap:12px; align-items:center; padding:7px 8px; border-radius:6px; }
+  .row:hover { background:var(--surface); }
+  .row.on .t { color:var(--accent); }
+  .row .n { color:var(--muted); text-align:right; font-variant-numeric:tabular-nums; }
+  .row .c { width:44px; height:44px; border-radius:4px; background:var(--surface2) center/cover; }
+  .row .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .a { color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .d { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
+  .src { font-size:10.5px; font-weight:700; padding:1px 6px; border-radius:4px; background:var(--surface2); color:var(--muted); margin-right:6px; }
+  h3 { font-size:13px; color:var(--muted); margin:26px 8px 8px; font-weight:600; }
+  .bar { position:fixed; left:0; right:0; bottom:0; background:#17181bf2; backdrop-filter:blur(12px); border-top:1px solid var(--line); padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px)); display:none; }
+  .bar.show { display:block; }
+  .bar .in { max-width:760px; margin:0 auto; display:flex; align-items:center; gap:12px; }
+  .bar .meta { flex:1; min-width:0; }
+  .bar .meta div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar .ctl { width:40px; height:40px; border-radius:50%; display:grid; place-items:center; }
+  .bar .ctl.main { background:var(--text); color:var(--bg); }
+  .bar svg { width:20px; height:20px; }
+  .prog { height:3px; background:var(--line); border-radius:2px; margin-top:8px; cursor:pointer; }
+  .prog i { display:block; height:100%; width:0; background:var(--accent); border-radius:2px; }
+  .msg { text-align:center; color:var(--muted); margin-top:30vh; }
+  .toast { position:fixed; left:50%; bottom:110px; transform:translateX(-50%); background:var(--surface2); padding:10px 16px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.on { opacity:1; }
+  .foot { margin-top:30px; color:var(--muted); font-size:13px; text-align:center; }
+  @media (max-width:560px) {
+    .head { flex-direction:column; align-items:flex-start; }
+    .cover { width:min(62vw,240px); height:min(62vw,240px); align-self:center; }
+    .row { grid-template-columns:44px 1fr auto; }
+    .row .n { display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"><p class="msg" id="msg">…</p></div>
+<div class="bar" id="bar"><div class="in">
+  <div class="meta"><div id="bt" style="font-weight:600"></div><div id="ba" class="sub" style="font-size:13px"></div></div>
+  <button class="ctl" id="prev" aria-label="Zurück"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+  <button class="ctl main" id="tog" aria-label="Play"></button>
+  <button class="ctl" id="next" aria-label="Weiter"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+</div><div class="in" style="display:block"><div class="prog" id="prog"><i id="pi"></i></div></div></div>
+<div class="toast" id="toast"></div>
+<audio id="au" preload="none"></audio>
+<script>
+(() => {
+  const de = (navigator.language || 'de').startsWith('de');
+  const T = de
+    ? { play: 'Abspielen', save: 'In meiner Bibliothek speichern', saved: 'Gespeichert', open: 'In der App öffnen', notFound: 'Dieser Link ist nicht (mehr) gültig.', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'Auf anderen Plattformen', login: 'Melde dich in der App an, um zu speichern.', songs: 'Songs', on: 'Geteilt von' }
+    : { play: 'Play', save: 'Save to my library', saved: 'Saved', open: 'Open in the app', notFound: 'This link is not valid (anymore).', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'On other platforms', login: 'Sign in in the app to save.', songs: 'songs', on: 'Shared from' };
+  document.documentElement.lang = de ? 'de' : 'en';
+  const SRC = { spotify: 'Spotify', youtube: 'YouTube', ytmusic: 'YT Music', soundcloud: 'SoundCloud', deezer: 'Deezer', apple: 'Apple Music', tidal: 'Tidal' };
+  const PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+  const PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const fmt = (s) => { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const token = location.pathname.split('/s/')[1]?.split(/[/?#]/)[0] || '';
+  const base = '/api/public/' + encodeURIComponent(token);
+  let conn = {};
+  try { conn = JSON.parse(localStorage.getItem('musik.conn')) || {}; } catch {}
+  const au = $('au');
+  let data = null, cur = -1;
+
+  const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 2600); };
+
+  function tint(url) {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas'); c.width = c.height = 8;
+        const x = c.getContext('2d'); x.drawImage(img, 0, 0, 8, 8);
+        const d = x.getImageData(0, 0, 8, 8).data; let r = 0, g = 0, b = 0;
+        for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+        const n = d.length / 4;
+        document.documentElement.style.setProperty('--tint', `rgb(${r / n | 0},${g / n | 0},${b / n | 0})`);
+      } catch {}
+    };
+    img.src = url;
+  }
+
+  function render() {
+    const d = data;
+    document.title = d.title + ' · Musik';
+    const firstCover = d.tracks.find((t) => t.cover) ? base + '/cover/' + d.tracks.find((t) => t.cover).i : (d.external.find((e) => e.cover)?.cover || '');
+    const total = d.tracks.length + d.external.length;
+    let h = `<div class="head"><div class="cover" style="${firstCover ? `background-image:url('${esc(firstCover)}')` : ''}"></div><div>
+      <div class="kind">${T[d.kind] || ''}</div><h1>${esc(d.title)}</h1>
+      <div class="sub">${esc(d.sub)}${d.kind !== 'track' ? ` · ${total} ${T.songs}` : ''}</div></div></div>
+      <div class="actions">${d.tracks.length ? `<button class="play" id="playall" aria-label="${T.play}">${PLAY}</button>` : ''}
+      <button class="btn" id="save">${T.save}</button><a class="btn" href="/#/home">${T.open}</a></div>`;
+    h += d.tracks.map((t) => `<div class="row" data-i="${t.i}"><span class="n">${t.i + 1}</span><span class="c" style="${t.cover ? `background-image:url('${base}/cover/${t.i}')` : ''}"></span>
+      <div style="min-width:0"><div class="t">${esc(t.title)}</div><div class="a">${esc(t.artist)}</div></div><span class="d">${fmt(t.duration)}</span></div>`).join('');
+    if (d.external.length) {
+      h += `<h3>${T.other}</h3>` + d.external.map((e, k) => `<a class="row" href="${esc(/^https:\/\//.test(e.url) ? e.url : '#')}" target="_blank" rel="noopener"><span class="n">${d.tracks.length + k + 1}</span>
+        <span class="c" style="${/^https:\/\//.test(e.cover) ? `background-image:url('${esc(e.cover)}')` : ''}"></span>
+        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="a"><span class="src">${esc(SRC[e.source] || e.source)}</span>${esc(e.artist)}</div></div><span class="d">${e.duration ? fmt(e.duration) : ''}</span></a>`).join('');
+    }
+    h += `<div class="foot">${T.on} ${esc(d.server || 'Musik')}</div>`;
+    $('root').innerHTML = h;
+    if (firstCover) tint(firstCover);
+    $('playall')?.addEventListener('click', () => (cur >= 0 ? toggle() : play(0)));
+    $('save').addEventListener('click', save);
+    document.querySelectorAll('.row[data-i]').forEach((r) => r.addEventListener('click', () => play(+r.dataset.i)));
+  }
+
+  function play(i) {
+    if (!data.tracks[i]) return;
+    cur = i;
+    au.src = base + '/stream/' + i;
+    au.play().catch(() => {});
+    const t = data.tracks[i];
+    $('bt').textContent = t.title; $('ba').textContent = t.artist;
+    $('bar').classList.add('show');
+    document.querySelectorAll('.row[data-i]').forEach((r) => r.classList.toggle('on', +r.dataset.i === i));
+    if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: t.album, artwork: t.cover ? [{ src: base + '/cover/' + i }] : [] });
+  }
+  const toggle = () => (au.paused ? au.play() : au.pause());
+  const icons = () => { $('tog').innerHTML = au.paused ? PLAY : PAUSE; const p = $('playall'); if (p) p.innerHTML = au.paused || cur < 0 ? PLAY : PAUSE; };
+  au.addEventListener('play', icons); au.addEventListener('pause', icons);
+  au.addEventListener('ended', () => (cur + 1 < data.tracks.length ? play(cur + 1) : icons()));
+  au.addEventListener('timeupdate', () => ($('pi').style.width = (au.duration ? (au.currentTime / au.duration) * 100 : 0) + '%'));
+  $('tog').addEventListener('click', toggle);
+  $('prev').addEventListener('click', () => (au.currentTime > 3 ? (au.currentTime = 0) : play(Math.max(0, cur - 1))));
+  $('next').addEventListener('click', () => play(cur + 1));
+  $('prog').addEventListener('click', (e) => { const r = e.currentTarget.getBoundingClientRect(); if (au.duration) au.currentTime = ((e.clientX - r.left) / r.width) * au.duration; });
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.setActionHandler('nexttrack', () => play(cur + 1));
+    navigator.mediaSession.setActionHandler('previoustrack', () => play(Math.max(0, cur - 1)));
+  }
+  icons();
+
+  async function save() {
+    // only works when this browser is signed in to this same server
+    if (!conn.token || (conn.server && conn.server !== location.origin)) return toast(T.login);
+    const r = await fetch(base + '/save', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
+    if (r.status === 401) return toast(T.login);
+    if (!r.ok) return toast('Fehler ' + r.status);
+    const j = await r.json();
+    $('save').textContent = T.saved + ' ✓';
+    $('save').disabled = true;
+    toast(T.saved + ': ' + j.name);
+  }
+
+  fetch(base)
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((d) => { data = d; render(); })
+    .catch(() => ($('msg').textContent = T.notFound));
+})();
+</script>
+</body>
+</html>

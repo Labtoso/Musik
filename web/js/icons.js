@@ -31,7 +31,11 @@ const P = {
   drag: '<path d="M8 7h8M8 12h8M8 17h8"/>',
   album: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/>',
   mix: '<path d="M4 17c3 0 4-10 8-10s5 10 8 10"/>',
-  download: '<path d="M12 4.5v11M7.5 11 12 15.5 16.5 11"/><path d="M5 19.5h14"/>'
+  download: '<path d="M12 4.5v11M7.5 11 12 15.5 16.5 11"/><path d="M5 19.5h14"/>',
+  lyrics: '<path d="M5 6.5h10M5 11h10M5 15.5h5"/><path d="M17.5 17.5V9l3-1"/><circle cx="15.8" cy="17.5" r="1.8"/>',
+  share: '<circle cx="17.5" cy="6" r="2.3"/><circle cx="6.5" cy="12" r="2.3"/><circle cx="17.5" cy="18" r="2.3"/><path d="m8.5 10.9 7-3.8M8.5 13.1l7 3.8"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  eq: '<path d="M6 4.5v15M12 4.5v15M18 4.5v15"/><path d="M4 14h4M10 8h4M16 16h4"/>'
 };
 
 export function icon(name, cls = '') {

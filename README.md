@@ -23,6 +23,8 @@ Run it again to update. Optional: `MUSIC_HOST_DIR=/mnt/pve/nas/music` mounts a h
 
 **On the go (Tailscale):** answer `y` when the Proxmox script asks, or add `--tailscale` to the Debian command. The apps then switch to the Tailscale address by themselves when you are away. Step by step guide (German): [docs/tailscale.md](docs/tailscale.md)
 
+**Other platforms, sharing, equalizer, lyrics:** on first start the app asks where songs may come from (local, YouTube, YouTube Music, Spotify, SoundCloud). Import playlists by link or file, share anything by link, and use the 10-band equalizer and synced lyrics. Guide (German): [docs/plattformen.md](docs/plattformen.md)
+
 Open `http://<server>:8484` and create the first account. It is the admin and can add more users.
 
 ## Apps

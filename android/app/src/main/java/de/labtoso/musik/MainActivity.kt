@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -89,6 +90,10 @@ class MainActivity : ComponentActivity() {
                 val server = prefs.getString("server", null)
                 val remote = prefs.getString("remote", null)
                 if (url.startsWith("file:///android_asset/") || (server != null && url.startsWith(server)) || (remote != null && url.startsWith(remote))) return false
+                // Spotify sign-in runs inside the app and comes back to the server address
+                val host = request.url.host ?: ""
+                if (host == "spotify.com" || host.endsWith(".spotify.com")) return false
+                if (!request.isForMainFrame) return false
                 runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
                 return true
             }
@@ -98,6 +103,12 @@ class MainActivity : ComponentActivity() {
             }
         }
         web.webChromeClient = object : WebChromeClient() {
+            // Spotify's player needs protected media (Widevine); nothing else is granted
+            override fun onPermissionRequest(request: PermissionRequest) {
+                val want = request.resources.filter { it == PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID }
+                if (want.isNotEmpty()) request.grant(want.toTypedArray()) else request.deny()
+            }
+
             override fun onShowFileChooser(
                 view: WebView,
                 callback: ValueCallback<Array<Uri>>,
@@ -324,6 +335,18 @@ class MainActivity : ComponentActivity() {
                 "all" -> Player.REPEAT_MODE_ALL
                 else -> Player.REPEAT_MODE_OFF
             }
+        }
+        @JavascriptInterface fun setEq(json: String) {
+            // PlaybackService listens for this key and applies it to the system equalizer
+            prefs.edit().putString("eq", json).apply()
+        }
+        @JavascriptInterface fun share(title: String, url: String) = main.post {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                putExtra(Intent.EXTRA_TEXT, if (title.isBlank()) url else "$title\n$url")
+            }
+            runCatching { startActivity(Intent.createChooser(send, null)) }
         }
         @JavascriptInterface fun setAccent(name: String) {
             prefs.edit().putString("accent", name).apply()

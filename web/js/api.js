@@ -93,7 +93,10 @@ export const del = (p) => api('DELETE', p);
 export function streamUrl(id) {
   return `${conn.server}/api/stream/${id}?t=${conn.token}`;
 }
+/** Cover URLs of songs from other platforms, keyed by their string id (e.g. "yt:abc"). */
+export const extCovers = new Map();
 export function coverUrl(id) {
+  if (typeof id === 'string') return extCovers.get(id) || '';
   return `${conn.server}/api/cover/${id}?t=${conn.token}`;
 }
 

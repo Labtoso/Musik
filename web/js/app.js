@@ -1,5 +1,7 @@
-import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError } from './api.js';
-import { Player } from './player.js';
+import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
+import { Player, EQ_FREQS } from './player.js';
+import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify } from './sources.js';
+import { placeStage } from './engines.js';
 import { t, setLang, getLang } from './i18n.js';
 import { icon } from './icons.js';
 import { colorFromUrl } from './dyncolor.js';
@@ -92,7 +94,8 @@ function errorText(e) {
     const k = t(e.code);
     return k === e.code ? t('error') : k;
   }
-  return t('error');
+  const m = e?.message && t(e.message);
+  return m && m !== e.message ? m : t('error');
 }
 
 // Simple modal dialog. fields: [{name, label, type, value}]
@@ -202,10 +205,12 @@ function trackMenu(anchor, tr, ctx = {}) {
       icon: 'plus',
       run: async () => menu(anchor, await pickPlaylist([tr]))
     },
-    { label: t('startRadio'), icon: 'radio', run: () => startRadio(tr) },
+    !tr.ext && { label: t('startRadio'), icon: 'radio', run: () => startRadio(tr) },
+    !tr.ext && { label: t('share'), icon: 'share', run: () => shareThing('track', tr.id, tr.title) },
+    tr.ext?.url && { label: t('openOn', { src: t('src_' + tr.ext.source) }), icon: 'link', run: () => window.open(tr.ext.url, '_blank', 'noopener') },
     '-',
-    tr.artist && { label: t('goArtist'), icon: 'user', run: () => go(`#/artist?name=${encodeURIComponent(tr.artist)}`) },
-    tr.album && {
+    tr.artist && !tr.ext && { label: t('goArtist'), icon: 'user', run: () => go(`#/artist?name=${encodeURIComponent(tr.artist)}`) },
+    tr.album && !tr.ext && {
       label: t('goAlbum'),
       icon: 'album',
       run: () => go(`#/album?album=${encodeURIComponent(tr.album)}&artist=${encodeURIComponent(tr.album_artist || tr.artist)}`)
@@ -237,6 +242,7 @@ async function startRadio(tr) {
 }
 
 async function toggleLike(tr) {
+  if (tr.ext || tr._off) return;
   const liked = !tr.liked;
   try {
     if (liked) await put(`/api/likes/${tr.id}`);
@@ -263,11 +269,14 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
   return `<div class="tracks" data-list="${id}" ${playlistId ? `data-playlist="${playlistId}"` : ''}>${tracks
     .map((tr, i) => {
       const reason = reasons && tr.reason ? `<span class="reason">${esc(t('reason_' + tr.reason, { artist: artistName(tr) }))}</span>` : '';
-      return `<div class="row ${tr.id === cur ? 'current' : ''}" data-i="${i}" data-id="${tr.id}">
+      const side = tr.ext || tr._off
+        ? `<span class="like-slot">${srcBadge(tr.ext?.source || tr._src)}</span>`
+        : `<button class="icon-btn like ${tr.liked ? 'on' : ''}" data-like="${tr.id}" title="${tr.liked ? t('unlike') : t('like')}">${icon(tr.liked ? 'heartFill' : 'heart')}</button>`;
+      return `<div class="row ${tr.id === cur ? 'current' : ''} ${tr._off ? 'off' : ''}" data-i="${i}" data-id="${esc(String(tr.id))}">
         <div class="lead">${numbers ? `<span class="num">${tr.track_no || i + 1}</span>` : coverImg(tr.has_cover ? tr.id : tr.id, 'sm')}<button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
         <div class="main"><div class="title">${esc(tr.title)}</div><div class="sub">${esc(artistName(tr))}${reason ? ' · ' + reason : ''}</div></div>
         ${album ? `<div class="alb">${esc(tr.album || '')}</div>` : ''}
-        <button class="icon-btn like ${tr.liked ? 'on' : ''}" data-like="${tr.id}" title="${tr.liked ? t('unlike') : t('like')}">${icon(tr.liked ? 'heartFill' : 'heart')}</button>
+        ${side}
         <div class="dur">${fmtTime(tr.duration)}</div>
         <button class="icon-btn more" title="…">${icon('more')}</button>
       </div>`;
@@ -283,6 +292,7 @@ document.addEventListener('click', (e) => {
   if (!tracks) return;
   const i = Number(row.dataset.i);
   const tr = tracks[i];
+  if (tr._off) return toast(t('notAvailable', { src: t('src_' + tr._src) }));
   if (e.target.closest('.like')) return toggleLike(tr);
   if (e.target.closest('.more')) {
     const qi = listEl.dataset.queue ? Number(row.dataset.q) : null;
@@ -294,7 +304,48 @@ document.addEventListener('click', (e) => {
   }
   if (listEl.dataset.queue) return player.jump(Number(row.dataset.q));
   const isTouch = matchMedia('(hover: none)').matches;
-  if (e.target.closest('.playbtn') || isTouch || e.detail >= 2) player.playList(tracks, i);
+  if (e.target.closest('.playbtn') || isTouch || e.detail >= 2) {
+    const ok = tracks.filter((x) => !x._off);
+    player.playList(ok, ok.indexOf(tr));
+  }
+});
+
+const SRC_SHORT = { youtube: 'YT', ytmusic: 'YTM', spotify: 'SP', soundcloud: 'SC', deezer: 'DZ', files: 'TXT', local: 'LOK' };
+function srcBadge(src) {
+  return `<span class="src src-${esc(src || '')}" title="${esc(t('src_' + src))}">${SRC_SHORT[src] ?? ''}</span>`;
+}
+
+// ---------- share ----------
+async function shareThing(kind, ref, title) {
+  try {
+    const r = await post('/api/shares', { kind, ref: typeof ref === 'object' ? JSON.stringify(ref) : String(ref) });
+    const url = (conn.server || location.origin) + r.path;
+    if (window.MusikAndroid?.share) return window.MusikAndroid.share(title, url);
+    if (navigator.share) {
+      try {
+        return await navigator.share({ title, text: t('shareText', { title }), url });
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast(t('linkCopied'));
+    } catch {
+      dialog({ title: t('share'), fields: [{ name: 'url', label: 'Link', value: url }], ok: 'OK' });
+    }
+  } catch (e) {
+    toast(errorText(e));
+  }
+}
+function shareBtn(kind, ref, title) {
+  return `<button class="btn" data-share="${esc(JSON.stringify({ kind, ref, title }))}" title="${t('share')}">${icon('share')}${t('share')}</button>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-share]');
+  if (!b) return;
+  const d = JSON.parse(b.dataset.share);
+  shareThing(d.kind, d.ref, d.title);
 });
 
 // ---------- views ----------
@@ -434,6 +485,15 @@ async function runSearch(q) {
   if (al.length) html += section(t('albums'), albumCards(al));
   if (tr.items.length) html += section(t('tracks'), trackList(tr.items));
   box.innerHTML = html || `<p class="muted empty">${t('noResults')}</p>`;
+  // songs from other platforms below the own library
+  const extra = [];
+  if ((enabled('youtube') || enabled('ytmusic')) && settings.youtubeKey) extra.push(searchYouTube(q, enabled('ytmusic') && !enabled('youtube') ? 'ytmusic' : 'youtube').then((l) => [t('onYouTube'), l]).catch(() => null));
+  if (enabled('spotify') && spotify.connected()) extra.push(searchSpotify(q).then((l) => [t('onSpotify'), l]).catch(() => null));
+  for (const r of await Promise.all(extra)) {
+    if (!r || !r[1].length || $('#q')?.value !== q) continue;
+    if (!tr.items.length && !ar.length && !al.length && box.querySelector('.empty')) box.innerHTML = '';
+    box.insertAdjacentHTML('beforeend', section(r[0], trackList(r[1])));
+  }
 }
 let searchTimer;
 document.addEventListener('input', (e) => {
@@ -449,7 +509,7 @@ async function cached(key, fn) {
   return state.cache[key];
 }
 
-const LIB_TABS = ['tracks', 'albums', 'artists', 'playlists'];
+const LIB_TABS = ['tracks', 'albums', 'artists', 'playlists', 'imported'];
 views.library = async (params) => {
   const tab = LIB_TABS.includes(params.get('tab')) ? params.get('tab') : 'tracks';
   let body = '';
@@ -471,6 +531,10 @@ views.library = async (params) => {
         (a) => `<a class="card artist" href="#/artist?name=${encodeURIComponent(a.name)}">${coverImg(a.cover_id, 'lg round')}<div class="c-title">${esc(a.name)}</div><div class="c-sub">${songCount(a.tracks)}</div></a>`
       )
       .join('')}</div>`;
+  } else if (tab === 'imported') {
+    const list = await get('/api/imports');
+    body = `<div class="toolbar"><a class="btn primary" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/sources">${t('manageSources')}</a></div>
+      ${list.length ? `<div class="cards libgrid">${list.map((im) => `<a class="card" href="#/imported/${im.id}">${im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`).join('')}</div>` : `<p class="muted empty">${t('importNone')}</p>`}`;
   } else {
     const lists = await get('/api/playlists');
     body = `<div class="toolbar"><button class="btn" data-newpl>${icon('plus')}${t('newPlaylist')}</button></div>
@@ -523,7 +587,7 @@ views.album = async (params) => {
       kind: t('album'),
       title: r.album || t('unknownAlbum'),
       sub: `<a href="#/artist?name=${encodeURIComponent(r.artist)}">${esc(r.artist)}</a>${year ? ' · ' + year : ''} · ${songCount(r.tracks.length)} · ${fmtTime(total)}`,
-      actions: listActions('album')
+      actions: listActions('album') + shareBtn('album', { album: r.album, artist: r.artist }, r.album)
     }) + trackList(r.tracks, { numbers: true, album: false })
   );
 };
@@ -578,7 +642,7 @@ views.playlist = async (params, id) => {
       kind: t('playlist'),
       title: pl.name,
       sub: `${songCount(pl.tracks.length)} · ${fmtTime(pl.tracks.reduce((s, x) => s + x.duration, 0))}`,
-      actions: listActions('pl') + `<button class="icon-btn" data-plmenu="${pl.id}" title="…">${icon('more')}</button>`
+      actions: listActions('pl') + shareBtn('playlist', pl.id, pl.name) + `<button class="icon-btn" data-plmenu="${pl.id}" title="…">${icon('more')}</button>`
     }) + trackList(pl.tracks, { playlistId: pl.id })
   );
 };
@@ -613,6 +677,343 @@ document.addEventListener('click', (e) => {
       }
     }
   ]);
+});
+
+// ---------- sources (first start + settings) ----------
+function sourcesForm(welcome) {
+  const on = settings.sources || {};
+  const cards = SOURCES.map(
+    (s) => `<label class="srccard ${s === 'local' || on[s] ? 'on' : ''}"><input type="checkbox" data-src="${s}" ${s === 'local' || on[s] ? 'checked' : ''} ${s === 'local' ? 'disabled' : ''}>
+      ${srcBadge(s)}<span class="srctext"><b>${t('src_' + s)}</b><span class="muted small">${t('srcd_' + s)}</span></span></label>`
+  ).join('');
+  const spOn = on.spotify, ytOn = on.youtube || on.ytmusic;
+  const access = `
+    <div class="access ${spOn ? '' : 'hide'}" data-for="spotify"><h3>Spotify</h3>
+      <label class="field"><span>${t('spotifyClient')}</span><input id="spclient" value="${esc(settings.spotifyClientId || '')}" autocomplete="off" spellcheck="false"></label>
+      <p class="muted small">${esc(t('spotifyClientHelp', { uri: spotify.redirectUri() }))}</p>
+      <div class="stack">${spotify.connected() ? `<span class="pill ok">${icon('check')}${t('spotifyConnected')}</span><button type="button" class="btn" data-splogout>${t('spotifyDisconnect')}</button>` : `<button type="button" class="btn primary" data-splogin>${t('spotifyConnect')}</button>`}<button type="button" class="btn ghost" data-sptoken>${t('spotifyToken')}</button></div></div>
+    <div class="access ${ytOn ? '' : 'hide'}" data-for="youtube"><h3>YouTube</h3>
+      <label class="field"><span>${t('youtubeKey')}</span><input id="ytkey" value="${esc(settings.youtubeKey || '')}" autocomplete="off" spellcheck="false"></label>
+      <p class="muted small">${t('youtubeKeyHelp')}</p></div>`;
+  return `${pageHead(welcome ? t('welcomeTitle') : t('sources'))}
+    <p class="muted lead">${welcome ? t('welcomeText') : t('sourcesHint')}</p>
+    <div class="srcgrid">${cards}</div>
+    <div class="accesses">${access}</div>
+    <div class="stack wizard-actions">${welcome ? `<button class="btn primary" data-wizdone>${t('welcomeDone')}</button><button class="btn ghost" data-wizskip>${t('welcomeSkip')}</button>` : `<a class="btn primary" href="#/add">${icon('download')}${t('importAdd')}</a>`}</div>`;
+}
+views.welcome = async () => sourcesForm(true);
+views.sources = async () => sourcesForm(false);
+document.addEventListener('change', async (e) => {
+  const c = e.target.closest('[data-src]');
+  if (c) {
+    const sources = { ...settings.sources, [c.dataset.src]: c.checked };
+    c.closest('.srccard').classList.toggle('on', c.checked);
+    await saveSettings({ sources }).catch(() => toast(t('error')));
+    document.querySelector('.access[data-for="spotify"]')?.classList.toggle('hide', !sources.spotify);
+    document.querySelector('.access[data-for="youtube"]')?.classList.toggle('hide', !(sources.youtube || sources.ytmusic));
+  }
+  if (e.target.id === 'spclient') saveSettings({ spotifyClientId: e.target.value.trim() }).catch(() => {});
+  if (e.target.id === 'ytkey') saveSettings({ youtubeKey: e.target.value.trim() }).catch(() => {});
+});
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-splogin]')) {
+    const id = $('#spclient')?.value.trim();
+    if (id && id !== settings.spotifyClientId) await saveSettings({ spotifyClientId: id }).catch(() => {});
+    spotify.login().catch((err) => toast(errorText(err)));
+  }
+  if (e.target.closest('[data-splogout]')) {
+    spotify.logout();
+    render();
+  }
+  if (e.target.closest('[data-sptoken]')) {
+    const r = await dialog({ title: t('spotifyToken'), text: t('spotifyTokenHint'), fields: [{ name: 'token', label: 'Token' }], ok: t('save') });
+    if (r?.token?.trim()) {
+      spotify.setToken(r.token);
+      render();
+    }
+  }
+  if (e.target.closest('[data-wizdone]')) {
+    await saveSettings({ setupDone: true }).catch(() => {});
+    const any = Object.entries(settings.sources).some(([k, v]) => v && k !== 'local');
+    go(any ? '#/add' : '#/home');
+  }
+  if (e.target.closest('[data-wizskip]')) {
+    await saveSettings({ setupDone: true, sources: { local: true } }).catch(() => {});
+    go('#/home');
+  }
+});
+
+// ---------- import ----------
+views.add = async (params) => {
+  let mine = '';
+  if (enabled('spotify') && spotify.connected()) {
+    try {
+      const pls = await spotify.myPlaylists();
+      mine = section(
+        t('importMine'),
+        `<div class="cards libgrid"><button class="card" data-spimport="liked"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('importLiked')}</div><div class="c-sub">Spotify</div></button>${pls
+          .map((p) => `<button class="card" data-spimport="${esc(p.id)}">${p.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(p.cover)}"></div>` : coverImg(null, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.total)}</div></button>`)
+          .join('')}</div>`
+      );
+    } catch (err) {
+      mine = `<p class="muted small">${esc(errorText(err))}</p>`;
+    }
+  }
+  return `${pageHead(t('importTitle'))}
+    <form class="importform" id="importform" autocomplete="off">
+      <label class="field"><span>${t('importLink')}</span><input name="link" placeholder="${esc(t('importLinkPh'))}" value="${esc(params.get('link') || '')}" inputmode="url" autocapitalize="off" spellcheck="false"></label>
+      <div class="stack"><button class="btn primary">${icon('download')}${t('importLoad')}</button>
+      <label class="btn">${icon('upload')}${t('importFile')}<input type="file" id="importfile" accept=".csv,.tsv,.m3u,.m3u8,.txt" hidden></label></div>
+    </form>
+    <div id="importprev"></div>
+    ${mine}
+    <p class="muted small srcnote">${t('sourcesHint')} <a href="#/sources">${t('manageSources')}</a></p>`;
+};
+async function previewImport(job) {
+  const box = $('#importprev');
+  if (!box) return;
+  box.innerHTML = `<div class="loading"></div><p class="muted">${t('importing')}</p>`;
+  try {
+    const data = await job();
+    if (!data.items?.length) throw new Error('empty_import');
+    state.pendingImport = data;
+    box.innerHTML = `<div class="impprev">
+      <label class="field"><span>${t('playlistName')}</span><input id="impname" value="${esc(data.name || '')}"></label>
+      <p class="muted">${srcBadge(data.source)} ${t('importFound', { n: data.items.length })}</p>
+      <div class="stack"><button class="btn primary" data-impsave>${icon('check')}${t('importSave')}</button></div>
+      <ol class="implist">${data.items.slice(0, 30).map((x) => `<li><b>${esc(x.title)}</b> <span class="muted">${esc(x.artist || '')}</span></li>`).join('')}${data.items.length > 30 ? '<li class="muted">…</li>' : ''}</ol></div>`;
+  } catch (err) {
+    box.innerHTML = `<p class="err">${esc(errorText(err))}</p>`;
+  }
+}
+document.addEventListener('submit', (e) => {
+  if (e.target.id !== 'importform') return;
+  e.preventDefault();
+  const link = e.target.elements.link.value.trim();
+  if (link) previewImport(() => fetchLink(link));
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'importfile' || !e.target.files[0]) return;
+  const f = e.target.files[0];
+  previewImport(async () => parseFile(f.name, await f.text()));
+});
+document.addEventListener('click', async (e) => {
+  const sp = e.target.closest('[data-spimport]');
+  if (sp) previewImport(() => (sp.dataset.spimport === 'liked' ? spotifyLiked() : spotifyPlaylist(sp.dataset.spimport)));
+  if (e.target.closest('[data-impsave]') && state.pendingImport) {
+    const d = state.pendingImport;
+    const name = $('#impname')?.value.trim() || d.name || t('imported');
+    try {
+      const r = await saveImport({ source: d.source, name, url: d.url || '', cover: d.cover || '', items: d.items });
+      state.pendingImport = null;
+      go('#/imported/' + r.id);
+    } catch (err) {
+      toast(errorText(err));
+    }
+  }
+});
+
+views.imported = async (params, id) => {
+  const r = await get('/api/imports/' + id);
+  const list = playableItems(r.items);
+  const tracks = r.items.map((it, i) => list[i] || { id: 'off:' + it.pos, title: it.title, artist: it.artist, album: it.album, duration: it.duration, _off: true, _src: it.source });
+  for (const it of r.items) if (!it.local && it.cover) extCovers.set('off:' + it.pos, it.cover);
+  state.detail = { imp: tracks.filter((x) => !x._off) };
+  state.importInfo = r;
+  const local = r.items.filter((x) => x.local).length;
+  let coverId = r.items.find((x) => x.local)?.local.id || null;
+  if (r.cover) {
+    extCovers.set('imp:' + id, r.cover);
+    coverId = 'imp:' + id;
+  }
+  return (
+    detailHeader({
+      coverId,
+      kind: t('imported'),
+      title: r.name,
+      sub: `${srcBadge(r.source)} ${t('importedOf', { local, total: r.items.length })}`,
+      actions: listActions('imp') + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-immenu="${r.id}" title="…">${icon('more')}</button>`
+    }) + trackList(tracks)
+  );
+};
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-immenu]');
+  if (!b) return;
+  const id = b.dataset.immenu;
+  const info = state.importInfo || {};
+  menu(b, [
+    {
+      label: t('saveAsPlaylist'),
+      icon: 'plus',
+      run: async () => {
+        const r = await post(`/api/imports/${id}/playlist`);
+        renderSidebarPlaylists();
+        toast(t('savedAsPlaylist', { name: r.name, n: r.tracks }));
+      }
+    },
+    {
+      label: t('rematch'),
+      icon: 'refresh',
+      run: async () => {
+        const r = await post(`/api/imports/${id}/rematch`);
+        toast(t('matchedN', { n: r.matched }));
+        render();
+      }
+    },
+    info.url && info.url !== 'spotify:liked' || info.url === 'spotify:liked'
+      ? {
+          label: t('refreshImport'),
+          icon: 'download',
+          run: async () => {
+            try {
+              const d = info.url === 'spotify:liked' ? await spotifyLiked() : await fetchLink(info.url);
+              await put(`/api/imports/${id}`, { items: d.items });
+              render();
+            } catch (err) {
+              toast(errorText(err));
+            }
+          }
+        }
+      : null,
+    '-',
+    {
+      label: t('delete'),
+      icon: 'trash',
+      run: async () => {
+        if (await dialog({ title: t('deleteImportQ', { name: info.name || '' }), ok: t('delete'), danger: true })) {
+          await del(`/api/imports/${id}`);
+          go('#/library?tab=imported');
+        }
+      }
+    }
+  ]);
+});
+
+// ---------- lyrics ----------
+const lyr = { id: null, lines: [], synced: false, at: -1 };
+async function loadLyrics(tr) {
+  if (!tr) return { lines: [], synced: false, source: '' };
+  const r = tr.ext || tr._off
+    ? await get(`/api/lyrics?title=${encodeURIComponent(tr.title)}&artist=${encodeURIComponent(tr.artist || '')}&duration=${Math.round(tr.duration || 0)}`)
+    : await get(`/api/lyrics/${tr.id}`);
+  if (r.synced) {
+    const lines = [];
+    for (const l of r.synced.split(/\r?\n/)) {
+      const ts = [...l.matchAll(/\[(\d+):(\d+(?:[.:]\d+)?)\]/g)];
+      const text = l.replace(/\[[^\]]*\]/g, '').trim();
+      for (const m of ts) lines.push({ t: Number(m[1]) * 60 + Number(m[2].replace(':', '.')), text });
+    }
+    lines.sort((a, b) => a.t - b.t);
+    if (lines.length) return { lines, synced: true, source: r.source };
+  }
+  return { lines: (r.plain || '').split(/\r?\n/).map((text) => ({ t: -1, text: text.trim() })), synced: false, source: r.source };
+}
+async function renderLyrics(box) {
+  const tr = player.current;
+  if (!box) return;
+  if (!tr) return (box.innerHTML = `<p class="muted empty">${t('nothingPlaying')}</p>`);
+  if (lyr.id === tr.id && box.dataset.id === String(tr.id)) return;
+  box.dataset.id = String(tr.id);
+  lyr.id = tr.id;
+  lyr.at = -1;
+  box.innerHTML = `<p class="muted">${t('lyricsLoading')}</p>`;
+  try {
+    const r = await loadLyrics(tr);
+    if (lyr.id !== tr.id) return;
+    lyr.lines = r.lines;
+    lyr.synced = r.synced;
+    if (!r.lines.some((l) => l.text)) throw new Error('none');
+    box.innerHTML = `<div class="lyrics ${r.synced ? 'synced' : ''}">${r.lines.map((l, i) => `<p data-li="${i}">${esc(l.text) || '♪'}</p>`).join('')}</div><p class="muted small lyrsrc">${t('lyricsFrom', { src: r.source === 'file' ? t('src_files') : 'LRCLIB' })}</p>`;
+    syncLyrics();
+  } catch {
+    box.innerHTML = `<p class="muted empty">${t('noLyrics')}</p>`;
+  }
+}
+function lyricsBox() {
+  return document.querySelector('#fs-lyrics.open .lyrbody') || (state.route === 'lyrics' ? $('#view .lyrbody') : null);
+}
+function syncLyrics() {
+  if (!lyr.synced) return;
+  const box = lyricsBox();
+  if (!box) return;
+  const pos = player.position + 0.25;
+  let i = -1;
+  for (let k = 0; k < lyr.lines.length; k++) if (lyr.lines[k].t <= pos) i = k;
+  if (i === lyr.at) return;
+  lyr.at = i;
+  box.querySelectorAll('.lyrics p.on').forEach((p) => p.classList.remove('on'));
+  const p = box.querySelector(`[data-li="${i}"]`);
+  if (p) {
+    p.classList.add('on');
+    p.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+}
+document.addEventListener('click', (e) => {
+  const p = e.target.closest('.lyrics.synced [data-li]');
+  if (!p) return;
+  const l = lyr.lines[Number(p.dataset.li)];
+  if (l && l.t >= 0) player.seek(l.t);
+});
+views.lyrics = async () => {
+  setTimeout(() => renderLyrics($('#view .lyrbody')), 0);
+  return `<h1>${t('lyrics')}</h1><div class="lyrbody big"></div>`;
+};
+function toggleFsLyrics() {
+  const l = $('#fs-lyrics');
+  $('#fs-queue').classList.remove('open');
+  l.classList.toggle('open');
+  if (l.classList.contains('open')) renderLyrics(l.querySelector('.lyrbody'));
+}
+
+// ---------- equalizer ----------
+const EQ_PRESETS = {
+  flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  bass: [6, 5, 4, 2, 0, 0, 0, 0, 0, 0],
+  treble: [0, 0, 0, 0, 0, 1, 2, 4, 5, 6],
+  vocal: [-2, -2, -1, 1, 3, 4, 3, 1, 0, -1],
+  acoustic: [3, 3, 2, 1, 1, 1, 2, 2, 2, 1],
+  electronic: [5, 4, 1, 0, -2, 1, 1, 2, 4, 5],
+  night: [-4, -3, -1, 0, 1, 2, 2, 1, -1, -3]
+};
+function eqHtml() {
+  const eq = prefs.eq || { on: false, preset: 'flat', pre: 0, gains: EQ_PRESETS.flat.slice() };
+  const fl = (f) => (f >= 1000 ? f / 1000 + 'k' : f);
+  return `<label class="check"><input type="checkbox" id="eqon" ${eq.on ? 'checked' : ''}><span>${t('eqOn')}</span></label>
+    <div class="eq ${eq.on ? '' : 'dim'}">
+      <select class="select" id="eqpreset">${[...Object.keys(EQ_PRESETS), 'custom'].map((k) => `<option value="${k}" ${eq.preset === k ? 'selected' : ''}>${t('eq_' + k)}</option>`).join('')}</select>
+      <div class="eqbands">${EQ_FREQS.map((f, i) => `<label class="band"><input type="range" min="-12" max="12" step="1" value="${eq.gains[i] || 0}" data-band="${i}" orient="vertical"><span>${fl(f)}</span></label>`).join('')}</div>
+      <label class="field eqpre"><span>${t('eqPre')} <b id="eqprev">${eq.pre || 0} dB</b></span><input type="range" min="-12" max="6" step="1" value="${eq.pre || 0}" id="eqpre"></label>
+      <p class="muted small">${t('eqHint')}</p>
+    </div>`;
+}
+function eqChanged(patch) {
+  prefs.eq = { on: false, preset: 'flat', pre: 0, gains: EQ_PRESETS.flat.slice(), ...(prefs.eq || {}), ...patch };
+  savePrefs();
+  player.setEq(prefs.eq);
+}
+document.addEventListener('input', (e) => {
+  const b = e.target.closest('[data-band]');
+  if (b) {
+    const gains = (prefs.eq?.gains || EQ_PRESETS.flat).slice();
+    gains[Number(b.dataset.band)] = Number(b.value);
+    eqChanged({ gains, preset: 'custom' });
+    const sel = $('#eqpreset');
+    if (sel) sel.value = 'custom';
+  }
+  if (e.target.id === 'eqpre') {
+    eqChanged({ pre: Number(e.target.value) });
+    $('#eqprev').textContent = e.target.value + ' dB';
+  }
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'eqon') {
+    eqChanged({ on: e.target.checked });
+    document.querySelector('.eq')?.classList.toggle('dim', !e.target.checked);
+  }
+  if (e.target.id === 'eqpreset' && EQ_PRESETS[e.target.value]) {
+    eqChanged({ preset: e.target.value, gains: EQ_PRESETS[e.target.value].slice() });
+    document.querySelectorAll('[data-band]').forEach((r) => (r.value = prefs.eq.gains[Number(r.dataset.band)]));
+  }
 });
 
 views.queue = async () => {
@@ -742,6 +1143,7 @@ function renderPlayer() {
     applyDyn(null);
   }
   document.querySelectorAll('[data-act="like"]').forEach((b) => {
+    b.style.visibility = tr?.ext ? 'hidden' : '';
     b.dataset.like = tr?.id || '';
     b.classList.toggle('on', !!tr?.liked);
     b.innerHTML = icon(tr?.liked ? 'heartFill' : 'heart');
@@ -754,8 +1156,12 @@ function renderPlayer() {
   renderState();
   renderTime();
   document.querySelectorAll('.tracks .row').forEach((r) => {
-    if (!r.closest('[data-queue]')) r.classList.toggle('current', Number(r.dataset.id) === tr?.id);
+    if (!r.closest('[data-queue]')) r.classList.toggle('current', r.dataset.id === String(tr?.id));
   });
+  document.body.classList.toggle('ext-playing', !!tr?.ext);
+  placeStage();
+  const lb = lyricsBox();
+  if (lb) renderLyrics(lb);
   if (state.route === 'queue') {
     const v = $('#view');
     v.innerHTML = `<h1>${t('queue')}</h1>${player.queue.length ? queueHtml() : `<p class="muted empty">${t('empty')}</p>`}`;
@@ -809,6 +1215,9 @@ function bindPlayer() {
       } else player.setVolume(prefs.prevVolume || 1);
       prefs.volume = player.volume;
       savePrefs();
+    } else if (a === 'lyrics') {
+      if ($('#fs').classList.contains('open')) toggleFsLyrics();
+      else go(state.route === 'lyrics' ? '#/home' : '#/lyrics');
     } else if (a === 'open-fs') openFs(true);
     else if (a === 'close-fs') openFs(false);
     else if (a === 'menu' && player.current) trackMenu(b, player.current, {});
@@ -840,7 +1249,8 @@ function bindPlayer() {
   player.addEventListener('change', renderPlayer);
   player.addEventListener('state', renderState);
   player.addEventListener('time', renderTime);
-  player.addEventListener('error', () => toast(t('error')));
+  player.addEventListener('time', syncLyrics);
+  player.addEventListener('error', () => toast(player.lastError && t(player.lastError) !== player.lastError ? t(player.lastError) : t('error')));
   document.addEventListener('keydown', (e) => {
     if (e.target.closest('input, textarea, select')) return;
     if (e.code === 'Space') {
@@ -858,6 +1268,9 @@ function bindPlayer() {
 function openFs(open) {
   $('#fs').classList.toggle('open', open);
   if (!open) $('#fs-queue').classList.remove('open');
+  if (!open) $('#fs-lyrics').classList.remove('open');
+  placeStage();
+  setTimeout(placeStage, 350);
   if (open) history.pushState({ fs: 1 }, '');
 }
 function toggleFsQueue() {
@@ -919,6 +1332,10 @@ async function renderSettings() {
       <label class="check"><input type="checkbox" id="autoplay" ${prefs.autoplay ? 'checked' : ''}><span>${t('autoplay')}</span></label></div>
     <div class="set-group"><h3>${t('look')}</h3>
       <label class="check"><input type="checkbox" id="dyncolor" ${prefs.dynamic ? 'checked' : ''}><span>${t('dynColor')}</span></label></div>
+    <div class="set-group"><h3>${t('sources')}</h3>
+      <p class="muted small">${SOURCES.filter((x) => enabled(x)).map((x) => t('src_' + x)).join(', ')}</p>
+      <div class="stack"><a class="btn" href="#/sources" data-closesettings>${t('manageSources')}</a><a class="btn" href="#/add" data-closesettings>${icon('download')}${t('importAdd')}</a></div></div>
+    <div class="set-group"><h3>${t('equalizer')}</h3>${eqHtml()}</div>
     <div class="set-group"><h3>${t('library')}</h3>
       ${lib ? `<p class="muted">${t('stats', { tracks: lib.tracks, artists: lib.artists, albums: lib.albums })}</p>` : ''}
       <div id="scaninfo" class="muted small"></div>
@@ -1216,6 +1633,7 @@ function buildShell() {
         <div class="timeline"><span class="t-pos">0:00</span><input class="seek" type="range" min="0" max="1" step="0.1" value="0"><span class="t-dur">0:00</span></div>
       </div>
       <div class="extra desktop-only">
+        <button class="icon-btn" data-act="lyrics" title="${t('lyrics')}">${icon('lyrics')}</button>
         <button class="icon-btn" data-act="queue" title="${t('queue')}">${icon('queue')}</button>
         <button class="icon-btn" data-act="mute" title="${t('volume')}">${icon('volume')}</button>
         <input id="vol" class="vol" type="range" min="0" max="1" step="0.01" value="1">
@@ -1235,8 +1653,9 @@ function buildShell() {
       <button class="icon-btn lg" data-act="next">${icon('next')}</button>
       <button class="icon-btn" data-act="repeat">${icon('repeat')}</button>
     </div>
-    <div class="fs-bottom"><button class="btn ghost" data-act="queue">${icon('queue')}${t('queue')}</button></div>
+    <div class="fs-bottom"><button class="btn ghost" data-act="lyrics">${icon('lyrics')}${t('lyrics')}</button><button class="btn ghost" data-act="queue">${icon('queue')}${t('queue')}</button></div>
     <div id="fs-queue" class="fs-queue"></div>
+    <div id="fs-lyrics" class="fs-queue fs-lyrics"><div class="lyrbody"></div></div>
   </div>
   <div id="scrim" class="scrim"></div>
   <aside id="settings" class="settings"><div class="set-head"><button class="icon-btn" data-closesettings>${icon('close')}</button><h2>${t('settings')}</h2></div><div id="settings-body"></div></aside>`;
@@ -1253,11 +1672,18 @@ function startApp() {
     player = new Player();
     player.autoplay = prefs.autoplay;
     player.setVolume(prefs.volume ?? 1);
+    if (prefs.eq) player.setEq(prefs.eq);
     buildShell();
     bindPlayer();
   } else buildShell();
   renderPlayer();
-  render();
+  loadSettings()
+    .then(async () => {
+      await spotify.finishLogin().catch(() => false);
+      if (!settings.setupDone && state.route !== 'welcome') go('#/welcome');
+      else render();
+    })
+    .catch(() => render());
   get('/api/me')
     .then((u) => {
       conn.user = u;
