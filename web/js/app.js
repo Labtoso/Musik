@@ -1,6 +1,6 @@
 import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
 import { Player, EQ_FREQS } from './player.js';
-import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify } from './sources.js';
+import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, extTrack } from './sources.js';
 import { placeStage } from './engines.js';
 import { Visualizer, VIZ_MODES } from './viz.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -470,49 +470,193 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-upload]')) pickUpload();
 });
 
+// ---------- search, laid out like Spotify: top result, songs, artists, albums, playlists, catalog ----------
+const RECENT_KEY = 'musik.recent';
+function recentSearches() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+function rememberSearch(q) {
+  q = q.trim();
+  if (q.length < 2) return;
+  const l = [q, ...recentSearches().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 10);
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(l));
+  } catch {}
+}
+const SFILTERS = ['all', 'songs', 'artists', 'albums', 'playlists'];
 views.search = async (params) => {
   const q = params.get('q') || '';
+  state.sfilter = 'all';
   return `${pageHead(t('search'))}<div class="searchbar">${icon('search')}<input id="q" type="search" placeholder="${t('searchPlaceholder')}" value="${esc(q)}" autocomplete="off"></div><div id="results"></div>`;
 };
+/** Catalog entries (artists, albums) get string ids so their pictures go through extCovers. */
+function catArtist(a) {
+  const id = 'dzartist:' + a.id;
+  if (a.picture) extCovers.set(id, a.picture);
+  return { name: a.name, cover: id, href: `#/cartist?id=${a.id}`, sub: t('artist') };
+}
+function catAlbum(a) {
+  const id = 'dzalbum:' + a.id;
+  if (a.cover) extCovers.set(id, a.cover);
+  return { title: a.title, artist: a.artist, cover: id, href: `#/calbum?id=${a.id}` };
+}
+function artistCards(list, row = false) {
+  return `<div class="cards${row ? ' srow' : ''}">${list.map((a) => `<a class="card" href="${a.href}">${coverImg(a.cover, 'lg round')}<div class="c-title">${esc(a.name)}</div><div class="c-sub">${esc(a.sub || t('artist'))}</div></a>`).join('')}</div>`;
+}
+function plainAlbumCards(list, row = false) {
+  return `<div class="cards${row ? ' srow' : ''}">${list.map((a) => `<a class="card" href="${a.href}">${coverImg(a.cover, 'lg')}<div class="c-title">${esc(a.title)}</div><div class="c-sub">${esc(a.artist || '')}</div></a>`).join('')}</div>`;
+}
+let searchSeq = 0;
 async function runSearch(q) {
   const box = $('#results');
   if (!box) return;
-  if (!q.trim()) {
-    const albums = await cached('albums', () => get('/api/albums')).catch(() => []);
-    if ($('#q')?.value.trim()) return;
-    box.innerHTML = albums.length
-      ? section(t('browseAll'), `<div class="browse">${albums
-          .slice(0, 24)
-          .map((a) => `<a class="bt" href="${albumHref(a.album, a.artist)}" data-tint="${a.cover_id ? coverUrl(a.cover_id) : ''}"><span>${esc(a.album)}</span>${coverImg(a.cover_id)}</a>`)
-          .join('')}</div>`)
-      : '';
-    tintAll(box);
+  const seq = ++searchSeq;
+  if (!q.trim()) return browseView(box);
+  const lq = q.trim().toLowerCase();
+  const data = { q, tracks: [], artists: [], albums: [], playlists: [], cat: null, ext: [] };
+  const [tr, albums, artists, pls] = await Promise.all([
+    get('/api/tracks?limit=50&q=' + encodeURIComponent(q)).catch(() => ({ items: [] })),
+    cached('albums', () => get('/api/albums')).catch(() => []),
+    cached('artists', () => get('/api/artists')).catch(() => []),
+    get('/api/playlists').catch(() => [])
+  ]);
+  if (seq !== searchSeq) return;
+  data.tracks = tr.items || [];
+  data.artists = artists.filter((a) => a.name.toLowerCase().includes(lq)).slice(0, 12).map((a) => ({ name: a.name, cover: a.cover_id, href: `#/artist?name=${encodeURIComponent(a.name)}`, sub: songCount(a.tracks) }));
+  data.albums = albums.filter((a) => a.album.toLowerCase().includes(lq) || (a.artist || '').toLowerCase().includes(lq)).slice(0, 12).map((a) => ({ title: a.album, artist: a.artist, cover: a.cover_id, href: albumHref(a.album, a.artist) }));
+  data.playlists = pls.filter((p) => p.name.toLowerCase().includes(lq)).map((p) => ({ title: p.name, artist: songCount(p.tracks), cover: p.cover_id, href: `#/playlist/${p.id}` }));
+  state.search = data;
+  drawSearch(box, true);
+  // the wider catalog and connected platforms follow as they arrive
+  const later = [
+    get('/api/catalog/search?q=' + encodeURIComponent(q)).then((c) => {
+      data.cat = {
+        tracks: (c.tracks || []).map(extTrack),
+        artists: (c.artists || []).map(catArtist),
+        albums: (c.albums || []).map(catAlbum)
+      };
+    }).catch(() => {})
+  ];
+  if ((enabled('youtube') || enabled('ytmusic')) && settings.youtubeKey) later.push(searchYouTube(q, enabled('ytmusic') && !enabled('youtube') ? 'ytmusic' : 'youtube').then((l) => l.length && data.ext.push([t('onYouTube'), l])).catch(() => {}));
+  if (enabled('spotify') && spotify.connected()) later.push(searchSpotify(q).then((l) => l.length && data.ext.push([t('onSpotify'), l])).catch(() => {}));
+  for (const p of later) p.then(() => seq === searchSeq && state.search === data && drawSearch(box, false));
+  await Promise.all(later);
+  if (seq === searchSeq) drawSearch(box, false, true);
+}
+function drawSearch(box, loading, done = false) {
+  const d = state.search;
+  if (!d || !$('#results')) return;
+  const cat = d.cat || { tracks: [], artists: [], albums: [] };
+  const extTracks = d.ext.flatMap((x) => x[1]);
+  const songs = [...d.tracks, ...extTracks, ...cat.tracks];
+  const artists = [...d.artists, ...cat.artists.filter((a) => !d.artists.some((x) => x.name.toLowerCase() === a.name.toLowerCase()))];
+  const albums = [...d.albums, ...cat.albums];
+  const has = { songs: songs.length, artists: artists.length, albums: albums.length, playlists: d.playlists.length };
+  const f = has[state.sfilter] ? state.sfilter : 'all';
+  const chips = `<div class="sfilters">${SFILTERS.filter((k) => k === 'all' || has[k]).map((k) => `<button class="sf ${f === k ? 'on' : ''}" data-sfilter="${k}">${t('sf_' + k)}</button>`).join('')}</div>`;
+  if (!songs.length && !artists.length && !albums.length && !d.playlists.length) {
+    box.innerHTML = loading || !done
+      ? `<p class="muted small">${t('searching')}</p>`
+      : `<div class="noresult"><h3>${t('noResultsFor', { q: d.q })}</h3><p class="muted">${t('noResultsHint')}</p><div class="stack"><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/sources">${t('manageSources')}</a></div></div>`;
     return;
   }
-  const lq = q.toLowerCase();
-  const [tr, albums, artists] = await Promise.all([
-    get('/api/tracks?limit=50&q=' + encodeURIComponent(q)),
-    cached('albums', () => get('/api/albums')),
-    cached('artists', () => get('/api/artists'))
-  ]);
-  if ($('#q')?.value !== q) return;
-  const ar = artists.filter((a) => a.name.toLowerCase().includes(lq)).slice(0, 12);
-  const al = albums.filter((a) => a.album.toLowerCase().includes(lq) || (a.artist || '').toLowerCase().includes(lq)).slice(0, 12);
-  let html = '';
-  if (ar.length) html += section(t('artists'), `<div class="chips">${ar.map((a) => `<a class="chip" href="#/artist?name=${encodeURIComponent(a.name)}">${esc(a.name)}</a>`).join('')}</div>`);
-  if (al.length) html += section(t('albums'), albumCards(al));
-  if (tr.items.length) html += section(t('tracks'), trackList(tr.items));
-  box.innerHTML = html || `<p class="muted empty">${t('noResults')}</p>`;
-  // songs from other platforms below the own library
-  const extra = [];
-  if ((enabled('youtube') || enabled('ytmusic')) && settings.youtubeKey) extra.push(searchYouTube(q, enabled('ytmusic') && !enabled('youtube') ? 'ytmusic' : 'youtube').then((l) => [t('onYouTube'), l]).catch(() => null));
-  if (enabled('spotify') && spotify.connected()) extra.push(searchSpotify(q).then((l) => [t('onSpotify'), l]).catch(() => null));
-  for (const r of await Promise.all(extra)) {
-    if (!r || !r[1].length || $('#q')?.value !== q) continue;
-    if (!tr.items.length && !ar.length && !al.length && box.querySelector('.empty')) box.innerHTML = '';
-    box.insertAdjacentHTML('beforeend', section(r[0], trackList(r[1])));
-  }
+  let html = chips;
+  const lq = d.q.trim().toLowerCase();
+  if (f === 'all') {
+    // top result: an artist that matches the words exactly, else the first song
+    const topArtist = artists.find((a) => a.name.toLowerCase() === lq) || (!songs.length ? artists[0] : null);
+    const topSong = !topArtist ? songs[0] : null;
+    const top = topArtist
+      ? `<a class="topres" href="${topArtist.href}">${coverImg(topArtist.cover, 'round')}<div class="tr-text"><div class="tr-title">${esc(topArtist.name)}</div><div class="tr-sub"><span class="pill">${t('artist')}</span></div></div><span class="tr-play">${icon('play')}</span></a>`
+      : `<button class="topres" data-topsong>${coverImg(topSong.id)}<div class="tr-text"><div class="tr-title">${esc(topSong.title)}</div><div class="tr-sub">${esc(artistName(topSong))} <span class="pill">${topSong.ext ? srcBadge(topSong.ext.source) : t('song')}</span></div></div><span class="tr-play">${icon('play')}</span></button>`;
+    state.topSong = topSong;
+    html += `<div class="sgrid"><section class="sec"><div class="sec-head"><h2>${t('topResult')}</h2></div>${top}</section>${songs.length ? `<section class="sec"><div class="sec-head"><h2>${t('tracks')}</h2>${songs.length > 4 ? `<button class="link" data-sfilter="songs">${t('showAll')}</button>` : ''}</div>${trackList(songs.slice(0, 4), { album: false })}</section>` : ''}</div>`;
+    if (artists.length) html += section(t('artists'), artistCards(artists.slice(0, 10), true), artists.length > 10 ? `<button class="link" data-sfilter="artists">${t('showAll')}</button>` : '');
+    if (albums.length) html += section(t('albums'), plainAlbumCards(albums.slice(0, 10), true), albums.length > 10 ? `<button class="link" data-sfilter="albums">${t('showAll')}</button>` : '');
+    if (d.playlists.length) html += section(t('playlists'), plainAlbumCards(d.playlists.slice(0, 10), true));
+    for (const [title, l] of d.ext) html += section(title, trackList(l));
+    if (cat.tracks.length) html += section(t('fromCatalog'), trackList(cat.tracks), `<span class="muted small">${t('catalogHint')}</span>`);
+  } else if (f === 'songs') html += trackList(songs);
+  else if (f === 'artists') html += artistCards(artists);
+  else if (f === 'albums') html += plainAlbumCards(albums);
+  else html += plainAlbumCards(d.playlists);
+  if (!done && !d.cat) html += `<p class="muted small">${t('searchingMore')}</p>`;
+  box.innerHTML = html;
 }
+async function browseView(box) {
+  const recent = recentSearches();
+  const albums = await cached('albums', () => get('/api/albums')).catch(() => []);
+  if ($('#q')?.value.trim()) return;
+  const hues = [12, 340, 262, 205, 160, 32, 290, 190];
+  const tiles = [
+    ['#/likes', t('likes'), 340],
+    ['#/home', t('yourMix'), 262],
+    ['#/library?tab=albums', t('albums'), 205],
+    ['#/library?tab=artists', t('artists'), 160],
+    ['#/library?tab=playlists', t('playlists'), 32],
+    ['#/add', t('importAdd'), 12]
+  ];
+  let html = '';
+  if (recent.length) html += section(t('recentSearches'), `<div class="chips">${recent.map((r) => `<span class="chip recent"><button data-recent="${esc(r)}">${esc(r)}</button><button class="x" data-unrecent="${esc(r)}" title="${t('remove')}">×</button></span>`).join('')}</div>`);
+  html += section(t('browseAll'), `<div class="browse">${tiles.map(([h, l, hue]) => `<a class="bt hue" href="${h}" style="--h:${hue}"><span>${esc(l)}</span></a>`).join('')}${albums
+    .slice(0, 18)
+    .map((a, i) => `<a class="bt" href="${albumHref(a.album, a.artist)}" data-tint="${a.cover_id ? coverUrl(a.cover_id) : ''}" style="--h:${hues[i % hues.length]}"><span>${esc(a.album)}</span>${coverImg(a.cover_id)}</a>`)
+    .join('')}</div>`);
+  box.innerHTML = html;
+  tintAll(box);
+}
+document.addEventListener('click', (e) => {
+  const fb = e.target.closest('[data-sfilter]');
+  if (fb) {
+    state.sfilter = fb.dataset.sfilter;
+    drawSearch($('#results'), false, true);
+    $('#content').scrollTop = 0;
+    return;
+  }
+  if (e.target.closest('[data-topsong]') && state.topSong) return player.playList([state.topSong], 0);
+  const un = e.target.closest('[data-unrecent]');
+  if (un) {
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(recentSearches().filter((x) => x !== un.dataset.unrecent)));
+    } catch {}
+    return browseView($('#results'));
+  }
+  const rc = e.target.closest('[data-recent]');
+  if (rc) {
+    const inp = $('#q');
+    inp.value = rc.dataset.recent;
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    return;
+  }
+  // a click on any result counts as a finished search
+  if (state.route === 'search' && e.target.closest('#results .row, #results .card, #results .topres')) rememberSearch($('#q')?.value || '');
+});
+
+// catalog artist and album pages
+views.cartist = async (params) => {
+  const r = await get('/api/catalog/artist/' + encodeURIComponent(params.get('id') || ''));
+  const a = catArtist(r.artist);
+  const tracks = (r.tracks || []).map(extTrack);
+  state.detail = { cartist: tracks };
+  let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : '', actions: tracks.length ? listActions('cartist') : '' });
+  if (tracks.length) html += section(t('top'), trackList(tracks), `<span class="muted small">${t('catalogHint')}</span>`);
+  if (r.albums?.length) html += section(t('albums'), plainAlbumCards(r.albums.map(catAlbum)));
+  return html;
+};
+views.calbum = async (params) => {
+  const r = await get('/api/fetch/deezer?type=album&id=' + encodeURIComponent(params.get('id') || ''));
+  const tracks = (r.items || []).map(extTrack);
+  const cid = 'dzalbum:' + params.get('id');
+  if (r.cover) extCovers.set(cid, r.cover);
+  state.detail = { calbum: tracks };
+  let html = detailHeader({ coverId: cid, kind: t('album'), title: r.name, sub: `${esc(tracks[0]?.artist || '')} · ${songCount(tracks.length)}`, actions: tracks.length ? listActions('calbum') : '' });
+  html += section(t('tracks'), trackList(tracks, { numbers: true }), `<span class="muted small">${t('catalogHint')}</span>`);
+  return html;
+};
 let searchTimer;
 document.addEventListener('input', (e) => {
   if (e.target.id !== 'q') return;
@@ -520,6 +664,12 @@ document.addEventListener('input', (e) => {
   const q = e.target.value;
   history.replaceState(null, '', '#/search' + (q ? '?q=' + encodeURIComponent(q) : ''));
   searchTimer = setTimeout(() => runSearch(q).catch(() => {}), 180);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.id === 'q' && e.key === 'Enter') {
+    rememberSearch(e.target.value);
+    e.target.blur();
+  }
 });
 
 async function cached(key, fn) {

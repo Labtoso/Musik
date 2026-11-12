@@ -71,6 +71,9 @@ pub fn routes() -> Router<St> {
         .route("/imports/{id}/rematch", post(rematch))
         .route("/imports/{id}/playlist", post(import_to_playlist))
         .route("/fetch/deezer", get(fetch_deezer))
+        .route("/catalog/search", get(catalog_search))
+        .route("/catalog/artist/{id}", get(catalog_artist))
+        .route("/catalog/preview/{id}", get(catalog_preview))
         .route("/fetch/oembed", get(fetch_oembed))
         .route("/lyrics", get(lyrics_lookup))
         .route("/lyrics/{id}", get(lyrics))
@@ -569,6 +572,88 @@ async fn fetch_deezer(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>
     .await
     .map_err(|_| ApiError::new(500, "internal"))??;
     Ok(Json(res))
+}
+
+// ---------- catalog: the public Deezer catalog (no key needed) for search like on Spotify ----------
+fn dz_track(t: &Value) -> Value {
+    json!({
+        "source": "deezer", "ext_id": t["id"].to_string(), "title": t["title"].as_str().unwrap_or(""),
+        "artist": t["artist"]["name"].as_str().unwrap_or(""),
+        "album": t["album"]["title"].as_str().unwrap_or(""),
+        "duration": t["duration"].as_f64().unwrap_or(0.0),
+        "cover": t["album"]["cover_medium"].as_str().unwrap_or(""),
+        "url": t["link"].as_str().unwrap_or(""),
+    })
+}
+fn dz_album(a: &Value) -> Value {
+    json!({ "id": a["id"].to_string(), "title": a["title"].as_str().unwrap_or(""), "artist": a["artist"]["name"].as_str().unwrap_or(""),
+            "cover": a["cover_medium"].as_str().unwrap_or(""), "url": a["link"].as_str().unwrap_or("") })
+}
+fn dz_artist(a: &Value) -> Value {
+    json!({ "id": a["id"].to_string(), "name": a["name"].as_str().unwrap_or(""), "picture": a["picture_medium"].as_str().unwrap_or(""),
+            "fans": a["nb_fan"].as_i64().unwrap_or(0) })
+}
+fn dz_list(v: &Value, f: fn(&Value) -> Value) -> Vec<Value> {
+    v["data"].as_array().map(|a| a.iter().map(f).collect()).unwrap_or_default()
+}
+
+/// ?q=… songs, artists and albums from the catalog
+async fn catalog_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let term = q.get("q").map(|s| s.trim().to_string()).unwrap_or_default();
+    if term.is_empty() {
+        return Ok(Json(json!({ "tracks": [], "artists": [], "albums": [] })));
+    }
+    let res = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
+        let enc: String = term.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+        let tracks = http_get(&format!("https://api.deezer.com/search/track?q={enc}&limit=20"))?;
+        let artists = http_get(&format!("https://api.deezer.com/search/artist?q={enc}&limit=8")).unwrap_or(Value::Null);
+        let albums = http_get(&format!("https://api.deezer.com/search/album?q={enc}&limit=12")).unwrap_or(Value::Null);
+        Ok(json!({ "tracks": dz_list(&tracks, dz_track), "artists": dz_list(&artists, dz_artist), "albums": dz_list(&albums, dz_album) }))
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))??;
+    Ok(Json(res))
+}
+
+/// An artist with top songs and albums
+async fn catalog_artist(Auth(_, _): Auth, Path(id): Path<String>) -> R {
+    let id: String = id.chars().filter(|c| c.is_ascii_digit()).collect();
+    if id.is_empty() {
+        return Err(ApiError::new(400, "bad_link"));
+    }
+    let res = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
+        let a = http_get(&format!("https://api.deezer.com/artist/{id}"))?;
+        if a.get("error").is_some() {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        let top = http_get(&format!("https://api.deezer.com/artist/{id}/top?limit=20")).unwrap_or(Value::Null);
+        let albums = http_get(&format!("https://api.deezer.com/artist/{id}/albums?limit=24")).unwrap_or(Value::Null);
+        let mut artist = dz_artist(&a);
+        artist["picture"] = json!(a["picture_xl"].as_str().unwrap_or(""));
+        let name = artist["name"].clone();
+        let albums: Vec<Value> = albums["data"].as_array().map(|l| l.iter().map(|x| {
+            let mut v = dz_album(x);
+            v["artist"] = name.clone();
+            v
+        }).collect()).unwrap_or_default();
+        Ok(json!({ "artist": artist, "tracks": dz_list(&top, dz_track), "albums": albums }))
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))??;
+    Ok(Json(res))
+}
+
+/// Fresh address of the official 30 second preview (the links expire)
+async fn catalog_preview(Auth(_, _): Auth, Path(id): Path<String>) -> R {
+    let id: String = id.chars().filter(|c| c.is_ascii_digit()).collect();
+    let res = tokio::task::spawn_blocking(move || http_get(&format!("https://api.deezer.com/track/{id}")))
+        .await
+        .map_err(|_| ApiError::new(500, "internal"))??;
+    let preview = res["preview"].as_str().unwrap_or("").to_string();
+    if preview.is_empty() {
+        return Err(ApiError::new(404, "not_found"));
+    }
+    Ok(Json(json!({ "preview": preview, "duration": 30 })))
 }
 
 /// Titles and channels for YouTube videos: ?ids=a,b,c (official oEmbed endpoint, no key needed)

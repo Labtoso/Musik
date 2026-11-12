@@ -2,6 +2,7 @@
 // Every adapter: load(id, pos, autoplay), play(), pause(), seek(sec), stop(), position, duration, playing
 // and emits 'time' {position, duration}, 'playing' {playing}, 'buffering' {buffering}, 'ended', 'error'.
 import { ytApi, scApi, spotify } from './sources.js';
+import { get } from './api.js';
 
 /** The visible box the YouTube / SoundCloud players live in (their rules want the player on screen). */
 export const stage = (() => {
@@ -323,5 +324,52 @@ export class SpotifyAdapter extends Adapter {
   }
   get duration() {
     return this.dur;
+  }
+}
+
+// ---------- Deezer catalog: the official 30 second preview ----------
+export class DeezerAdapter extends Adapter {
+  constructor() {
+    super();
+    this.a = new Audio();
+    this.a.preload = 'auto';
+    this.a.addEventListener('timeupdate', () => this.emit('time', { position: this.a.currentTime, duration: this.a.duration || 30 }));
+    this.a.addEventListener('playing', () => this.emit('playing', { playing: true }));
+    this.a.addEventListener('pause', () => this.emit('playing', { playing: false }));
+    this.a.addEventListener('waiting', () => this.emit('buffering', { buffering: true }));
+    this.a.addEventListener('canplay', () => this.emit('buffering', { buffering: false }));
+    this.a.addEventListener('ended', () => this.emit('ended'));
+    this.a.addEventListener('error', () => this.emit('error', { message: 'deezer' }));
+  }
+  async load(id, pos = 0, autoplay = true) {
+    showStage('');
+    const r = await get('/api/catalog/preview/' + encodeURIComponent(id));
+    this.a.src = r.preview;
+    if (pos) this.a.currentTime = Math.min(pos, 29);
+    if (autoplay) await this.a.play().catch(() => this.emit('playing', { playing: false }));
+  }
+  play() {
+    this.a.play().catch(() => {});
+  }
+  pause() {
+    this.a.pause();
+  }
+  seek(sec) {
+    this.a.currentTime = sec;
+  }
+  setVolume(v) {
+    this.a.volume = v;
+  }
+  stop() {
+    this.a.pause();
+  }
+  get position() {
+    return this.a.currentTime;
+  }
+  get duration() {
+    return this.a.duration || 30;
+  }
+  get playing() {
+    return !this.a.paused;
   }
 }

@@ -2,7 +2,7 @@
 //  - HtmlEngine: <audio> element (browser, desktop)
 //  - NativeEngine: Android bridge (ExoPlayer service, keeps playing in background)
 import { streamUrl, coverUrl, post, get } from './api.js';
-import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, showStage } from './engines.js';
+import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showStage } from './engines.js';
 import { toBands } from './viz.js';
 
 export const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -47,7 +47,7 @@ class HtmlEngine extends EventTarget {
   }
   #adapter(kind) {
     if (this.adapters[kind]) return this.adapters[kind];
-    const Cls = { youtube: YouTubeAdapter, soundcloud: SoundCloudAdapter, spotify: SpotifyAdapter }[kind];
+    const Cls = { youtube: YouTubeAdapter, soundcloud: SoundCloudAdapter, spotify: SpotifyAdapter, deezer: DeezerAdapter }[kind];
     if (!Cls) return null;
     const ad = new Cls();
     const mine = (fn) => (ev) => ad === this.active && fn(ev.detail || {});
