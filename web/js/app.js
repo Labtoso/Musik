@@ -1,6 +1,6 @@
 import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
 import { Player, EQ_FREQS } from './player.js';
-import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, extTrack } from './sources.js';
+import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, spotifyArtist, spotifyAlbum, extTrack } from './sources.js';
 import { placeStage } from './engines.js';
 import { Visualizer, VIZ_MODES } from './viz.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -23,13 +23,16 @@ const nativeLang = (() => {
     return '';
   }
 })();
-const prefs = Object.assign({ lang: nativeLang || 'en', accent: 'blue', volume: 1, autoplay: true, dynamic: true }, (() => {
+const prefs = Object.assign({ lang: nativeLang || 'en', accent: 'cover', volume: 1, autoplay: true, dynamic: true }, (() => {
   try {
     return JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
   } catch {
     return {};
   }
 })());
+// older versions stored the browser language without being asked: only a real choice counts
+if (!prefs.langChosen && !nativeLang) prefs.lang = 'en';
+if (nativeLang) prefs.lang = nativeLang;
 function savePrefs() {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
@@ -38,37 +41,54 @@ function savePrefs() {
 /** Remember a language choice everywhere it can be read again: this browser, the Android app, the account. */
 function rememberLang(lang) {
   prefs.lang = lang;
+  prefs.langChosen = true;
   savePrefs();
   try {
     window.MusikAndroid?.setLang?.(lang);
   } catch {}
-  if (conn.token) saveSettings({ lang }).catch(() => {});
+  if (conn.token) saveSettings({ lang, langChosen: true }).catch(() => {});
+}
+// the Android app keeps the page clear of the status and navigation bars itself
+if (window.MusikAndroid) {
+  document.documentElement.style.setProperty('--safe-t', '0px');
+  document.documentElement.style.setProperty('--safe-b', '0px');
 }
 function applyPrefs() {
   setLang(prefs.lang);
   document.documentElement.dataset.accent = prefs.accent;
   window.MusikAndroid?.setAccent?.(prefs.accent);
 }
-// Colours from the current cover ("dynamic colours")
+// Colours from the current cover: the accent when "From cover" is picked, the background tint when dynamic colours are on
 let dynFor = null;
-function applyDyn(tr) {
+const ACCENT_VARS = ['--accent', '--accent-ink', '--accent2'];
+function applyDyn(tr, force = false) {
   const root = document.documentElement;
+  const wantAccent = prefs.accent === 'cover';
   const clear = () => {
     root.classList.remove('dyn');
-    ['--accent', '--accent-ink', '--accent2', '--dyn-bg'].forEach((k) => root.style.removeProperty(k));
+    [...ACCENT_VARS, '--dyn-bg'].forEach((k) => root.style.removeProperty(k));
   };
-  const id = prefs.dynamic && tr ? tr.id : null;
-  if (id === dynFor) return;
+  const id = (prefs.dynamic || wantAccent) && tr ? tr.id : null;
+  if (id === dynFor && !force) return;
   dynFor = id;
   if (!id) return clear();
-  colorFromUrl(coverUrl(id)).then((p) => {
+  const url = coverUrl(id);
+  if (!url) return clear();
+  colorFromUrl(url).then((p) => {
     if (dynFor !== id) return;
     if (!p) return clear();
-    root.style.setProperty('--accent', p.accent);
-    root.style.setProperty('--accent2', p.accent2);
-    root.style.setProperty('--accent-ink', p.ink);
-    root.style.setProperty('--dyn-bg', p.bg);
-    root.classList.add('dyn');
+    if (wantAccent) {
+      root.style.setProperty('--accent', p.accent);
+      root.style.setProperty('--accent2', p.accent2);
+      root.style.setProperty('--accent-ink', p.ink);
+    } else ACCENT_VARS.forEach((k) => root.style.removeProperty(k));
+    if (prefs.dynamic) {
+      root.style.setProperty('--dyn-bg', p.bg);
+      root.classList.add('dyn');
+    } else {
+      root.style.removeProperty('--dyn-bg');
+      root.classList.remove('dyn');
+    }
   });
 }
 applyPrefs();
@@ -155,9 +175,10 @@ function menu(anchor, items) {
   closeMenu();
   const m = document.createElement('div');
   m.className = 'menu';
+  // no separator at the start, the end or twice in a row
+  items = items.filter(Boolean).filter((it, i, a) => it !== '-' || (i > 0 && i < a.length - 1 && a[i - 1] !== '-'));
   m.innerHTML = items
-    .filter(Boolean)
-    .map((it, i) => (it === '-' ? '<hr>' : `<button data-i="${i}">${it.icon ? icon(it.icon) : ''}<span>${esc(it.label)}</span></button>`))
+    .map((it, i) => (it === '-' ? '<hr>' : `<button data-i="${i}" class="${it.danger ? 'danger' : ''}">${it.icon ? icon(it.icon) : ''}<span>${esc(it.label)}</span></button>`))
     .join('');
   document.body.appendChild(m);
   const list = items.filter(Boolean);
@@ -170,9 +191,11 @@ function menu(anchor, items) {
   const r = anchor.getBoundingClientRect();
   const mw = m.offsetWidth;
   const mh = m.offsetHeight;
-  let x = Math.min(r.right - mw, innerWidth - mw - 8);
-  let y = r.bottom + 4;
-  if (y + mh > innerHeight - 8) y = Math.max(8, r.top - mh - 4);
+  // at the pointer for right click and long press, under the button otherwise
+  const atPoint = anchor.clientX != null;
+  let x = atPoint ? Math.min(anchor.clientX, innerWidth - mw - 8) : Math.min(r.right - mw, innerWidth - mw - 8);
+  let y = atPoint ? anchor.clientY : r.bottom + 4;
+  if (y + mh > innerHeight - 8) y = Math.max(8, (atPoint ? anchor.clientY : r.top) - mh - 4);
   m.style.left = Math.max(8, x) + 'px';
   m.style.top = y + 'px';
   setTimeout(() => addEventListener('mousedown', outside), 0);
@@ -228,6 +251,7 @@ function trackMenu(anchor, tr, ctx = {}) {
     tr.ext?.url && { label: t('openOn', { src: t('src_' + tr.ext.source) }), icon: 'link', run: () => window.open(tr.ext.url, '_blank', 'noopener') },
     '-',
     tr.artist && !tr.ext && { label: t('goArtist'), icon: 'user', run: () => go(`#/artist?name=${encodeURIComponent(tr.artist)}`) },
+    tr.artist && tr.ext && { label: t('goArtist'), icon: 'user', run: () => go(`#/search?q=${encodeURIComponent(tr.artist.split(',')[0].trim())}`) },
     tr.album && !tr.ext && {
       label: t('goAlbum'),
       icon: 'album',
@@ -278,24 +302,48 @@ async function toggleLike(tr) {
 }
 
 // ---------- track list ----------
+/** Columns in song lists, picked in Settings → Look. */
+const COLS = ['cover', 'artist', 'album', 'source', 'duration', 'year', 'genre', 'added'];
+const COLS_DEFAULT = ['cover', 'artist', 'album', 'source', 'duration'];
+function cols() {
+  const c = Array.isArray(prefs.cols) ? prefs.cols.filter((x) => COLS.includes(x)) : COLS_DEFAULT;
+  return new Set(c);
+}
+function fmtDate(ms) {
+  if (!ms) return '';
+  const d = new Date(ms > 1e11 ? ms : ms * 1000);
+  return d.toLocaleDateString(getLang() === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 function trackList(tracks, { numbers = false, album = true, reasons = false, playlistId = null } = {}) {
   if (!tracks.length) return `<p class="muted empty">${t('empty')}</p>`;
   const id = 'tl' + Math.random().toString(36).slice(2, 8);
   state.lists = state.lists || {};
   state.lists[id] = tracks;
   const cur = player.current?.id;
-  return `<div class="tracks" data-list="${id}" ${playlistId ? `data-playlist="${playlistId}"` : ''}>${tracks
+  const c = cols();
+  const showAlb = album && c.has('album');
+  const extra = ['year', 'genre', 'added'].filter((k) => c.has(k));
+  // grid: lead, title, [album], [extras], side, [duration], more
+  const w = { year: '52px', genre: 'minmax(0, 1fr)', added: '104px' };
+  const full = ['40px', 'minmax(0, 3fr)', showAlb && 'minmax(0, 2fr)', ...extra.map((k) => w[k]), '36px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
+  const mid = ['40px', 'minmax(0, 1fr)', '36px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
+  return `<div class="tracks ${c.has('cover') ? '' : 'nocover'}" style="--cols:${full};--cols-mid:${mid}" data-list="${id}" ${playlistId ? `data-playlist="${playlistId}"` : ''}>${tracks
     .map((tr, i) => {
       const reason = reasons && tr.reason ? `<span class="reason">${esc(t('reason_' + tr.reason, { artist: artistName(tr) }))}</span>` : '';
+      const src = tr.ext?.source || tr._src;
       const side = tr.ext || tr._off
-        ? `<span class="like-slot">${srcBadge(tr.ext?.source || tr._src)}</span>`
+        ? `<span class="like-slot">${c.has('source') ? srcBadge(src) : ''}</span>`
         : `<button class="icon-btn like ${tr.liked ? 'on' : ''}" data-like="${tr.id}" title="${tr.liked ? t('unlike') : t('like')}">${icon(tr.liked ? 'heartFill' : 'heart')}</button>`;
+      const lead = numbers || !c.has('cover') ? `<span class="num">${(numbers && tr.track_no) || i + 1}</span>` : coverImg(tr.id, 'sm');
+      const sub = [c.has('artist') ? esc(artistName(tr)) : '', reason].filter(Boolean).join(' · ');
+      const xc = { year: tr.year || '', genre: esc(tr.genre || ''), added: tr.added ? fmtDate(tr.added) : '' };
       return `<div class="row ${tr.id === cur ? 'current' : ''} ${tr._off ? 'off' : ''}" data-i="${i}" data-id="${esc(String(tr.id))}">
-        <div class="lead">${numbers ? `<span class="num">${tr.track_no || i + 1}</span>` : coverImg(tr.has_cover ? tr.id : tr.id, 'sm')}<button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
-        <div class="main"><div class="title">${esc(tr.title)}</div><div class="sub">${esc(artistName(tr))}${reason ? ' · ' + reason : ''}</div></div>
-        ${album ? `<div class="alb">${esc(tr.album || '')}</div>` : ''}
+        <div class="lead">${lead}<button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
+        <div class="main"><div class="title">${esc(tr.title)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>
+        ${showAlb ? `<div class="alb">${esc(tr.album || '')}</div>` : ''}
+        ${extra.map((k) => `<div class="alb xcol">${xc[k]}</div>`).join('')}
         ${side}
-        <div class="dur">${fmtTime(tr.duration)}</div>
+        ${c.has('duration') ? `<div class="dur">${fmtTime(tr.duration)}</div>` : ''}
         <button class="icon-btn more" title="…">${icon('more')}</button>
       </div>`;
     })
@@ -395,9 +443,67 @@ document.addEventListener('click', (e) => {
 // ---------- views ----------
 const views = {};
 
+// ---------- desktop title bar (the window has no system frame, like Spotify) ----------
+document.addEventListener('mousedown', (e) => {
+  if (e.button !== 0 || !e.target.closest('[data-drag]') || e.target.closest('button, a, input')) return;
+  if (e.detail === 2) return window.musikDesktop?.win?.('max');
+  window.musikDesktop?.win?.('drag');
+});
+document.addEventListener('click', (e) => {
+  const w = e.target.closest('[data-win]');
+  if (w) return window.musikDesktop?.win?.(w.dataset.win);
+  const h = e.target.closest('[data-hist]');
+  if (h) return history.go(Number(h.dataset.hist));
+  if (e.target.closest('[data-tbsearch]')) {
+    go('#/search');
+    setTimeout(() => $('#q')?.focus(), 60);
+  }
+});
+
+// ---------- profile panel (tap the picture, like Spotify on the phone) ----------
+function openProfile() {
+  closeProfile();
+  const name = (conn.user && conn.user.name) || '';
+  const initial = esc(name.trim().charAt(0).toUpperCase() || '?');
+  const wrap = document.createElement('div');
+  wrap.className = 'profile-wrap';
+  const item = (attr, ic, label) => `<button ${attr}>${icon(ic)}<span>${label}</span></button>`;
+  wrap.innerHTML = `<aside class="profile" role="dialog" aria-label="${t('profile')}">
+    <div class="pf-head"><span class="avatar big">${initial}</span><div><b>${esc(name)}</b><a class="muted small" href="#/library">${t('library')}</a></div></div>
+    <nav class="pf-nav">
+      ${item('data-pfgo="#/add"', 'plus', t('importAdd'))}
+      ${item('data-pfgo="#/sources"', 'link', t('manageSources'))}
+      ${item('data-pfgo="#/likes"', 'heart', t('likes'))}
+      ${item('data-pfgo="#/queue"', 'queue', t('queue'))}
+      ${item('data-pfupd', 'download', t('updates'))}
+    </nav>
+    <div class="pf-foot">${item('data-pfset', 'gear', t('settings'))}</div>
+  </aside>`;
+  document.body.appendChild(wrap);
+  requestAnimationFrame(() => wrap.classList.add('open'));
+  wrap.addEventListener('click', (e) => {
+    if (e.target === wrap) return closeProfile();
+    const b = e.target.closest('button, a');
+    if (!b) return;
+    closeProfile();
+    if (b.dataset.pfgo) go(b.dataset.pfgo);
+    else if (b.hasAttribute('data-pfset')) openSettingsPage();
+    else if (b.hasAttribute('data-pfupd')) openSettingsPage('updates');
+  });
+}
+function closeProfile() {
+  const w = $('.profile-wrap');
+  if (!w) return;
+  w.classList.remove('open');
+  setTimeout(() => w.remove(), 200);
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-profile]')) openProfile();
+});
+
 function pageHead(title, extra = '') {
   const initial = esc(((conn.user && conn.user.name) || '?').trim().charAt(0).toUpperCase() || '?');
-  return `<div class="mhead"><button class="avatar" data-settings title="${t('settings')}">${initial}</button><h1>${title}</h1>${extra}</div>`;
+  return `<div class="mhead"><button class="avatar" data-profile title="${t('profile')}">${initial}</button><h1>${title}</h1>${extra}</div>`;
 }
 function greeting() {
   const h = new Date().getHours();
@@ -444,10 +550,70 @@ document.addEventListener('click', (e) => {
   if (list) player.playList(list, Number(c.dataset.i));
 });
 
+// ---------- what was played from platforms, kept on this device for suggestions ----------
+const HIST_KEY = 'musik.exthist';
+function extHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(HIST_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+let lastRemembered = null;
+function rememberPlay(tr) {
+  if (!tr?.ext || tr.id === lastRemembered) return;
+  lastRemembered = tr.id;
+  const h = extHistory().filter((x) => x.id !== tr.id);
+  h.unshift({ id: tr.id, title: tr.title, artist: tr.artist, album: tr.album, duration: tr.duration, cover: extCovers.get(tr.id) || '', ext: tr.ext, at: Date.now() });
+  try {
+    localStorage.setItem(HIST_KEY, JSON.stringify(h.slice(0, 200)));
+  } catch {}
+}
+function histTrack(x) {
+  if (x.cover) extCovers.set(x.id, x.cover);
+  return { id: x.id, title: x.title, artist: x.artist, album: x.album || '', duration: x.duration || 0, has_cover: !!x.cover, ext: x.ext, liked: false };
+}
+/** Artists someone listens to most: local plays, platform plays, imported playlists. */
+async function favouriteArtists(h) {
+  const score = new Map();
+  const add = (name, n) => {
+    for (const a of String(name || '').split(/,|&| feat\.? | x /i).map((x) => x.trim()).filter(Boolean).slice(0, 1)) score.set(a, (score.get(a) || 0) + n);
+  };
+  (h?.topArtists || []).forEach((a, i) => add(a, 12 - i));
+  extHistory().forEach((x, i) => add(x.artist, Math.max(1, 6 - i / 10)));
+  if (score.size < 3) {
+    const imps = await get('/api/imports').catch(() => []);
+    for (const im of imps.slice(0, 3)) {
+      const r = await get('/api/imports/' + im.id).catch(() => null);
+      r?.items?.slice(0, 40).forEach((x) => add(x.artist, 1));
+    }
+  }
+  return [...score.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, 4);
+}
+async function forYouSections(h) {
+  const names = await favouriteArtists(h);
+  if (!names.length) return '';
+  const r = await get('/api/catalog/foryou?artists=' + encodeURIComponent(names.join('|'))).catch(() => null);
+  if (!r) return '';
+  let html = '';
+  for (const row of r.rows || []) {
+    const tracks = row.tracks.map(extTrack);
+    html += section(t('becauseYouListen', { name: row.because }), trackCards(tracks, 'fy' + Math.random().toString(36).slice(2, 7)));
+  }
+  if (r.artists?.length) html += section(t('suggestedArtists'), artistCards(r.artists.map(catArtist), true));
+  return html;
+}
+
 views.home = async () => {
   const [h, lib] = await Promise.all([get('/api/home'), get('/api/library')]);
+  const recentExt = extHistory().slice(0, 12).map(histTrack);
   if (!lib.tracks) {
-    return `<div class="emptystate">${icon('note', 'big')}<p>${t('emptyLibrary')}</p><button class="btn primary" data-upload>${icon('upload')}${t('upload')}</button></div>`;
+    // no own files yet: suggestions from Spotify / YouTube listening instead of an empty page
+    let html = pageHead(greeting());
+    if (recentExt.length) html += section(t('recent'), trackCards(recentExt, 'recentext'));
+    const fy = await forYouSections(null);
+    html += fy || `<div class="emptystate">${icon('note', 'big')}<p>${t('emptyStart')}</p><div class="stack"><a class="btn primary" href="#/search">${icon('search')}${t('search')}</a><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><button class="btn" data-upload>${icon('upload')}${t('upload')}</button></div></div>`;
+    return html;
   }
   state.homeMix = h.mix;
   // quick tiles: the mix plus albums played lately and new ones
@@ -468,7 +634,9 @@ views.home = async () => {
     <div class="hero-text"><h1>${t('mixForYou')}</h1><p class="muted">${h.cold ? t('coldHint') : esc(h.mix.slice(0, 4).map(artistName).filter((v, i, a) => a.indexOf(v) === i).join(', '))}</p></div>
     <button class="btn primary" data-playmix>${icon('play')}${t('playAll')}</button></div>`;
   html += `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(h.mix, { reasons: true })}</section>`;
-  if (h.recent.length) html += section(t('recent'), trackCards(h.recent, 'recent'));
+  const recentAll = [...h.recent, ...recentExt].slice(0, 14);
+  if (recentAll.length) html += section(t('recent'), trackCards(recentAll, 'recent'));
+  html += await forYouSections(h).catch(() => '');
   if (h.rediscover.length) html += section(t('rediscover'), trackCards(h.rediscover, 'rediscover'));
   if (h.newAlbums.length) html += section(t('newAlbums'), albumCards(h.newAlbums));
   if (h.topArtists.length) {
@@ -517,8 +685,56 @@ const SFILTERS = ['all', 'songs', 'artists', 'albums', 'playlists'];
 views.search = async (params) => {
   const q = params.get('q') || '';
   state.sfilter = 'all';
-  return `${pageHead(t('search'))}<div class="searchbar">${icon('search')}<input id="q" type="search" placeholder="${t('searchPlaceholder')}" value="${esc(q)}" autocomplete="off"></div><div id="results"></div>`;
+  const mode = searchMode();
+  return `${pageHead(t('search'))}<div class="searchbar">${icon('search')}<input id="q" type="search" placeholder="${t('searchPlaceholder_' + mode)}" value="${esc(q)}" autocomplete="off"></div>
+    <div class="smode" role="tablist">${SMODES.map((m) => `<button class="${m === mode ? 'on' : ''}" data-smode="${m}">${m === 'all' ? '' : srcBadge(m === 'spotify' ? 'spotify' : 'ytmusic')}${t('smode_' + m)}</button>`).join('')}</div><div id="results"></div>`;
 };
+/** Where search looks: everything, only Spotify, or only YouTube Music. */
+const SMODES = ['all', 'spotify', 'ytmusic'];
+function searchMode() {
+  return SMODES.includes(prefs.searchIn) ? prefs.searchIn : 'all';
+}
+function setSearchMode(m) {
+  prefs.searchIn = m;
+  savePrefs();
+  if (conn.token) saveSettings({ searchIn: m }).catch(() => {});
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-col]');
+  if (!b) return;
+  const c = cols();
+  c.has(b.dataset.col) ? c.delete(b.dataset.col) : c.add(b.dataset.col);
+  prefs.cols = COLS.filter((k) => c.has(k));
+  savePrefs();
+  if (conn.token) saveSettings({ cols: prefs.cols }).catch(() => {});
+  b.classList.toggle('on', c.has(b.dataset.col));
+});
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-smode]');
+  if (!b) return;
+  setSearchMode(b.dataset.smode);
+  document.querySelectorAll('[data-smode]').forEach((x) => x.classList.toggle('on', x === b));
+  const q = $('#q');
+  if (q) {
+    q.placeholder = t('searchPlaceholder_' + b.dataset.smode);
+    runSearch(q.value).catch(() => {});
+  }
+});
+function spArtist(a) {
+  const id = 'spartist:' + a.id;
+  if (a.picture) extCovers.set(id, a.picture);
+  return { name: a.name, cover: id, href: `#/spartist?id=${a.id}`, sub: t('artist') };
+}
+function spAlbum(a) {
+  const id = 'spalbum:' + a.id;
+  if (a.cover) extCovers.set(id, a.cover);
+  return { title: a.title, artist: a.year ? `${a.year} · ${a.artist}` : a.artist, cover: id, href: `#/spalbum?id=${a.id}` };
+}
+function spPlaylist(p) {
+  const id = 'sppl:' + p.id;
+  if (p.cover) extCovers.set(id, p.cover);
+  return { title: p.title, artist: p.owner, cover: id, href: `#/spplaylist?id=${p.id}` };
+}
 /** Catalog entries (artists, albums) get string ids so their pictures go through extCovers. */
 function catArtist(a) {
   const id = 'dzartist:' + a.id;
@@ -542,33 +758,44 @@ async function runSearch(q) {
   if (!box) return;
   const seq = ++searchSeq;
   if (!q.trim()) return browseView(box);
+  const mode = searchMode();
   const lq = q.trim().toLowerCase();
-  const data = { q, tracks: [], artists: [], albums: [], playlists: [], cat: null, ext: [] };
-  const [tr, albums, artists, pls] = await Promise.all([
-    get('/api/tracks?limit=50&q=' + encodeURIComponent(q)).catch(() => ({ items: [] })),
-    cached('albums', () => get('/api/albums')).catch(() => []),
-    cached('artists', () => get('/api/artists')).catch(() => []),
-    get('/api/playlists').catch(() => [])
-  ]);
-  if (seq !== searchSeq) return;
-  data.tracks = tr.items || [];
-  data.artists = artists.filter((a) => a.name.toLowerCase().includes(lq)).slice(0, 12).map((a) => ({ name: a.name, cover: a.cover_id, href: `#/artist?name=${encodeURIComponent(a.name)}`, sub: songCount(a.tracks) }));
-  data.albums = albums.filter((a) => a.album.toLowerCase().includes(lq) || (a.artist || '').toLowerCase().includes(lq)).slice(0, 12).map((a) => ({ title: a.album, artist: a.artist, cover: a.cover_id, href: albumHref(a.album, a.artist) }));
-  data.playlists = pls.filter((p) => p.name.toLowerCase().includes(lq)).map((p) => ({ title: p.name, artist: songCount(p.tracks), cover: p.cover_id, href: `#/playlist/${p.id}` }));
+  const data = { q, mode, tracks: [], artists: [], albums: [], playlists: [], cat: null, ext: [], note: '' };
+  if (mode === 'all') {
+    const [tr, albums, artists, pls] = await Promise.all([
+      get('/api/tracks?limit=50&q=' + encodeURIComponent(q)).catch(() => ({ items: [] })),
+      cached('albums', () => get('/api/albums')).catch(() => []),
+      cached('artists', () => get('/api/artists')).catch(() => []),
+      get('/api/playlists').catch(() => [])
+    ]);
+    if (seq !== searchSeq) return;
+    data.tracks = tr.items || [];
+    data.artists = artists.filter((a) => a.name.toLowerCase().includes(lq)).slice(0, 12).map((a) => ({ name: a.name, cover: a.cover_id, href: `#/artist?name=${encodeURIComponent(a.name)}`, sub: songCount(a.tracks) }));
+    data.albums = albums.filter((a) => a.album.toLowerCase().includes(lq) || (a.artist || '').toLowerCase().includes(lq)).slice(0, 12).map((a) => ({ title: a.album, artist: a.artist, cover: a.cover_id, href: albumHref(a.album, a.artist) }));
+    data.playlists = pls.filter((p) => p.name.toLowerCase().includes(lq)).map((p) => ({ title: p.name, artist: songCount(p.tracks), cover: p.cover_id, href: `#/playlist/${p.id}` }));
+  }
   state.search = data;
   drawSearch(box, true);
-  // the wider catalog and connected platforms follow as they arrive
-  const later = [
-    get('/api/catalog/search?q=' + encodeURIComponent(q)).then((c) => {
-      data.cat = {
-        tracks: (c.tracks || []).map(extTrack),
-        artists: (c.artists || []).map(catArtist),
-        albums: (c.albums || []).map(catAlbum)
-      };
-    }).catch(() => {})
-  ];
-  if ((enabled('youtube') || enabled('ytmusic')) && settings.youtubeKey) later.push(searchYouTube(q, enabled('ytmusic') && !enabled('youtube') ? 'ytmusic' : 'youtube').then((l) => l.length && data.ext.push([t('onYouTube'), l])).catch(() => {}));
-  if (enabled('spotify') && spotify.connected()) later.push(searchSpotify(q).then((l) => l.length && data.ext.push([t('onSpotify'), l])).catch(() => {}));
+  // the platforms follow as they arrive
+  const later = [];
+  const useSpotify = (mode === 'all' || mode === 'spotify') && spotify.connected();
+  if (useSpotify)
+    later.push(
+      searchSpotifyAll(q).then((r) => {
+        if (!r) return;
+        data.cat = { tracks: r.tracks.map(extTrack), artists: r.artists.map(spArtist), albums: r.albums.map(spAlbum), playlists: r.playlists.map(spPlaylist), src: 'spotify' };
+      }).catch(() => {})
+    );
+  else if (mode === 'spotify') data.note = 'spotifyConnectFirst';
+  // without Spotify the public Deezer catalog fills in names and covers
+  if (mode === 'all' && !useSpotify)
+    later.push(
+      get('/api/catalog/search?q=' + encodeURIComponent(q)).then((c) => {
+        data.cat = { tracks: (c.tracks || []).map(extTrack), artists: (c.artists || []).map(catArtist), albums: (c.albums || []).map(catAlbum), playlists: [], src: 'deezer' };
+      }).catch(() => {})
+    );
+  if (mode === 'all' || mode === 'ytmusic')
+    later.push(searchYouTubeFree(q, 'ytmusic').then((l) => l.length && data.ext.push([t('onYouTube'), l])).catch(() => {}));
   for (const p of later) p.then(() => seq === searchSeq && state.search === data && drawSearch(box, false));
   await Promise.all(later);
   if (seq === searchSeq) drawSearch(box, false, true);
@@ -576,18 +803,22 @@ async function runSearch(q) {
 function drawSearch(box, loading, done = false) {
   const d = state.search;
   if (!d || !$('#results')) return;
-  const cat = d.cat || { tracks: [], artists: [], albums: [] };
+  const cat = d.cat || { tracks: [], artists: [], albums: [], playlists: [] };
   const extTracks = d.ext.flatMap((x) => x[1]);
-  const songs = [...d.tracks, ...extTracks, ...cat.tracks];
+  // Spotify / catalog songs first (names and covers like on Spotify), YouTube videos after
+  const songs = [...d.tracks, ...cat.tracks, ...extTracks];
   const artists = [...d.artists, ...cat.artists.filter((a) => !d.artists.some((x) => x.name.toLowerCase() === a.name.toLowerCase()))];
   const albums = [...d.albums, ...cat.albums];
-  const has = { songs: songs.length, artists: artists.length, albums: albums.length, playlists: d.playlists.length };
+  const playlists = [...d.playlists, ...(cat.playlists || [])];
+  const has = { songs: songs.length, artists: artists.length, albums: albums.length, playlists: playlists.length };
   const f = has[state.sfilter] ? state.sfilter : 'all';
   const chips = `<div class="sfilters">${SFILTERS.filter((k) => k === 'all' || has[k]).map((k) => `<button class="sf ${f === k ? 'on' : ''}" data-sfilter="${k}">${t('sf_' + k)}</button>`).join('')}</div>`;
-  if (!songs.length && !artists.length && !albums.length && !d.playlists.length) {
-    box.innerHTML = loading || !done
-      ? `<p class="muted small">${t('searching')}</p>`
-      : `<div class="noresult"><h3>${t('noResultsFor', { q: d.q })}</h3><p class="muted">${t('noResultsHint')}</p><div class="stack"><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/sources">${t('manageSources')}</a></div></div>`;
+  if (!songs.length && !artists.length && !albums.length && !playlists.length) {
+    box.innerHTML = d.note
+      ? `<div class="noresult"><h3>${t(d.note)}</h3><div class="stack"><a class="btn primary" href="#/sources">${t('spotifyConnect')}</a></div></div>`
+      : loading || !done
+        ? `<p class="muted small">${t('searching')}</p>`
+        : `<div class="noresult"><h3>${t('noResultsFor', { q: d.q })}</h3><p class="muted">${t('noResultsHint')}</p><div class="stack"><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/sources">${t('manageSources')}</a></div></div>`;
     return;
   }
   let html = chips;
@@ -600,17 +831,17 @@ function drawSearch(box, loading, done = false) {
       ? `<a class="topres" href="${topArtist.href}">${coverImg(topArtist.cover, 'round')}<div class="tr-text"><div class="tr-title">${esc(topArtist.name)}</div><div class="tr-sub"><span class="pill">${t('artist')}</span></div></div><span class="tr-play">${icon('play')}</span></a>`
       : `<button class="topres" data-topsong>${coverImg(topSong.id)}<div class="tr-text"><div class="tr-title">${esc(topSong.title)}</div><div class="tr-sub">${esc(artistName(topSong))} <span class="pill">${topSong.ext ? srcBadge(topSong.ext.source) : t('song')}</span></div></div><span class="tr-play">${icon('play')}</span></button>`;
     state.topSong = topSong;
-    html += `<div class="sgrid"><section class="sec"><div class="sec-head"><h2>${t('topResult')}</h2></div>${top}</section>${songs.length ? `<section class="sec"><div class="sec-head"><h2>${t('tracks')}</h2>${songs.length > 4 ? `<button class="link" data-sfilter="songs">${t('showAll')}</button>` : ''}</div>${trackList(songs.slice(0, 4), { album: false })}</section>` : ''}</div>`;
+    const first = [...d.tracks, ...cat.tracks].length ? [...d.tracks, ...cat.tracks] : songs;
+    html += `<div class="sgrid"><section class="sec"><div class="sec-head"><h2>${t('topResult')}</h2></div>${top}</section>${first.length ? `<section class="sec"><div class="sec-head"><h2>${t('tracks')}</h2>${songs.length > 4 ? `<button class="link" data-sfilter="songs">${t('showAll')}</button>` : ''}</div>${trackList(first.slice(0, 4), { album: false })}</section>` : ''}</div>`;
     if (artists.length) html += section(t('artists'), artistCards(artists.slice(0, 10), true), artists.length > 10 ? `<button class="link" data-sfilter="artists">${t('showAll')}</button>` : '');
     if (albums.length) html += section(t('albums'), plainAlbumCards(albums.slice(0, 10), true), albums.length > 10 ? `<button class="link" data-sfilter="albums">${t('showAll')}</button>` : '');
-    if (d.playlists.length) html += section(t('playlists'), plainAlbumCards(d.playlists.slice(0, 10), true));
-    for (const [title, l] of d.ext) html += section(title, trackList(l));
-    if (cat.tracks.length) html += section(t('fromCatalog'), trackList(cat.tracks), `<span class="muted small">${t('catalogHint')}</span>`);
+    if (playlists.length) html += section(t('playlists'), plainAlbumCards(playlists.slice(0, 10), true));
+    for (const [title, l] of d.ext) html += section(title, trackList(l.slice(0, 8)));
   } else if (f === 'songs') html += trackList(songs);
   else if (f === 'artists') html += artistCards(artists);
   else if (f === 'albums') html += plainAlbumCards(albums);
-  else html += plainAlbumCards(d.playlists);
-  if (!done && !d.cat) html += `<p class="muted small">${t('searchingMore')}</p>`;
+  else html += plainAlbumCards(playlists);
+  if (!done) html += `<p class="muted small">${t('searchingMore')}</p>`;
   box.innerHTML = html;
 }
 async function browseView(box) {
@@ -683,6 +914,65 @@ views.calbum = async (params) => {
   html += section(t('tracks'), trackList(tracks, { numbers: true }), `<span class="muted small">${t('catalogHint')}</span>`);
   return html;
 };
+views.spartist = async (params) => {
+  const r = await spotifyArtist(params.get('id') || '');
+  const a = spArtist(r.artist);
+  const tracks = r.tracks.map(extTrack);
+  state.detail = { spartist: tracks };
+  const sub = [r.artist.followers ? t('followersN', { n: r.artist.followers.toLocaleString() }) : '', r.artist.genres.slice(0, 3).join(', ')].filter(Boolean).join(' · ');
+  let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: `${srcBadge('spotify')} ${esc(sub)}`, actions: tracks.length ? listActions('spartist') : '' });
+  if (tracks.length) html += section(t('top'), trackList(tracks));
+  if (r.albums.length) html += section(t('albums'), plainAlbumCards(r.albums.map(spAlbum)));
+  return html;
+};
+views.spalbum = async (params) => {
+  const id = params.get('id') || '';
+  const r = await spotifyAlbum(id);
+  const tracks = r.items.map(extTrack);
+  const cid = 'spalbum:' + id;
+  if (r.cover) extCovers.set(cid, r.cover);
+  state.detail = { spalbum: tracks };
+  const total = tracks.reduce((n, x) => n + (x.duration || 0), 0);
+  const who = r.artistId ? `<a href="#/spartist?id=${r.artistId}"><b>${esc(r.artist)}</b></a>` : `<b>${esc(r.artist)}</b>`;
+  let html = detailHeader({ coverId: cid, kind: t('album'), title: r.name, sub: `${srcBadge('spotify')} ${who}${r.year ? ' · ' + r.year : ''} · ${songCount(tracks.length)}, ${fmtLong(total)}`, actions: tracks.length ? listActions('spalbum') : '' });
+  html += trackList(tracks, { numbers: true });
+  if (r.label) html += `<p class="muted small credits">${esc(r.label)}</p>`;
+  return html;
+};
+views.spplaylist = async (params) => {
+  const id = params.get('id') || '';
+  const r = await spotifyPlaylist(id, 'https://open.spotify.com/playlist/' + id, (n, tot) => importStatus(t('importLoading', { n, total: tot }), (n / tot) * 100)).finally(() => importStatus(null));
+  const tracks = r.items.map(extTrack);
+  const cid = 'sppl:' + id;
+  if (r.cover) extCovers.set(cid, r.cover);
+  state.detail = { sppl: tracks };
+  state.spPending = { ...r, url: 'https://open.spotify.com/playlist/' + id };
+  const m = r.meta || {};
+  const total = tracks.reduce((n, x) => n + (x.duration || 0), 0);
+  return detailHeader({
+    coverId: cid,
+    kind: t('playlist'),
+    title: r.name,
+    sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge('spotify')} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(tracks.length)}, ${fmtLong(total)}`,
+    actions: listActions('sppl') + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>`
+  }) + trackList(tracks);
+};
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest('[data-spsave]') || !state.spPending) return;
+  const r = state.spPending;
+  try {
+    importStatus(t('importMatching', { n: r.items.length }));
+    const res = await saveImport({ source: 'spotify', name: r.name, url: r.url, cover: r.cover || '', meta: r.meta || {}, items: r.items });
+    importStatus(null);
+    renderSidebarPlaylists();
+    toast(t('importDone', { name: r.name }));
+    go('#/imported/' + res.id);
+  } catch (err) {
+    importStatus(null);
+    toast(errorText(err));
+  }
+});
+
 let searchTimer;
 document.addEventListener('input', (e) => {
   if (e.target.id !== 'q') return;
@@ -728,12 +1018,12 @@ views.library = async (params) => {
   } else if (tab === 'imported') {
     const list = await get('/api/imports');
     body = `<div class="toolbar"><a class="btn primary" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/sources">${t('manageSources')}</a></div>
-      ${list.length ? `<div class="cards libgrid">${list.map((im) => `<a class="card" href="#/imported/${im.id}">${im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`).join('')}</div>` : `<p class="muted empty">${t('importNone')}</p>`}`;
+      ${list.length ? `<div class="cards libgrid"> ${list.map((im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${im.art ? coverImg(artKey('import', im.id, im.art), 'lg') : im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`).join('')}</div>` : `<p class="muted empty">${t('importNone')}</p>`}`;
   } else {
     const lists = await get('/api/playlists');
     body = `<div class="toolbar"><button class="btn" data-newpl>${icon('plus')}${t('newPlaylist')}</button></div>
       <div class="cards libgrid"><a class="card" href="#/likes"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
-      ${lists.map((p) => `<a class="card" href="#/playlist/${p.id}">${coverImg(p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`).join('')}</div>`;
+      ${lists.map((p) => `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`).join('')}</div>`;
   }
   return `${pageHead(t('yourLibrary'), `<button class="icon-btn" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button>`)}<div class="tabs">${LIB_TABS.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
 };
@@ -832,47 +1122,14 @@ views.playlist = async (params, id) => {
   state.detail = { pl: pl.tracks };
   return (
     detailHeader({
-      coverId: pl.tracks[0]?.id,
+      coverId: artKey('playlist', pl.id, pl.art) || pl.tracks[0]?.id,
       kind: t('playlist'),
       title: pl.name,
       sub: `${songCount(pl.tracks.length)} · ${fmtTime(pl.tracks.reduce((s, x) => s + x.duration, 0))}`,
-      actions: listActions('pl') + shareBtn('playlist', pl.id, pl.name) + `<button class="icon-btn" data-plmenu="${pl.id}" title="…">${icon('more')}</button>`
+      actions: listActions('pl') + shareBtn('playlist', pl.id, pl.name) + `<button class="icon-btn" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
     }) + trackList(pl.tracks, { playlistId: pl.id })
   );
 };
-document.addEventListener('click', (e) => {
-  const b = e.target.closest('[data-plmenu]');
-  if (!b) return;
-  const id = b.dataset.plmenu;
-  const name = $('.detail-head h1')?.textContent || '';
-  menu(b, [
-    {
-      label: t('rename'),
-      icon: 'refresh',
-      run: async () => {
-        const r = await dialog({ title: t('rename'), fields: [{ name: 'name', label: t('playlistName'), value: name }] });
-        if (r?.name?.trim()) {
-          await put(`/api/playlists/${id}`, { name: r.name.trim() });
-          renderSidebarPlaylists();
-          render();
-        }
-      }
-    },
-    {
-      label: t('delete'),
-      icon: 'trash',
-      run: async () => {
-        const r = await dialog({ title: t('deletePlaylistQ', { name }), ok: t('delete'), danger: true });
-        if (r) {
-          await del(`/api/playlists/${id}`);
-          renderSidebarPlaylists();
-          go('#/library?tab=playlists');
-        }
-      }
-    }
-  ]);
-});
-
 // ---------- sources (first start + settings) ----------
 function sourcesForm(welcome) {
   const on = settings.sources || {};
@@ -1077,6 +1334,7 @@ views.imported = async (params, id) => {
     extCovers.set('imp:' + id, r.cover);
     coverId = 'imp:' + id;
   }
+  coverId = artKey('import', r.id, r.art) || coverId;
   const m = r.meta || {};
   const dur = r.items.reduce((n, x) => n + (x.duration || 0), 0);
   return (
@@ -1085,66 +1343,10 @@ views.imported = async (params, id) => {
       kind: t('playlist'),
       title: r.name,
       sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge(r.source)} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(r.items.length)}${dur ? ', ' + fmtLong(dur) : ''} · ${t('importedOf', { local, total: r.items.length })}`,
-      actions: listActions('imp') + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-immenu="${r.id}" title="…">${icon('more')}</button>`
+      actions: listActions('imp') + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
     }) + trackList(tracks)
   );
 };
-document.addEventListener('click', (e) => {
-  const b = e.target.closest('[data-immenu]');
-  if (!b) return;
-  const id = b.dataset.immenu;
-  const info = state.importInfo || {};
-  menu(b, [
-    {
-      label: t('saveAsPlaylist'),
-      icon: 'plus',
-      run: async () => {
-        const r = await post(`/api/imports/${id}/playlist`);
-        renderSidebarPlaylists();
-        toast(t('savedAsPlaylist', { name: r.name, n: r.tracks }));
-      }
-    },
-    {
-      label: t('rematch'),
-      icon: 'refresh',
-      run: async () => {
-        const r = await post(`/api/imports/${id}/rematch`);
-        toast(t('matchedN', { n: r.matched }));
-        render();
-      }
-    },
-    info.url && info.url !== 'spotify:liked' || info.url === 'spotify:liked'
-      ? {
-          label: t('refreshImport'),
-          icon: 'download',
-          run: async () => {
-            try {
-              const d = info.url === 'spotify:liked' ? await spotifyLiked((n, tot) => importStatus(t('importLoading', { n, total: tot }), (n / tot) * 100)) : await fetchLink(info.url);
-              importStatus(t('importMatching', { n: d.items.length }));
-              await put(`/api/imports/${id}`, { items: d.items, meta: d.meta || undefined, cover: d.cover || '' });
-              importStatus(null);
-              render();
-            } catch (err) {
-              importStatus(null);
-              toast(errorText(err));
-            }
-          }
-        }
-      : null,
-    '-',
-    {
-      label: t('delete'),
-      icon: 'trash',
-      run: async () => {
-        if (await dialog({ title: t('deleteImportQ', { name: info.name || '' }), ok: t('delete'), danger: true })) {
-          await del(`/api/imports/${id}`);
-          go('#/library?tab=imported');
-        }
-      }
-    }
-  ]);
-});
-
 // ---------- lyrics ----------
 const lyr = { id: null, lines: [], synced: false, at: -1 };
 async function loadLyrics(tr) {
@@ -1363,7 +1565,11 @@ async function render() {
     main.innerHTML = `<p class="muted empty">${esc(errorText(e))}</p>`;
   }
 }
-addEventListener('hashchange', render);
+addEventListener('hashchange', () => {
+  if ($('#settings')?.classList.contains('open')) closeSettings();
+  closeProfile();
+  render();
+});
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-back]')) history.length > 1 ? history.back() : go('#/home');
 });
@@ -1433,7 +1639,10 @@ function renderState() {
     b.classList.toggle('busy', player.buffering && player.playing);
   });
   const v = $('#vol');
-  if (v && document.activeElement !== v) v.value = player.volume;
+  if (v) {
+    if (document.activeElement !== v) v.value = player.volume;
+    v.style.setProperty('--p', Number(v.value) * 100 + '%');
+  }
   document.querySelectorAll('[data-act="mute"]').forEach((b) => (b.innerHTML = icon(player.volume === 0 ? 'mute' : 'volume')));
 }
 let seeking = false;
@@ -1502,6 +1711,7 @@ function bindPlayer() {
       document.querySelectorAll('.t-pos').forEach((x) => (x.textContent = fmtTime(Number(s.value))));
     }
     if (e.target.id === 'vol') {
+      e.target.style.setProperty('--p', Number(e.target.value) * 100 + '%');
       player.setVolume(Number(e.target.value));
       prefs.volume = player.volume;
       savePrefs();
@@ -1518,6 +1728,7 @@ function bindPlayer() {
     if (innerWidth < 900 && player.current) openFs(true);
   });
   player.addEventListener('change', renderPlayer);
+  player.addEventListener('change', () => rememberPlay(player.current));
   player.addEventListener('state', renderState);
   player.addEventListener('time', renderTime);
   player.addEventListener('time', syncLyrics);
@@ -1595,11 +1806,334 @@ async function renderSidebarPlaylists() {
   const box = $('#side-playlists');
   if (!box) return;
   try {
-    const lists = await get('/api/playlists');
-    box.innerHTML = lists.map((p) => `<a href="#/playlist/${p.id}" class="side-pl">${esc(p.name)}</a>`).join('');
+    // playlists and imported playlists, pinned unless taken off the sidebar
+    const [lists, imps] = await Promise.all([get('/api/playlists'), get('/api/imports').catch(() => [])]);
+    const hidden = new Set(settings.unpinned || []);
+    const item = (ref, href, cov, name, sub) =>
+      hidden.has(ref) ? '' : `<a href="${href}" class="side-pl" data-ref="${ref}">${coverImg(cov, 'xs')}<span class="spl-t"><b>${esc(name)}</b><small>${sub}</small></span></a>`;
+    for (const im of imps) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
+    box.innerHTML =
+      lists.map((p) => item('playlist:' + p.id, '#/playlist/' + p.id, artKey('playlist', p.id, p.art) || p.cover_id, p.name, `${t('playlist')} · ${songCount(p.tracks)}`)).join('') +
+      imps.map((im) => item('import:' + im.id, '#/imported/' + im.id, artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), im.name, `${t('src_' + im.source) === 'src_' + im.source ? t('playlist') : t('src_' + im.source)} · ${songCount(im.total)}`)).join('');
   } catch {
     box.innerHTML = '';
   }
+}
+
+// ---------- own covers (zoom and crop in the app, stored on the server) ----------
+function artKey(kind, id, v) {
+  if (!v) return null;
+  const k = `art:${kind}:${id}`;
+  extCovers.set(k, `${conn.server}/api/art/${kind}/${id}?t=${conn.token}&v=${v}`);
+  return k;
+}
+function pickImage() {
+  return new Promise((res) => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.onchange = () => res(inp.files[0] || null);
+    inp.click();
+  });
+}
+/** Crop dialog: drag to move, wheel / slider / pinch to zoom. Resolves with a 640×640 JPEG blob or null. */
+function cropImage(file) {
+  return new Promise((res) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onerror = () => (URL.revokeObjectURL(url), toast(t('badImage')), res(null));
+    img.onload = () => {
+      const wrap = document.createElement('div');
+      wrap.className = 'modal-wrap';
+      wrap.innerHTML = `<div class="modal crop"><div class="modal-head"><h2>${t('changeCover')}</h2><button class="icon-btn" data-x>${icon('close')}</button></div>
+        <div class="crop-box"><canvas width="640" height="640"></canvas><div class="crop-grid"></div></div>
+        <label class="crop-zoom">${icon('minus')}<input type="range" min="1" max="4" step="0.01" value="1">${icon('plus')}</label>
+        <p class="muted small">${t('cropHint')}</p>
+        <div class="modal-actions"><button class="btn" data-x>${t('cancel')}</button><button class="btn primary" data-ok>${t('save')}</button></div></div>`;
+      document.body.appendChild(wrap);
+      const cv = wrap.querySelector('canvas');
+      const g = cv.getContext('2d');
+      const zoomEl = wrap.querySelector('input');
+      const S = 640;
+      const base = S / Math.min(img.width, img.height); // fill the square at zoom 1
+      let z = 1, cx = img.width / 2, cy = img.height / 2; // centre of the view in image pixels
+      const clamp = () => {
+        const half = S / (base * z) / 2;
+        cx = Math.min(Math.max(cx, half), img.width - half);
+        cy = Math.min(Math.max(cy, half), img.height - half);
+      };
+      const draw = () => {
+        clamp();
+        const sc = base * z;
+        g.fillStyle = '#000';
+        g.fillRect(0, 0, S, S);
+        g.drawImage(img, S / 2 - cx * sc, S / 2 - cy * sc, img.width * sc, img.height * sc);
+      };
+      const setZoom = (nz) => {
+        z = Math.min(4, Math.max(1, nz));
+        zoomEl.value = z;
+        draw();
+      };
+      zoomEl.oninput = () => setZoom(Number(zoomEl.value));
+      cv.addEventListener('wheel', (e) => (e.preventDefault(), setZoom(z * (e.deltaY < 0 ? 1.08 : 1 / 1.08))), { passive: false });
+      const pts = new Map();
+      let pinch = 0;
+      cv.addEventListener('pointerdown', (e) => (cv.setPointerCapture(e.pointerId), pts.set(e.pointerId, [e.clientX, e.clientY])));
+      cv.addEventListener('pointermove', (e) => {
+        if (!pts.has(e.pointerId)) return;
+        const [px, py] = pts.get(e.pointerId);
+        pts.set(e.pointerId, [e.clientX, e.clientY]);
+        if (pts.size === 2) {
+          const [a, b] = [...pts.values()];
+          const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+          if (pinch) setZoom((z * d) / pinch);
+          pinch = d;
+          return;
+        }
+        const k = (S / cv.clientWidth) / (base * z);
+        cx -= (e.clientX - px) * k;
+        cy -= (e.clientY - py) * k;
+        draw();
+      });
+      const up = (e) => (pts.delete(e.pointerId), (pinch = 0));
+      cv.addEventListener('pointerup', up);
+      cv.addEventListener('pointercancel', up);
+      const close = (v) => (wrap.remove(), URL.revokeObjectURL(url), res(v));
+      wrap.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => close(null)));
+      wrap.addEventListener('mousedown', (e) => e.target === wrap && close(null));
+      wrap.querySelector('[data-ok]').onclick = () => cv.toBlob((b) => close(b), 'image/jpeg', 0.88);
+      draw();
+    };
+    img.src = url;
+  });
+}
+async function changeCover(kind, id) {
+  const f = await pickImage();
+  if (!f) return;
+  const blob = await cropImage(f);
+  if (!blob) return;
+  const r = await fetch(`${conn.server}/api/art/${kind}/${id}`, { method: 'PUT', headers: { Authorization: 'Bearer ' + conn.token, 'Content-Type': 'image/jpeg' }, body: blob });
+  if (!r.ok) return toast(t('error'));
+  toast(t('coverSaved'));
+  renderSidebarPlaylists();
+  render();
+}
+
+// ---------- one menu for playlists, imports, albums and artists: "…" button, right click, long press ----------
+async function togglePin(ref) {
+  const set = new Set(settings.unpinned || []);
+  set.has(ref) ? set.delete(ref) : set.add(ref);
+  await saveSettings({ unpinned: [...set] }).catch(() => {});
+  renderSidebarPlaylists();
+  toast(t(set.has(ref) ? 'unpinned' : 'pinned'));
+}
+async function refTracks(kind, id) {
+  if (kind === 'playlist') return (await get(`/api/playlists/${id}`)).tracks;
+  if (kind === 'import') return playableItems((await get('/api/imports/' + id)).items).filter(Boolean);
+  if (kind === 'album') {
+    const [album, artist] = id.split('\u0001');
+    return (await get(`/api/album?album=${encodeURIComponent(album)}&artist=${encodeURIComponent(artist)}`)).tracks;
+  }
+  if (kind === 'artist') return (await get(`/api/artist?name=${encodeURIComponent(id)}`)).tracks || [];
+  return [];
+}
+async function collectionMenu(anchor, ref) {
+  const i = ref.indexOf(':');
+  const kind = ref.slice(0, i);
+  const id = ref.slice(i + 1);
+  const playWith = (fn) => async () => {
+    try {
+      const list = await refTracks(kind, id);
+      if (!list.length) return toast(t('nothingToPlay'));
+      fn(list);
+    } catch (e) {
+      toast(errorText(e));
+    }
+  };
+  const common = [
+    { label: t('playAll'), icon: 'play', run: playWith((l) => player.playList(l, 0)) },
+    { label: t('shuffle'), icon: 'shuffle', run: playWith((l) => player.playList(l, 0, { shuffle: true })) },
+    { label: t('playNext'), icon: 'next', run: playWith((l) => (player.playNext(l), toast(t('playsNext')))) },
+    { label: t('addQueue'), icon: 'queue', run: playWith((l) => (player.add(l), toast(t('addedQueue')))) }
+  ];
+  let items = [];
+  if (kind === 'playlist' || kind === 'import') {
+    const info = kind === 'playlist' ? await get(`/api/playlists/${id}`).catch(() => ({})) : await get('/api/imports/' + id).catch(() => ({}));
+    const name = info.name || '';
+    const pinned = !(settings.unpinned || []).includes(ref);
+    items = [
+      ...common,
+      '-',
+      {
+        label: t('rename'),
+        icon: 'edit',
+        run: async () => {
+          const r = await dialog({ title: t('rename'), fields: [{ name: 'name', label: t('playlistName'), value: name }] });
+          if (!r?.name?.trim()) return;
+          await put(kind === 'playlist' ? `/api/playlists/${id}` : `/api/imports/${id}`, { name: r.name.trim() });
+          renderSidebarPlaylists();
+          render();
+        }
+      },
+      { label: t('changeCover'), icon: 'image', run: () => changeCover(kind, id) },
+      info.art && {
+        label: t('resetCover'),
+        icon: 'refresh',
+        run: async () => {
+          await del(`/api/art/${kind}/${id}`);
+          renderSidebarPlaylists();
+          render();
+        }
+      },
+      { label: t(pinned ? 'unpin' : 'pin'), icon: 'pin', run: () => togglePin(ref) },
+      { label: t('share'), icon: 'share', run: () => shareThing(kind, Number(id), name) }
+    ];
+    if (kind === 'import') {
+      items.push(
+        {
+          label: t('saveAsPlaylist'),
+          icon: 'plus',
+          run: async () => {
+            const r = await post(`/api/imports/${id}/playlist`);
+            renderSidebarPlaylists();
+            toast(t('savedAsPlaylist', { name: r.name, n: r.tracks }));
+          }
+        },
+        {
+          label: t('rematch'),
+          icon: 'refresh',
+          run: async () => {
+            const r = await post(`/api/imports/${id}/rematch`);
+            toast(t('matchedN', { n: r.matched }));
+            render();
+          }
+        },
+        info.url && {
+          label: t('refreshImport'),
+          icon: 'download',
+          run: async () => {
+            try {
+              const prog = (n, tot) => importStatus(t('importLoading', { n, total: tot }), (n / tot) * 100);
+              const d = info.url === 'spotify:liked' ? await spotifyLiked(prog) : await fetchLink(info.url, prog);
+              importStatus(t('importMatching', { n: d.items.length }));
+              await put(`/api/imports/${id}`, { items: d.items, meta: d.meta || undefined, cover: d.cover || '' });
+              importStatus(null);
+              render();
+            } catch (err) {
+              importStatus(null);
+              toast(errorText(err));
+            }
+          }
+        }
+      );
+    }
+    items.push('-', {
+      label: t('delete'),
+      icon: 'trash',
+      danger: true,
+      run: async () => {
+        if (!(await dialog({ title: t(kind === 'playlist' ? 'deletePlaylistQ' : 'deleteImportQ', { name }), ok: t('delete'), danger: true }))) return;
+        await del(kind === 'playlist' ? `/api/playlists/${id}` : `/api/imports/${id}`);
+        renderSidebarPlaylists();
+        if (location.hash.includes(kind === 'playlist' ? '/playlist/' + id : '/imported/' + id)) go('#/library?tab=' + (kind === 'playlist' ? 'playlists' : 'imported'));
+        else render();
+      }
+    });
+  } else if (kind === 'album') {
+    const [album, artist] = id.split('\u0001');
+    items = [
+      ...common,
+      '-',
+      { label: t('goAlbum'), icon: 'album', run: () => go(`#/album?album=${encodeURIComponent(album)}&artist=${encodeURIComponent(artist)}`) },
+      artist && { label: t('goArtist'), icon: 'user', run: () => go(`#/artist?name=${encodeURIComponent(artist)}`) },
+      { label: t('addPlaylist'), icon: 'plus', run: async () => menu(anchor, await pickPlaylist(await refTracks(kind, id))) }
+    ];
+  } else if (kind === 'artist') {
+    items = [
+      ...common,
+      '-',
+      { label: t('goArtist'), icon: 'user', run: () => go(`#/artist?name=${encodeURIComponent(id)}`) },
+      { label: t('artistRadio'), icon: 'radio', run: playWith((l) => startRadio(l[Math.floor(Math.random() * l.length)])) }
+    ];
+  } else if (kind === 'likes') items = common;
+  menu(anchor, items);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cmenu]');
+  if (b) collectionMenu(b, b.dataset.cmenu);
+});
+
+/** Right click (and long press on phones) opens the same menu as the "…" button. */
+function contextTarget(el) {
+  const row = el.closest('.tracks .row');
+  if (row) return () => {
+    const listEl = row.closest('.tracks');
+    const tracks = state.lists?.[listEl.dataset.list];
+    const i = Number(row.dataset.i);
+    const tr = tracks?.[i];
+    if (!tr || tr._off) return null;
+    return (pt) => trackMenu(pt, tr, { queueIndex: listEl.dataset.queue ? Number(row.dataset.q) : null, playlistId: listEl.dataset.playlist ? Number(listEl.dataset.playlist) : null, position: i });
+  };
+  const ref = el.closest('[data-ref]');
+  if (ref) return () => (pt) => collectionMenu(pt, ref.dataset.ref);
+  const card = el.closest('a.card[href]');
+  if (card) {
+    const h = card.getAttribute('href');
+    const q = new URLSearchParams(h.split('?')[1] || '');
+    if (h.startsWith('#/album')) return () => (pt) => collectionMenu(pt, 'album:' + (q.get('album') || '') + '\u0001' + (q.get('artist') || ''));
+    if (h.startsWith('#/artist')) return () => (pt) => collectionMenu(pt, 'artist:' + (q.get('name') || ''));
+    if (h === '#/likes') return () => (pt) => collectionMenu(pt, 'likes:0');
+  }
+  const head = el.closest('.detail-head');
+  const more = head?.querySelector('[data-cmenu]');
+  if (more) return () => (pt) => collectionMenu(pt, more.dataset.cmenu);
+  return null;
+}
+function openContext(el, x, y) {
+  const mk = contextTarget(el)?.();
+  if (!mk) return false;
+  mk({ clientX: x, clientY: y, getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y }) });
+  return true;
+}
+document.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('input, textarea, select, [contenteditable]')) return;
+  if (openContext(e.target, e.clientX, e.clientY)) e.preventDefault();
+});
+{
+  // long press: 500 ms without moving
+  let timer = 0, sx = 0, sy = 0, fired = false;
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    const tch = e.touches[0];
+    sx = tch.clientX;
+    sy = tch.clientY;
+    fired = false;
+    clearTimeout(timer);
+    const target = e.target;
+    timer = setTimeout(() => {
+      if (contextTarget(target)) {
+        fired = true;
+        navigator.vibrate?.(12);
+        openContext(target, sx, sy);
+      }
+    }, 500);
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    const tch = e.touches[0];
+    if (Math.hypot(tch.clientX - sx, tch.clientY - sy) > 10) clearTimeout(timer);
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    clearTimeout(timer);
+    if (fired) e.preventDefault();
+  });
+  // the click that follows a long press must not open or play what was pressed
+  document.addEventListener('click', (e) => {
+    if (fired) {
+      fired = false;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }, true);
 }
 
 // ---------- settings panel ----------
@@ -1633,13 +2167,15 @@ document.addEventListener('click', (e) => {
   c?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   document.querySelectorAll('[data-setjump]').forEach((b) => b.classList.toggle('on', b === j));
 });
-function openSettings() {
+function openSettings(section = '') {
   const q = $('#setq');
   if (q) q.value = '';
-  renderSettings();
+  const done = renderSettings();
   $('#settings').classList.add('open');
   $('#scrim').classList.add('show');
+  if (section) Promise.resolve(done).then(() => setTimeout(() => $('#set-' + section)?.scrollIntoView({ block: 'start' }), 50));
 }
+const openSettingsPage = openSettings;
 function closeSettings() {
   $('#settings').classList.remove('open');
   $('#scrim').classList.remove('show');
@@ -1661,12 +2197,14 @@ async function renderSettings() {
   try {
     [lib, info] = await Promise.all([get('/api/library'), api('GET', '/api/info', undefined, { token: null, timeout: 6000 }).catch(() => null)]);
   } catch {}
-  const accents = ['blue', 'green', 'purple'];
+  const accents = ['cover', 'blue', 'green', 'purple', 'orange', 'pink', 'red', 'teal'];
   const cards = [
     setCard('general', 'gear', t('set_general'),
       setRow(t('language'), `<div class="seg">${['de', 'en'].map((l) => `<button data-lang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`, { keys: 'deutsch english sprache language' }) +
-      setRow(t('accent'), `<div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, { keys: 'farbe color theme' }) +
-      setRow(t('dynColor'), sw('dyncolor', prefs.dynamic), { hint: t('dynColorHint'), keys: t('look') })),
+      setRow(t('accent'), `<div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, { hint: t('accentHint'), keys: 'farbe color theme cover akzent accent' }) +
+      setRow(t('dynColor'), sw('dyncolor', prefs.dynamic), { hint: t('dynColorHint'), keys: t('look') }) +
+      setRow(t('searchIn'), `<div class="seg">${SMODES.map((m) => `<button data-smode="${m}" class="${searchMode() === m ? 'on' : ''}">${t('smode_' + m)}</button>`).join('')}</div>`, { hint: t('searchInHint'), keys: 'search suche spotify youtube everything' }) +
+      setRow(t('columns'), `<div class="colpick">${COLS.map((k) => `<button data-col="${k}" class="chip ${cols().has(k) ? 'on' : ''}">${t('col_' + k)}</button>`).join('')}</div>`, { hint: t('columnsHint'), keys: 'spalten columns artist album länge duration quelle source jahr genre', wide: true })),
     setCard('playback', 'play', t('playback'),
       setRow(t('autoplayShort'), sw('autoplay', prefs.autoplay), { hint: t('autoplay'), keys: 'autoplay radio' }) +
       setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' })),
@@ -1844,6 +2382,7 @@ document.addEventListener('click', async (e) => {
     prefs.accent = el.dataset.accent;
     savePrefs();
     applyPrefs();
+    applyDyn(player?.current, true);
     document.querySelectorAll('.swatch').forEach((s) => s.classList.toggle('on', s.dataset.accent === prefs.accent));
     return;
   }
@@ -2042,7 +2581,17 @@ async function showLogin(errorMsg = '') {
 // ---------- shell ----------
 function buildShell() {
   const nav = (key, ic, label) => `<a href="#/${key}" data-nav="${key}">${icon(ic)}<span>${label}</span></a>`;
+  const frameless = !!window.musikDesktop?.frameless;
+  document.documentElement.classList.toggle('frameless', frameless);
   $('#app').innerHTML = `
+  ${frameless ? `<div class="titlebar" data-drag>
+    <div class="tb-left"><span class="tb-logo">${icon('note')}</span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
+    <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><button class="tb-search" data-tbsearch>${icon('search')}<span>${t('searchPlaceholder_' + searchMode())}</span></button></div>
+    <div class="tb-right"><button class="tb-avatar" data-profile title="${t('profile')}">${esc(((conn.user && conn.user.name) || '?').trim().charAt(0).toUpperCase() || '?')}</button>
+      <button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
+      <button class="tb-win" data-win="max" title="${t('maximize')}"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button>
+      <button class="tb-win close" data-win="close" title="${t('close')}"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button></div>
+  </div>` : ''}
   <div class="shell">
     <aside class="side">
       <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo">Musik</span></div>
@@ -2119,16 +2668,19 @@ function startApp() {
   renderPlayer();
   loadSettings()
     .then(async () => {
+      if (SMODES.includes(settings.searchIn)) prefs.searchIn = settings.searchIn;
+      if (Array.isArray(settings.cols)) prefs.cols = settings.cols;
       // the account's language wins, so it survives reinstalls and other addresses (home / on the go)
-      if ((settings.lang === 'de' || settings.lang === 'en') && settings.lang !== prefs.lang) {
+      if (settings.langChosen && (settings.lang === 'de' || settings.lang === 'en') && settings.lang !== prefs.lang && !nativeLang) {
         prefs.lang = settings.lang;
+        prefs.langChosen = true;
         savePrefs();
         try {
           window.MusikAndroid?.setLang?.(prefs.lang);
         } catch {}
         applyPrefs();
         buildShell();
-      } else if (!settings.lang) saveSettings({ lang: prefs.lang }).catch(() => {});
+      } else if (!settings.langChosen && prefs.langChosen) saveSettings({ lang: prefs.lang, langChosen: true }).catch(() => {});
       await spotify.finishLogin().catch(() => false);
       setTimeout(() => autoUpdateCheck(), 4000);
       if (!settings.setupDone && state.route !== 'welcome') go('#/welcome');

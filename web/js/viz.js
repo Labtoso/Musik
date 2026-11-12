@@ -70,13 +70,24 @@ export class Visualizer {
     const playing = this.player.playing;
     this.real = this.player.spectrum(this.bands);
     if (!this.real) {
-      // decorative motion for platform songs: slow, layered sines that only move while playing
+      // platform players (YouTube, Spotify) give no access to their sound: an imitation that
+      // follows a beat, with a kick in the lows, snare in the mids and shimmer in the highs
       const t = performance.now() / 1000;
+      const bpm = 118;
+      const beat = (t * bpm) / 60;
+      const ph = beat % 1;
+      const kick = Math.exp(-ph * 7);
+      const snare = Math.floor(beat) % 2 ? Math.exp(-ph * 9) : 0;
+      if (!this.noise || this.frame % 3 === 0) this.noise = Array.from({ length: N }, () => Math.random());
       for (let i = 0; i < N; i++) {
         const x = i / N;
-        const base = 0.55 * Math.exp(-x * 2.2) + 0.12;
-        const wob = 0.5 + 0.5 * Math.sin(t * 2.1 + i * 0.37) * Math.sin(t * 0.7 + i * 0.11);
-        this.bands[i] = playing ? base * (0.55 + 0.45 * wob) : 0;
+        const body = 0.5 * Math.exp(-x * 2.4) + 0.14;
+        const wob = 0.5 + 0.5 * Math.sin(t * 1.7 + i * 0.45) * Math.sin(t * 0.53 + i * 0.13);
+        const k = kick * Math.max(0, 1 - x * 3.2) * 0.55;
+        const sn = snare * Math.exp(-((x - 0.42) ** 2) / 0.02) * 0.35;
+        const hat = x > 0.6 ? this.noise[i] * 0.22 * (0.4 + 0.6 * Math.exp(-((beat * 2) % 1) * 5)) : 0;
+        const v = body * (0.45 + 0.4 * wob) + k + sn + hat + (this.noise[i] - 0.5) * 0.08;
+        this.bands[i] = playing ? Math.min(1, Math.max(0, v)) : 0;
       }
     }
     const up = this.calm ? 0.12 : 0.5;

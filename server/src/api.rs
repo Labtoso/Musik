@@ -824,7 +824,8 @@ async fn playlists(State(st): State<St>, Auth(u, _): Auth) -> R {
     let db = st.db.lock().unwrap();
     let mut s = db
         .prepare(
-            "SELECT p.id, p.name, p.updated, COUNT(pt.track_id), MIN(pt.track_id)
+            "SELECT p.id, p.name, p.updated, COUNT(pt.track_id), MIN(pt.track_id),
+                    (SELECT updated FROM art WHERE kind = 'playlist' AND ref_id = p.id)
              FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
              WHERE p.user_id = ? GROUP BY p.id ORDER BY p.updated DESC",
         )
@@ -832,7 +833,7 @@ async fn playlists(State(st): State<St>, Auth(u, _): Auth) -> R {
     let rows: Vec<Value> = s
         .query_map([u.id], |r| {
             Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "updated": r.get::<_, i64>(2)?,
-                "tracks": r.get::<_, i64>(3)?, "cover_id": r.get::<_, Option<i64>>(4)? }))
+                "tracks": r.get::<_, i64>(3)?, "cover_id": r.get::<_, Option<i64>>(4)?, "art": r.get::<_, Option<i64>>(5)?.unwrap_or(0) }))
         })
         .unwrap()
         .filter_map(Result::ok)
@@ -864,7 +865,7 @@ async fn get_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64
     let (id, name) = own_playlist(&db, &u, id)?;
     let ids = playlist_ids(&db, id);
     Ok(Json(
-        json!({ "id": id, "name": name, "tracks": with_likes(&db, &u, tracks_by_ids(&db, &ids)) }),
+        json!({ "id": id, "name": name, "art": crate::ext::art_version(&db, "playlist", id), "tracks": with_likes(&db, &u, tracks_by_ids(&db, &ids)) }),
     ))
 }
 async fn update_playlist(

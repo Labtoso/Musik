@@ -19,7 +19,8 @@ export async function saveSettings(patch = {}) {
 }
 export const enabled = (src) => src === 'local' || !!settings.sources?.[src];
 /** Which player plays a source: YouTube Music songs are YouTube videos. */
-export const playerOf = (src) => (src === 'ytmusic' ? 'youtube' : src);
+// Spotify gives names and covers, the sound comes from YouTube (like the Msik bot)
+export const playerOf = (src) => (src === 'ytmusic' ? 'youtube' : src === 'spotify' ? 'ytfind' : src);
 
 // ---------- helpers ----------
 function loadScript(src) {
@@ -86,9 +87,9 @@ export function playableItems(items) {
   return items.map((it) => {
     if (it.local) return { ...it.local, _pos: it.pos };
     // Spotify songs play through YouTube when a YouTube key is there (name and artist come from Spotify)
-    if (it.source === 'spotify' && settings.youtubeKey && it.title) {
+    if (it.source === 'spotify' && it.title) {
       const tr = extTrack(it);
-      tr.ext = { ...tr.ext, player: 'ytfind', query: `${it.artist} ${it.title}`.trim() };
+      tr.ext = { ...tr.ext, player: 'ytfind' };
       return { ...tr, _pos: it.pos };
     }
     const canPlay = PLAYABLE.includes(it.source) && enabled(it.source) && it.ext_id && !(it.source === 'spotify' && !spotify.connected());
@@ -423,16 +424,17 @@ export async function spotifyLiked(onProgress) {
   const meta = { description: '', owner: '', followers: 0, total: items.length, duration: items.reduce((n, x) => n + (x.duration || 0), 0) };
   return { source: 'spotify', name: 'Spotify Lieblingssongs', url: 'spotify:liked', cover: '', meta, items };
 }
-/** YouTube video for a song (Spotify name + artist), remembered on this device. */
+/** YouTube video for a song (Spotify name + artist). The server looks it up with the YouTube key
+ *  and remembers it for every device; this device keeps its own copy too. */
 const YT_MAP = 'musik.ytmap';
-export async function findOnYouTube(key, query) {
+export async function findOnYouTube(key, it) {
   let map = {};
   try {
     map = JSON.parse(localStorage.getItem(YT_MAP)) || {};
   } catch {}
   if (map[key]) return map[key];
-  const hits = await searchYouTube(query, 'youtube');
-  const id = hits[0]?.ext?.id || '';
+  const r = await get(`/api/ytfind?title=${encodeURIComponent(it.title || '')}&artist=${encodeURIComponent(it.artist || '')}&duration=${Math.round(it.duration || 0)}`);
+  const id = r?.id || '';
   if (id) {
     map[key] = id;
     const keys = Object.keys(map);
@@ -518,6 +520,43 @@ export async function searchYouTube(q, source = 'youtube') {
   return (j.items || []).map((it) => {
     const { artist, title } = splitYouTube(it.snippet.title.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"'), it.snippet.channelTitle);
     return extTrack({ source, ext_id: it.id.videoId, title, artist, album: '', duration: 0, cover: `https://i.ytimg.com/vi/${it.id.videoId}/mqdefault.jpg`, url: `https://www.youtube.com/watch?v=${it.id.videoId}` });
+  });
+}
+const spImg = (images) => (images || []).slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0]?.url || '';
+/** Songs, artists, albums and playlists from Spotify, with current pictures. */
+export async function searchSpotifyAll(q) {
+  if (!spotify.connected()) return null;
+  const j = await spotify.api(`/search?type=track,artist,album,playlist&limit=12&q=${encodeURIComponent(q)}`);
+  return {
+    tracks: (j.tracks?.items || []).map((x) => spotify.item(x)).filter(Boolean),
+    artists: (j.artists?.items || []).filter(Boolean).map((a) => ({ id: a.id, name: a.name, picture: spImg(a.images), followers: a.followers?.total || 0, popularity: a.popularity || 0 })),
+    albums: (j.albums?.items || []).filter(Boolean).map((a) => ({ id: a.id, title: a.name, artist: (a.artists || []).map((x) => x.name).join(', '), cover: spImg(a.images), year: (a.release_date || '').slice(0, 4) })),
+    playlists: (j.playlists?.items || []).filter(Boolean).map((p) => ({ id: p.id, title: p.name, owner: p.owner?.display_name || '', cover: spImg(p.images), total: p.tracks?.total || p.items?.total || 0 }))
+  };
+}
+export async function spotifyArtist(id) {
+  const [a, top, al] = await Promise.all([
+    spotify.api(`/artists/${id}`),
+    spotify.api(`/artists/${id}/top-tracks?market=from_token`).catch(() => ({ tracks: [] })),
+    spotify.api(`/artists/${id}/albums?include_groups=album,single&limit=30`).catch(() => ({ items: [] }))
+  ]);
+  return {
+    artist: { id: a.id, name: a.name, picture: spImg(a.images), followers: a.followers?.total || 0, genres: a.genres || [] },
+    tracks: (top.tracks || []).map((x) => spotify.item(x)).filter(Boolean),
+    albums: (al.items || []).map((x) => ({ id: x.id, title: x.name, artist: (x.artists || []).map((y) => y.name).join(', '), cover: spImg(x.images), year: (x.release_date || '').slice(0, 4) }))
+  };
+}
+export async function spotifyAlbum(id) {
+  const a = await spotify.api(`/albums/${id}`);
+  const items = (await spotify.all(`/albums/${id}/tracks?limit=50`)).map((x) => spotify.item(x, a)).filter(Boolean);
+  return { name: a.name, artist: (a.artists || []).map((x) => x.name).join(', '), artistId: a.artists?.[0]?.id || '', cover: spImg(a.images), year: (a.release_date || '').slice(0, 4), label: a.label || '', items };
+}
+/** YouTube videos without a key (the server asks YouTube's own search). */
+export async function searchYouTubeFree(q, source = 'ytmusic') {
+  const l = await get('/api/ytsearch?q=' + encodeURIComponent(q));
+  return l.map((v) => {
+    const { artist, title } = splitYouTube(v.title, v.channel);
+    return extTrack({ source, ext_id: v.id, title, artist, album: '', duration: v.duration || 0, cover: v.cover, url: `https://www.youtube.com/watch?v=${v.id}` });
   });
 }
 export async function searchSpotify(q) {

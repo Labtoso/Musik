@@ -73,8 +73,13 @@ class MainActivity : ComponentActivity() {
 
         web = WebView(this)
         web.setBackgroundColor(Color.parseColor("#111214"))
-        setContentView(web)
-        ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
+        // a WebView ignores its own padding, so the frame around it keeps the page clear of the
+        // status bar, the navigation bar and the keyboard
+        val frame = android.widget.FrameLayout(this)
+        frame.setBackgroundColor(Color.parseColor("#111214"))
+        frame.addView(web, android.widget.FrameLayout.LayoutParams(-1, -1))
+        setContentView(frame)
+        ViewCompat.setOnApplyWindowInsetsListener(frame) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             WindowInsetsCompat.CONSUMED
@@ -466,9 +471,10 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun appVersion(): String =
             runCatching { packageManager.getPackageInfo(packageName, 0).versionName ?: "" }.getOrDefault("")
         @JavascriptInterface fun updateApp() { thread { downloadAndInstall() } }
-        @JavascriptInterface fun getLang(): String = prefs.getString("lang", "") ?: ""
+        // only a language the person picked ("lang" of older versions was set without asking)
+        @JavascriptInterface fun getLang(): String = prefs.getString("langChosen", "") ?: ""
         @JavascriptInterface fun setLang(lang: String) {
-            if (lang == "de" || lang == "en") prefs.edit().putString("lang", lang).apply()
+            if (lang == "de" || lang == "en") prefs.edit().putString("langChosen", lang).apply()
         }
         @JavascriptInterface fun setAccent(name: String) {
             prefs.edit().putString("accent", name).apply()

@@ -45,8 +45,16 @@ class PlaybackService : MediaSessionService() {
         if (audioSession > 0) {
             player.setAudioSessionId(audioSession)
             PlaybackService.audioSession = audioSession
-            eq = runCatching { Equalizer(0, audioSession) }.getOrNull()
+            eq = runCatching { Equalizer(1000, audioSession) }.getOrNull()
         }
+        // some devices only allow the equalizer once sound is playing: try again then
+        player.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isPlaying) return
+                if (eq == null && audioSession > 0) eq = runCatching { Equalizer(1000, audioSession) }.getOrNull()
+                applyEq()
+            }
+        })
         prefs.registerOnSharedPreferenceChangeListener(eqListener)
         applyEq()
         val open = PendingIntent.getActivity(

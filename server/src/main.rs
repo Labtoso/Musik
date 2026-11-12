@@ -5,6 +5,7 @@ mod ext;
 mod library;
 mod recommend;
 mod spotify;
+mod yt;
 mod update;
 
 use api::{AppState, VERSION};

@@ -943,19 +943,42 @@ try {
     return { a: hsl2rgb(h, s, 0.64), a2: hsl2rgb((h + 0.08) % 1, Math.min(0.9, s + 0.05), 0.62), ink: hsl2rgb(h, 0.6, 0.09) };
   }
   let lastCol = null;
+  // the page colours glide to the new record's colours at the same pace as the room's light
+  let shownCol = null, tween = 0;
+  const parseRgb = (v) => { const m = String(v).match(/\d+(\.\d+)?/g); if (m && m.length >= 3) return m.slice(0, 3).map(Number); const h = String(v).trim().replace('#', ''); return h.length === 6 ? [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) : [79, 124, 255]; };
+  const paint = (c) => {
+    const rgb = (v) => `rgb(${v.map(Math.round).join(',')})`;
+    root.style.setProperty('--accent', rgb(c.a)); root.style.setProperty('--accent2', rgb(c.a2));
+    root.style.setProperty('--acc-rgb', c.a.map(Math.round).join(',')); root.style.setProperty('--ink', rgb(c.ink));
+  };
   window.__dynApply = () => {
     const keys = ['--accent', '--accent2', '--acc-rgb', '--ink'];
-    if (!window.siteDyn() || !lastCol) keys.forEach((k) => root.style.removeProperty(k));
+    cancelAnimationFrame(tween);
+    if (!window.siteDyn() || !lastCol) { keys.forEach((k) => root.style.removeProperty(k)); shownCol = null; }
     else {
-      const rgb = (v) => `rgb(${v.join(',')})`;
-      root.style.setProperty('--accent', rgb(lastCol.a)); root.style.setProperty('--accent2', rgb(lastCol.a2));
-      root.style.setProperty('--acc-rgb', lastCol.a.join(',')); root.style.setProperty('--ink', rgb(lastCol.ink));
+      const cs = getComputedStyle(root);
+      const from = shownCol || { a: parseRgb(cs.getPropertyValue('--accent')), a2: parseRgb(cs.getPropertyValue('--accent2')), ink: parseRgb(cs.getPropertyValue('--ink')) };
+      const to = lastCol, t0 = performance.now(), D = 1800;
+      const step = (now) => {
+        const k = Math.min(1, (now - t0) / D), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+        const mix = (x, y) => x.map((v, i) => v + (y[i] - v) * e);
+        shownCol = { a: mix(from.a, to.a), a2: mix(from.a2, to.a2), ink: mix(from.ink, to.ink) };
+        paint(shownCol);
+        if (k < 1) tween = requestAnimationFrame(step);
+      };
+      tween = requestAnimationFrame(step);
     }
-    if (window.__tt) window.__tt.setAccent(getComputedStyle(root).getPropertyValue('--accent').trim());
+    if (window.__tt) window.__tt.setAccent(window.siteDyn() && lastCol ? `rgb(${lastCol.a.join(',')})` : getComputedStyle(root).getPropertyValue('--accent').trim());
   };
   const imgs = {};
   const colorFor = (src) => imgs[src] || (imgs[src] = new Promise((res) => { const im = new Image(); im.onload = () => { try { res(coverColor(im)); } catch { res(null); } }; im.onerror = () => res(null); im.src = src; }));
+  let trackTimer = 0, firstTrack = true;
   const onTrack = (i) => {
+    clearTimeout(trackTimer);
+    if (firstTrack) { firstTrack = false; return showTrack(i); }
+    trackTimer = setTimeout(() => showTrack(i), 6000);
+  };
+  const showTrack = (i) => {
     const tr = TRACKS[i];
     np.classList.add('swap');
     setTimeout(() => {

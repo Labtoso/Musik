@@ -4,7 +4,14 @@
 import { streamUrl, coverUrl, post, get } from './api.js';
 import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showStage } from './engines.js';
 import { toBands } from './viz.js';
-import { findOnYouTube } from './sources.js';
+import { findOnYouTube, spotify } from './sources.js';
+const spotifyReady = () => {
+  try {
+    return spotify.connected();
+  } catch {
+    return false;
+  }
+};
 
 export const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
@@ -57,6 +64,8 @@ class HtmlEngine extends EventTarget {
     ad.addEventListener('buffering', mine((d) => this.#emit('buffering', d)));
     ad.addEventListener('error', mine((d) => {
       this.#emit('error', { message: d.message || 'playback' });
+      // a missing device would fail the same way for every song: stop instead of skipping the whole list
+      if (d.message === 'spotify_no_device') return this.#emit('playing', { playing: false });
       setTimeout(() => ad === this.active && this.#advance('error'), 1200);
     }));
     ad.addEventListener('ended', mine(() => {
@@ -130,7 +139,9 @@ class HtmlEngine extends EventTarget {
     const it = this.items[i];
     if (!it) return;
     this.index = i;
-    const kind = it.ext?.player === 'ytfind' ? 'youtube' : it.ext?.player;
+    // songs from Spotify and the Deezer catalog: names and covers from there, the whole song from YouTube
+    const viaYt = it.ext && (it.ext.player === 'ytfind' || it.ext.source === 'deezer');
+    const kind = viaYt ? 'youtube' : it.ext?.player;
     const ad = it.ext ? this.#adapter(kind) : null;
     if (this.active && this.active !== ad) this.active.stop();
     if (it.ext) {
@@ -141,18 +152,41 @@ class HtmlEngine extends EventTarget {
         return setTimeout(() => this.#advance('error'), 300);
       }
       ad.setVolume?.(this.volume);
-      if (it.ext.player === 'ytfind') {
+      if (viaYt) {
         // name and artist from Spotify, the sound from YouTube
-        findOnYouTube(it.ext.id, it.ext.query)
+        const mine = () => this.items[this.index] === it;
+        findOnYouTube(it.ext.source + ':' + it.ext.id, it)
           .then((vid) => {
-            if (this.items[this.index] !== it) return;
-            if (!vid) throw new Error('notfound');
+            if (!mine()) return;
+            if (!vid) throw Object.assign(new Error('notfound'), { code: 'notfound' });
             return ad.load(vid, pos, autoplay, '');
           })
-          .catch(() => {
-            if (this.items[this.index] !== it) return;
-            this.#emit('error', { message: 'playback' });
-            setTimeout(() => this.items[this.index] === it && this.#advance('error'), 1200);
+          .catch(async (e) => {
+            if (!mine()) return;
+            const code = e?.code || e?.message || 'playback';
+            const setup = ['no_youtube_key', 'youtube_key_bad', 'youtube_quota', 'offline', 'youtube_unreachable'].includes(code);
+            // the Deezer catalog still has its 30 second preview
+            if (it.ext.source === 'deezer') {
+              const dz = this.#adapter('deezer');
+              this.active?.stop?.();
+              this.active = dz;
+              dz.setVolume?.(this.volume);
+              return dz.load(it.ext.id, pos, autoplay, it.ext.url).catch(() => this.#emit('error', { message: 'playback' }));
+            }
+            // no YouTube: play it on Spotify itself when that works (Spotify Premium, browser or Spotify app open)
+            if (setup && it.ext.source === 'spotify' && spotifyReady()) {
+              const sp = this.#adapter('spotify');
+              this.active = sp;
+              sp.setVolume?.(this.volume);
+              return sp.load(it.ext.id, pos, autoplay);
+            }
+            this.#emit('error', { message: code });
+            if (setup) {
+              // the same thing would happen for every song: stop instead of skipping through the list
+              this.#emit('playing', { playing: false });
+              return;
+            }
+            setTimeout(() => mine() && this.#advance('error'), 1200);
           });
       } else ad.load(it.ext.id, pos, autoplay, it.ext.url).catch(() => this.#emit('error', { message: 'playback' }));
       this.#emit('index', { index: i, reason });

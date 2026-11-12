@@ -209,6 +209,12 @@ export class SpotifyAdapter extends Adapter {
   }
   async #sdk() {
     if (this.mode) return this.mode;
+    // the Web Playback SDK needs Widevine; app windows (WebView2, Android WebView) do not have it
+    try {
+      await navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{ initDataTypes: ['cenc'], audioCapabilities: [{ contentType: 'audio/mp4;codecs="mp4a.40.2"' }] }]);
+    } catch {
+      return (this.mode = 'connect');
+    }
     try {
       await new Promise((res, rej) => {
         if (window.Spotify?.Player) return res();

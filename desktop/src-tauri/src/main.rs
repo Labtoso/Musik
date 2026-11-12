@@ -207,11 +207,12 @@ fn main() {
             let handle = app.handle().clone();
             // Available on every page, also on the server's web app: switch back to the connect page.
             let init = format!(
-                "window.musikDesktop = {{ version: {:?}, changeServer: function () {{ location.href = {:?} + '?change=1'; }}, update: function () {{ location.href = {:?} + '?update=1'; }} }};",
+                "window.musikDesktop = {{ version: {:?}, frameless: true, changeServer: function () {{ location.href = {:?} + '?change=1'; }}, update: function () {{ location.href = {:?} + '?update=1'; }}, win: function (a) {{ location.href = 'musik-win://' + a; }} }};",
                 app.package_info().version.to_string(),
                 home_url(),
                 home_url()
             );
+            let wh = app.handle().clone();
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Musik")
                 .inner_size(1280.0, 820.0)
@@ -219,8 +220,25 @@ fn main() {
                 // dark from the first frame, no white flash before the page has loaded
                 .theme(Some(tauri::Theme::Dark))
                 .background_color(tauri::window::Color(17, 18, 20, 255))
+                // own dark title bar like Spotify, drawn by the web app (window.musikDesktop.win)
+                .decorations(false)
                 // the Spotify sign-in belongs in the real browser, Musik waits for it
-                .on_navigation(|url| {
+                .on_navigation(move |url| {
+                    // window buttons of the web app's own title bar
+                    if url.scheme() == "musik-win" {
+                        if let Some(w) = wh.get_webview_window("main") {
+                            match url.host_str().unwrap_or("") {
+                                "min" => { let _ = w.minimize(); }
+                                "max" => {
+                                    if w.is_maximized().unwrap_or(false) { let _ = w.unmaximize(); } else { let _ = w.maximize(); }
+                                }
+                                "close" => { let _ = w.close(); }
+                                "drag" => { let _ = w.start_dragging(); }
+                                _ => {}
+                            }
+                        }
+                        return false;
+                    }
                     if url.host_str() == Some("accounts.spotify.com") {
                         open_browser(url.as_str());
                         return false;

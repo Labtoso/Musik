@@ -22,10 +22,16 @@
   .err { color: #e5484d; min-height: 20px; font-size: 13px; }
   button { width: 100%; height: 42px; border: 0; border-radius: 7px; background: #4c8dff; color: #0b1220; font: inherit; font-weight: 600; cursor: pointer; margin-top: 6px; }
   button:disabled { opacity: 0.5; }
-  .lang { position: fixed; top: 14px; right: 16px; width: auto; height: auto; margin: 0; padding: 6px 10px; border-radius: 16px; background: transparent; border: 1px solid #2c2f35; color: #9a9ca3; font-size: 12.5px; font-weight: 600; }
+  .tb { position: fixed; left: 0; right: 0; top: 0; height: 40px; display: flex; justify-content: flex-end; background: #000; -webkit-user-select: none; user-select: none; z-index: 5; }
+  .tb button { width: 46px; height: 40px; margin: 0; border-radius: 0; background: transparent; color: #9a9ca3; display: grid; place-items: center; }
+  .tb button:hover { background: rgba(255,255,255,.1); color: #fff; }
+  .tb button.x:hover { background: #e81123; }
+  .tb svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1; }
+  .lang { position: fixed; top: 54px; right: 16px; width: auto; height: auto; margin: 0; padding: 6px 10px; border-radius: 16px; background: transparent; border: 1px solid #2c2f35; color: #9a9ca3; font-size: 12.5px; font-weight: 600; }
 </style>
 </head>
 <body>
+<div class="tb" id="tb"><button type="button" data-w="min"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button><button type="button" data-w="max"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button><button type="button" class="x" data-w="close"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button></div>
 <button type="button" class="lang" id="lang"></button>
 <form id="f">
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17.5V6l10-2v11.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></svg>Musik</div>
@@ -36,6 +42,13 @@
   <button id="b"></button>
 </form>
 <script>
+  // own title bar: the window has no system frame
+  document.getElementById('tb').addEventListener('mousedown', (e) => {
+    const b = e.target.closest('button');
+    if (b) return;
+    location.href = 'musik-win://' + (e.detail === 2 ? 'max' : 'drag');
+  });
+  document.querySelectorAll('#tb [data-w]').forEach((b) => (b.onclick = () => (location.href = 'musik-win://' + b.dataset.w)));
   let saved = '';
   try { saved = localStorage.getItem('musik.lang') || ''; } catch {}
   const de = saved === 'de';
