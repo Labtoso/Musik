@@ -64,6 +64,7 @@ const de = {
   onYouTube: 'Auf YouTube', onSpotify: 'Auf Spotify',
   share: 'Teilen', linkCopied: 'Link kopiert', shareText: 'Hör mal rein: {title}',
   lyrics: 'Songtext', noLyrics: 'Kein Songtext gefunden.', lyricsLoading: 'Songtext wird gesucht …', lyricsFrom: 'Quelle: {src}',
+  viz: 'Visualizer', viz_off: 'Visualizer aus', viz_bars: 'Balken', viz_ring: 'Kreis', viz_wave: 'Welle', vizHint: 'Läuft im Vollbild-Player. Dort schaltet der Knopf Visualizer durch die Stile. Bei Songs von YouTube, Spotify und SoundCloud gibt es keinen Zugriff auf den Ton, dann läuft eine ruhige Deko-Animation.', vizPlatform: 'nur Deko bei Plattform-Songs',
   equalizer: 'Equalizer', eqOn: 'Equalizer an', eqPre: 'Vorverstärkung', eqReset: 'Zurücksetzen', eqHint: 'Wirkt auf Songs von deinem Server. YouTube, SoundCloud und Spotify lassen keinen Eingriff in den Ton zu.',
   eq_flat: 'Neutral', eq_bass: 'Mehr Bass', eq_treble: 'Mehr Höhen', eq_vocal: 'Stimme', eq_acoustic: 'Akustik', eq_electronic: 'Elektronisch', eq_night: 'Nachts leise', eq_custom: 'Eigene'
 };
@@ -133,6 +134,7 @@ const en = {
   onYouTube: 'On YouTube', onSpotify: 'On Spotify',
   share: 'Share', linkCopied: 'Link copied', shareText: 'Have a listen: {title}',
   lyrics: 'Lyrics', noLyrics: 'No lyrics found.', lyricsLoading: 'Looking for lyrics …', lyricsFrom: 'Source: {src}',
+  viz: 'Visualizer', viz_off: 'Visualizer off', viz_bars: 'Bars', viz_ring: 'Ring', viz_wave: 'Wave', vizHint: 'Runs in the full screen player, where the Visualizer button cycles through the styles. Songs from YouTube, Spotify and SoundCloud give no access to their sound, so a calm decorative motion runs instead.', vizPlatform: 'decorative for platform songs',
   equalizer: 'Equalizer', eqOn: 'Equalizer on', eqPre: 'Preamp', eqReset: 'Reset', eqHint: 'Works on songs from your server. YouTube, SoundCloud and Spotify do not allow changing their sound.',
   eq_flat: 'Flat', eq_bass: 'Bass boost', eq_treble: 'Treble boost', eq_vocal: 'Vocal', eq_acoustic: 'Acoustic', eq_electronic: 'Electronic', eq_night: 'Night', eq_custom: 'Custom'
 };

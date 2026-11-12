@@ -35,6 +35,7 @@ const P = {
   lyrics: '<path d="M5 6.5h10M5 11h10M5 15.5h5"/><path d="M17.5 17.5V9l3-1"/><circle cx="15.8" cy="17.5" r="1.8"/>',
   share: '<circle cx="17.5" cy="6" r="2.3"/><circle cx="6.5" cy="12" r="2.3"/><circle cx="17.5" cy="18" r="2.3"/><path d="m8.5 10.9 7-3.8M8.5 13.1l7 3.8"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  viz: '<path d="M4 14v-4M8 17V7M12 20V4M16 16V8M20 13v-2"/>',
   eq: '<path d="M6 4.5v15M12 4.5v15M18 4.5v15"/><path d="M4 14h4M10 8h4M16 16h4"/>'
 };
 

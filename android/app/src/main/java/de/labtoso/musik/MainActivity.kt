@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.media.audiofx.Visualizer
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -336,6 +337,42 @@ class MainActivity : ComponentActivity() {
                 else -> Player.REPEAT_MODE_OFF
             }
         }
+        // Visualizer: Android only hands out the spectrum with the record-audio permission (nothing is recorded)
+        @JavascriptInterface fun vizStart() = main.post {
+            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) attachViz()
+            else askAudio.launch(Manifest.permission.RECORD_AUDIO)
+        }
+        @JavascriptInterface fun vizStop() = main.post { releaseViz() }
+        @JavascriptInterface fun vizBands(): String {
+            val v = viz ?: return ""
+            if (vizSession != PlaybackService.audioSession) return ""
+            return runCatching {
+                if (v.getFft(fft) != Visualizer.SUCCESS) return ""
+                val n = fft.size / 2
+                val rate = v.samplingRate / 1000.0 // mHz -> Hz
+                val hzPerBin = rate / 2 / n
+                val out = IntArray(64)
+                val lo = Math.log(40.0)
+                val hi = Math.log(16000.0)
+                for (i in 0 until 64) {
+                    val f0 = Math.exp(lo + (hi - lo) * i / 64)
+                    val f1 = Math.exp(lo + (hi - lo) * (i + 1) / 64)
+                    val b0 = maxOf(1, (f0 / hzPerBin).toInt())
+                    val b1 = minOf(n - 1, maxOf(b0, Math.ceil(f1 / hzPerBin).toInt()))
+                    var m = 0.0
+                    for (b in b0..b1) {
+                        val re = fft[2 * b].toDouble()
+                        val im = fft[2 * b + 1].toDouble()
+                        val mag = Math.hypot(re, im)
+                        if (mag > m) m = mag
+                    }
+                    // magnitude (0..~181) to a 0..255 level on a dB scale
+                    val db = 20 * Math.log10(m + 1) / 45.0
+                    out[i] = (db.coerceIn(0.0, 1.0) * 255).toInt()
+                }
+                out.joinToString(",")
+            }.getOrDefault("")
+        }
         @JavascriptInterface fun setEq(json: String) {
             // PlaybackService listens for this key and applies it to the system equalizer
             prefs.edit().putString("eq", json).apply()
@@ -371,7 +408,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var viz: Visualizer? = null
+    private var vizSession = 0
+    private var fft = ByteArray(1024)
+
+    private fun attachViz() {
+        val session = PlaybackService.audioSession
+        if (session == 0) return
+        if (viz != null && vizSession == session) return
+        releaseViz()
+        viz = runCatching {
+            Visualizer(session).apply {
+                setCaptureSize(Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024))
+                fft = ByteArray(getCaptureSize())
+                setEnabled(true)
+            }
+        }.getOrNull()
+        vizSession = if (viz != null) session else 0
+    }
+
+    private fun releaseViz() {
+        runCatching { viz?.release() }
+        viz = null
+        vizSession = 0
+    }
+
+    private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) attachViz() }
+
     override fun onDestroy() {
+        releaseViz()
         main.removeCallbacks(ticker)
         controller?.removeListener(playerListener)
         MediaController.releaseFuture(controllerFuture)

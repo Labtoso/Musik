@@ -2,6 +2,7 @@ import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put,
 import { Player, EQ_FREQS } from './player.js';
 import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify } from './sources.js';
 import { placeStage } from './engines.js';
+import { Visualizer, VIZ_MODES } from './viz.js';
 import { t, setLang, getLang } from './i18n.js';
 import { icon } from './icons.js';
 import { colorFromUrl } from './dyncolor.js';
@@ -57,6 +58,7 @@ function applyDyn(tr) {
 applyPrefs();
 
 let player = null;
+let viz = null;
 let sameOrigin = null;
 let state = { route: '', cache: {} };
 
@@ -1124,6 +1126,7 @@ function renderPlayer() {
       coverBox.dataset.id = tr.id;
       coverBox.innerHTML = coverImg(tr.id, 'md');
       big.innerHTML = coverImg(tr.id, 'huge');
+      viz?.attach(big);
     }
     $('#np-title').textContent = tr.title;
     $('#np-artist').textContent = artistName(tr);
@@ -1135,6 +1138,7 @@ function renderPlayer() {
     coverBox.dataset.id = '';
     coverBox.innerHTML = coverImg(null, 'md');
     big.innerHTML = coverImg(null, 'huge');
+    viz?.attach(big);
     $('#np-title').textContent = t('nothingPlaying');
     $('#np-artist').textContent = '';
     $('#fs-title').textContent = t('nothingPlaying');
@@ -1218,6 +1222,19 @@ function bindPlayer() {
     } else if (a === 'lyrics') {
       if ($('#fs').classList.contains('open')) toggleFsLyrics();
       else go(state.route === 'lyrics' ? '#/home' : '#/lyrics');
+    } else if (a === 'viz') {
+      const fsOpen = $('#fs').classList.contains('open');
+      const cur = prefs.viz || 'off';
+      if (!fsOpen) {
+        if (cur === 'off') prefs.viz = prefs.vizLast || 'bars';
+        openFs(true);
+        setViz(prefs.viz);
+      } else {
+        const next = VIZ_MODES[(VIZ_MODES.indexOf(cur) + 1) % VIZ_MODES.length];
+        if (next !== 'off') prefs.vizLast = next;
+        setViz(next);
+        toast(t('viz_' + next) + (next !== 'off' && player.current?.ext ? ' · ' + t('vizPlatform') : ''));
+      }
     } else if (a === 'open-fs') openFs(true);
     else if (a === 'close-fs') openFs(false);
     else if (a === 'menu' && player.current) trackMenu(b, player.current, {});
@@ -1265,8 +1282,35 @@ function bindPlayer() {
     }
   });
 }
+function vizSync() {
+  if (!player) return;
+  if (!viz) viz = new Visualizer(player);
+  viz.attach($('#fs-cover'));
+  const on = $('#fs').classList.contains('open') && (prefs.viz || 'off') !== 'off';
+  viz.setMode(on ? prefs.viz : 'off');
+  if (on) {
+    player.startViz();
+    viz.start();
+  } else {
+    player.stopViz();
+    viz.stop();
+  }
+}
+function setViz(mode) {
+  prefs.viz = mode;
+  savePrefs();
+  vizSync();
+  const sel = $('#vizmode');
+  if (sel) sel.value = mode;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'vizmode') return;
+  if (e.target.value !== 'off') prefs.vizLast = e.target.value;
+  setViz(e.target.value);
+});
 function openFs(open) {
   $('#fs').classList.toggle('open', open);
+  vizSync();
   if (!open) $('#fs-queue').classList.remove('open');
   if (!open) $('#fs-lyrics').classList.remove('open');
   placeStage();
@@ -1336,6 +1380,9 @@ async function renderSettings() {
       <p class="muted small">${SOURCES.filter((x) => enabled(x)).map((x) => t('src_' + x)).join(', ')}</p>
       <div class="stack"><a class="btn" href="#/sources" data-closesettings>${t('manageSources')}</a><a class="btn" href="#/add" data-closesettings>${icon('download')}${t('importAdd')}</a></div></div>
     <div class="set-group"><h3>${t('equalizer')}</h3>${eqHtml()}</div>
+    <div class="set-group"><h3>${t('viz')}</h3>
+      <select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>
+      <p class="muted small">${t('vizHint')}</p></div>
     <div class="set-group"><h3>${t('library')}</h3>
       ${lib ? `<p class="muted">${t('stats', { tracks: lib.tracks, artists: lib.artists, albums: lib.albums })}</p>` : ''}
       <div id="scaninfo" class="muted small"></div>
@@ -1633,6 +1680,7 @@ function buildShell() {
         <div class="timeline"><span class="t-pos">0:00</span><input class="seek" type="range" min="0" max="1" step="0.1" value="0"><span class="t-dur">0:00</span></div>
       </div>
       <div class="extra desktop-only">
+        <button class="icon-btn" data-act="viz" title="${t('viz')}">${icon('viz')}</button>
         <button class="icon-btn" data-act="lyrics" title="${t('lyrics')}">${icon('lyrics')}</button>
         <button class="icon-btn" data-act="queue" title="${t('queue')}">${icon('queue')}</button>
         <button class="icon-btn" data-act="mute" title="${t('volume')}">${icon('volume')}</button>
@@ -1653,7 +1701,7 @@ function buildShell() {
       <button class="icon-btn lg" data-act="next">${icon('next')}</button>
       <button class="icon-btn" data-act="repeat">${icon('repeat')}</button>
     </div>
-    <div class="fs-bottom"><button class="btn ghost" data-act="lyrics">${icon('lyrics')}${t('lyrics')}</button><button class="btn ghost" data-act="queue">${icon('queue')}${t('queue')}</button></div>
+    <div class="fs-bottom"><button class="btn ghost" data-act="viz">${icon('viz')}${t('viz')}</button><button class="btn ghost" data-act="lyrics">${icon('lyrics')}${t('lyrics')}</button><button class="btn ghost" data-act="queue">${icon('queue')}${t('queue')}</button></div>
     <div id="fs-queue" class="fs-queue"></div>
     <div id="fs-lyrics" class="fs-queue fs-lyrics"><div class="lyrbody"></div></div>
   </div>

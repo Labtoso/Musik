@@ -3,6 +3,7 @@
 //  - NativeEngine: Android bridge (ExoPlayer service, keeps playing in background)
 import { streamUrl, coverUrl, post, get } from './api.js';
 import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, showStage } from './engines.js';
+import { toBands } from './viz.js';
 
 export const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
@@ -69,24 +70,47 @@ class HtmlEngine extends EventTarget {
     return ad;
   }
   // ---------- equalizer (WebAudio, only for songs from the server) ----------
+  /** WebAudio chain, built on first use: source -> preamp -> 10 filters -> analyser -> speakers. */
+  #graph() {
+    if (this.ctx) return true;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AC();
+      const src = this.ctx.createMediaElementSource(this.audio);
+      this.pre = this.ctx.createGain();
+      this.filters = EQ_FREQS.map((f, i) => {
+        const b = this.ctx.createBiquadFilter();
+        b.type = i === 0 ? 'lowshelf' : i === EQ_FREQS.length - 1 ? 'highshelf' : 'peaking';
+        b.frequency.value = f;
+        b.Q.value = 1.1;
+        b.gain.value = 0;
+        return b;
+      });
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 2048;
+      this.analyser.smoothingTimeConstant = 0.72;
+      this.fft = new Uint8Array(this.analyser.frequencyBinCount);
+      [src, this.pre, ...this.filters, this.analyser].reduce((a, b) => (a.connect(b), b)).connect(this.ctx.destination);
+      this.audio.addEventListener('play', () => this.ctx.state === 'suspended' && this.ctx.resume());
+      return true;
+    } catch {
+      this.ctx = null;
+      return false;
+    }
+  }
+  /** Spectrum of the song playing in <audio>; false for platform players (no access to their sound). */
+  bands(out) {
+    if (this.active || this.audio.paused || !this.#graph()) return false;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    this.analyser.getByteFrequencyData(this.fft);
+    toBands(this.fft, this.ctx.sampleRate, out);
+    return true;
+  }
   setEq(eq) {
     this.eq = eq;
     if (!eq?.on && !this.ctx) return;
     try {
-      if (!this.ctx) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AC();
-        const src = this.ctx.createMediaElementSource(this.audio);
-        this.pre = this.ctx.createGain();
-        this.filters = EQ_FREQS.map((f, i) => {
-          const b = this.ctx.createBiquadFilter();
-          b.type = i === 0 ? 'lowshelf' : i === EQ_FREQS.length - 1 ? 'highshelf' : 'peaking';
-          b.frequency.value = f;
-          b.Q.value = 1.1;
-          return b;
-        });
-        [src, this.pre, ...this.filters].reduce((a, b) => (a.connect(b), b)).connect(this.ctx.destination);
-      }
+      if (!this.#graph()) return;
       const on = !!eq?.on;
       this.filters.forEach((b, i) => (b.gain.value = on ? Number(eq.gains?.[i]) || 0 : 0));
       this.pre.gain.value = on ? Math.pow(10, (Number(eq.pre) || 0) / 20) : 1;
@@ -382,6 +406,38 @@ export class Player extends EventTarget {
 
   get current() {
     return this.queue[this.index] || null;
+  }
+
+  /** Fill `out` (0..1 per band) with the current spectrum. False when no real audio data is available. */
+  spectrum(out) {
+    if (this.engine === this.htmlEngine) return this.htmlEngine.bands(out);
+    if (this.native && this.playing) {
+      try {
+        const raw = window.MusikAndroid.vizBands?.();
+        if (!raw) return false;
+        const v = raw.split(',');
+        for (let i = 0; i < out.length; i++) out[i] = (Number(v[i]) || 0) / 255;
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+  /** Android asks for the audio permission its visualizer needs; elsewhere nothing to do. */
+  startViz() {
+    if (this.native) {
+      try {
+        window.MusikAndroid.vizStart?.();
+      } catch {}
+    }
+  }
+  stopViz() {
+    if (this.native) {
+      try {
+        window.MusikAndroid.vizStop?.();
+      } catch {}
+    }
   }
 
   // ---------- listening events for the recommendation engine ----------

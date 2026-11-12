@@ -44,6 +44,7 @@ class PlaybackService : MediaSessionService() {
         val audioSession = (getSystemService(Context.AUDIO_SERVICE) as AudioManager).generateAudioSessionId()
         if (audioSession > 0) {
             player.setAudioSessionId(audioSession)
+            PlaybackService.audioSession = audioSession
             eq = runCatching { Equalizer(0, audioSession) }.getOrNull()
         }
         prefs.registerOnSharedPreferenceChangeListener(eqListener)
@@ -117,7 +118,13 @@ class PlaybackService : MediaSessionService() {
         if (p == null || !p.playWhenReady || p.mediaItemCount == 0) stopSelf()
     }
 
+    companion object {
+        /** Audio session of the player, for the visualizer in the activity (same process). */
+        @Volatile var audioSession = 0
+    }
+
     override fun onDestroy() {
+        audioSession = 0
         prefs.unregisterOnSharedPreferenceChangeListener(eqListener)
         eq?.release()
         eq = null
