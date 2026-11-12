@@ -45,6 +45,21 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .bar nav a { position: relative; }
 .bar nav a::after { content: ''; position: absolute; left: 0; right: 100%; bottom: -4px; height: 1px; background: currentColor; transition: right .3s; }
 .bar nav a:hover::after { right: 0; }
+.wp { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px 0 12px; border-radius: 18px; background: linear-gradient(100deg, var(--accent), var(--accent2)); color: var(--ink); font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: .06em; transition: transform .2s, box-shadow .2s; flex: none; }
+.wp:hover { transform: translateY(-1px); box-shadow: 0 8px 26px -8px var(--accent); }
+.wp svg { width: 15px; height: 15px; }
+.wpop { position: fixed; z-index: 62; top: 72px; right: var(--gut); width: min(360px, calc(100vw - 2 * var(--gut))); padding: 20px; border-radius: 20px; background: rgba(13,15,25,.92); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid var(--line2); box-shadow: 0 30px 80px -20px #000; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity .2s, transform .25s cubic-bezier(.2,.9,.2,1); }
+.wpop.open { opacity: 1; transform: none; pointer-events: auto; }
+.wpop h4 { margin: 0 0 6px; font: italic 700 24px var(--serif); }
+.wpop p { margin: 0 0 14px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+.wpop label { display: block; font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+.wpop input { width: 100%; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line2); background: rgba(0,0,0,.35); color: var(--paper); font: 15px var(--mono); outline: none; }
+.wpop input:focus { border-color: var(--accent); }
+.wpop .row { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+.wpop .go { flex: 1; height: 44px; border-radius: 12px; background: var(--paper); color: #0a0b10; font-weight: 700; }
+.wpop .go:hover { background: #fff; }
+.wpop small { display: block; margin-top: 12px; color: var(--dim); font: 12px var(--mono); }
+.wpop small a { text-decoration: underline; }
 
 /* ── settings ── */
 .scrim { position: fixed; inset: 0; z-index: 60; background: rgba(4,5,10,.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); opacity: 0; pointer-events: none; transition: opacity .3s; }
@@ -287,6 +302,8 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 }
 @media (max-width: 640px) {
   .bar nav a:not(:last-child) { display: none; }
+  .bar nav { gap: 14px; }
+  .wp { padding: 0 12px 0 10px; }
   .dl { grid-template-columns: 1fr auto; gap: 12px 16px; padding: 26px 16px; }
   .dl .d { grid-column: 1 / -1; grid-row: 2; }
   .dl .go { width: 56px; height: 56px; margin: 0; }
@@ -308,7 +325,15 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
   <button class="gear" id="gear" aria-label="Einstellungen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   <a class="word" href="#"><svg class="disc" viewBox="0 0 512 512" aria-hidden="true"><circle cx="256" cy="256" r="248" fill="#0a0b10" stroke="#2a2e42" stroke-width="8"/><g fill="none" stroke="#252838" stroke-width="10"><circle cx="256" cy="256" r="210"/><circle cx="256" cy="256" r="170"/><circle cx="256" cy="256" r="134"/></g><path d="M256 20a236 236 0 0 1 200 110" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="14" stroke-linecap="round"/><circle cx="256" cy="256" r="98" fill="var(--accent)"/><circle cx="256" cy="256" r="16" fill="#0a0b10"/></svg>Musik</a>
   <nav><a href="#a1" data-t="nav1"></a><a href="#player" data-t="navP"></a><a href="#a2" data-t="nav2"></a><a href="#b2" data-t="nav3"></a><a href="#b1" data-t="nav4"></a></nav>
+  <button class="wp" id="wp" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><span data-t="wp"></span></button>
 </header>
+<div class="wpop" id="wpop" role="dialog" aria-labelledby="wph">
+  <h4 id="wph" data-t="wpH"></h4>
+  <p data-t="wpP"></p>
+  <form id="wpf"><label for="wpi" data-t="wpL"></label><input id="wpi" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="192.168.1.20:8484">
+  <div class="row"><button class="go" data-t="wpGo"></button></div></form>
+  <small data-h="wpS"></small>
+</div>
 
 <div class="scrim" id="scrim"></div>
 <aside class="panel" id="panel">
@@ -540,6 +565,7 @@ const T = {
     q6: 'Und Updates?', a6: 'Installationsbefehl erneut ausführen. Deine Daten, Playlists und Likes bleiben. Neue Apps gibt es immer hier.',
     q7: 'Geht auch Spotify oder YouTube?', a7: 'Ja, wenn du willst. Beim ersten Start wählst du, woher Songs kommen dürfen: lokal, YouTube, YouTube Music, Spotify, SoundCloud. Playlists holst du per Link oder Datei rein, Deezer und Exportify-CSV gehen auch. Was du selbst hast, spielt immer lokal. Der Rest läuft über die offiziellen Player der Plattform.',
     q8: 'Teilen, Equalizer, Songtexte?', a8: 'Alles drin. Songs, Alben und Playlists teilst du per Link, auch an Leute ohne Konto. Wer die App hat, speichert sie mit einem Tipp. Dazu ein 10-Band-Equalizer und Songtexte, die beim Hören mitlaufen.',
+    wp: 'Webplayer', wpH: 'Webplayer öffnen', wpP: 'Der Webplayer läuft auf deinem eigenen Server. Gib einmal seine Adresse ein, beim nächsten Mal geht es mit einem Klick.', wpL: 'Adresse deines Servers', wpGo: 'Öffnen', wpS: 'Noch kein Server? <a href="#b2">So richtest du ihn ein</a>. Unterwegs geht die Tailscale-Adresse.', wpBad: 'Diese Adresse passt nicht.',
     all: 'Alle Versionen'
   },
   en: {
@@ -593,6 +619,7 @@ const T = {
     q6: 'And updates?', a6: 'Run the install command again. Your data, playlists and likes stay. New apps are always here.',
     q7: 'Does Spotify or YouTube work too?', a7: 'Yes, if you want. On first start you pick where songs may come from: local, YouTube, YouTube Music, Spotify, SoundCloud. Bring playlists in by link or file, Deezer and Exportify CSV work too. Whatever you own plays locally. The rest runs through each platform’s official player.',
     q8: 'Sharing, equalizer, lyrics?', a8: 'All in. Share songs, albums and playlists by link, even with people without an account. Anyone with the app saves them with one tap. Plus a 10-band equalizer and lyrics that follow along.',
+    wp: 'Web player', wpH: 'Open the web player', wpP: 'The web player runs on your own server. Enter its address once, next time it is one click.', wpL: 'Your server address', wpGo: 'Open', wpS: 'No server yet? <a href="#b2">Here is how to set one up</a>. On the go, use the Tailscale address.', wpBad: 'That address does not work.',
     all: 'All versions'
   }
 };
@@ -772,6 +799,38 @@ addEventListener('keydown', (e) => { if (e.key === 'Escape') openSet(false); });
 $$('[data-l]').forEach((b) => b.addEventListener('click', () => { lang = b.dataset.l; store('musik.site.lang', lang); render(); }));
 $('[data-dyn]').addEventListener('click', () => { dyn = !dyn; store('musik.site.dyn', dyn ? '1' : '0'); render(); window.__dynApply && window.__dynApply(); });
 $$('[data-a]').forEach((b) => b.addEventListener('click', () => { accent = b.dataset.a; dyn = false; store('musik.site.dyn', '0'); store('musik.site.accent', accent); render(); window.__dynApply && window.__dynApply(); if (window.__tt) window.__tt.setAccent(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()); }));
+
+// web player: lives on the user's own server, so remember its address and open it
+const wpop = $('#wpop'), wpi = $('#wpi');
+wpi.value = store('musik.site.server') || '';
+function wpOpen(on) {
+  wpop.classList.toggle('open', on);
+  if (on) setTimeout(() => wpi.focus(), 60);
+}
+function wpUrl(v) {
+  v = v.trim().replace(/\/+$/, '');
+  if (!v) return null;
+  if (!/^https?:\/\//i.test(v)) v = (/\.ts\.net$/i.test(v.split('/')[0]) ? 'https://' : 'http://') + v;
+  try {
+    const u = new URL(v);
+    if (u.protocol === 'http:' && !u.port && /^(\d+\.){3}\d+$|^localhost$/.test(u.hostname)) u.port = '8484';
+    return u.origin + '/';
+  } catch { return null; }
+}
+$('#wp').addEventListener('click', (e) => { e.stopPropagation(); wpOpen(!wpop.classList.contains('open')); });
+$('#wpf').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const url = wpUrl(wpi.value);
+  if (!url) { wpi.setCustomValidity(T[lang].wpBad); wpi.reportValidity(); return; }
+  wpi.setCustomValidity('');
+  store('musik.site.server', url.replace(/\/$/, ''));
+  window.open(url, '_blank', 'noopener');
+  wpOpen(false);
+});
+wpi.addEventListener('input', () => wpi.setCustomValidity(''));
+document.addEventListener('click', (e) => { if (wpop.classList.contains('open') && !wpop.contains(e.target)) wpOpen(false); });
+wpop.addEventListener('click', (e) => { if (e.target.closest('a[href^="#"]')) wpOpen(false); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') wpOpen(false); });
 
 function render() {
   const d = T[lang];
