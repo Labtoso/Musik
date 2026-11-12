@@ -9,7 +9,6 @@ import { colorFromUrl } from './dyncolor.js';
 
 const RELEASES = 'https://github.com/Labtoso/Musik/releases/latest';
 const GUIDE = 'https://github.com/Labtoso/Musik/blob/main/docs/tailscale.md';
-const VERSION = '1.0.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -1421,12 +1420,106 @@ async function renderSettings() {
       ${info?.remote ? `<p class="muted small">${t('remoteOn')}</p><p><code class="addr">${esc(info.remote)}</code></p><div class="stack"><button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button></div>`
         : `<p class="muted small">${t('remoteOff')}</p><div class="stack"><a class="btn" href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a></div>`}</div>
     ${user.admin ? `<div class="set-group"><h3>${t('users')}</h3><div id="userlist" class="muted small">…</div><button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button></div>` : ''}
-    <div class="set-group"><h3>${t('apps')}</h3>
-      <div class="stack"><a class="btn" href="${RELEASES}" target="_blank" rel="noopener">${icon('download')}${t('allDownloads')}</a></div>
-      <p class="muted small">${t('version')} ${VERSION} · LabtosoStudios</p></div>`;
+    <div class="set-group"><h3>${t('updates')}</h3>
+      <div id="updinfo" class="upd"></div>
+      <div class="stack"><button class="btn" data-updcheck>${icon('refresh')}${t('checkUpdates')}</button><a class="btn" href="${RELEASES}" target="_blank" rel="noopener">${icon('download')}${t('allDownloads')}</a></div>
+      <p class="muted small">LabtosoStudios</p></div>`;
+  renderUpdates(false);
   if (lib) showScan(lib);
   if (user.admin) renderUsers();
 }
+// ---------- updates: server, Android app and desktop app ----------
+/** Version of the app this page runs in (Android or desktop), empty in a plain browser. */
+function appVersion() {
+  try {
+    if (window.MusikAndroid?.appVersion) return { kind: 'android', v: window.MusikAndroid.appVersion() };
+  } catch {}
+  if (window.musikDesktop?.version) return { kind: 'desktop', v: window.musikDesktop.version };
+  return null;
+}
+const vNewer = (a, b) => {
+  const p = (x) => String(x || '0').replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const A = p(a), B = p(b);
+  for (let i = 0; i < Math.max(A.length, B.length); i++) if ((A[i] || 0) !== (B[i] || 0)) return (A[i] || 0) > (B[i] || 0);
+  return false;
+};
+async function updateStatus(force) {
+  try {
+    return await api('GET', '/api/update' + (force ? '?force=1' : ''), undefined, { timeout: 20000 });
+  } catch (e) {
+    // older servers: ask GitHub directly
+    const info = await api('GET', '/api/info', undefined, { token: null, timeout: 6000 }).catch(() => ({}));
+    const r = await fetch('https://api.github.com/repos/Labtoso/Musik/releases/latest').then((x) => x.json()).catch(() => null);
+    const latest = r?.tag_name?.replace(/^v/, '') || null;
+    return { current: info.version, latest, available: !!latest && vNewer(latest, info.version), how: 'readonly', admin: !!conn.user?.admin };
+  }
+}
+async function renderUpdates(force) {
+  const box = $('#updinfo');
+  if (!box) return;
+  box.innerHTML = `<p class="muted small">${t('updChecking')}</p>`;
+  const u = await updateStatus(force);
+  if (!$('#updinfo')) return;
+  const app = appVersion();
+  const latest = u.latest;
+  const row = (label, cur, avail, action) => `<div class="upd-row"><div><b>${label}</b><span class="muted small">${cur ? 'v' + esc(cur) : '–'}${latest ? avail ? ` → <span class="upd-new">v${esc(latest)}</span>` : ` · ${t('upToDate')}` : ''}</span></div>${action || ''}</div>`;
+  let srvAction = '';
+  if (u.available) {
+    if (!u.admin) srvAction = `<span class="muted small">${t('updAdminOnly')}</span>`;
+    else if (u.how === 'self') srvAction = `<button class="btn primary" data-updserver>${t('updNow')}</button>`;
+    else srvAction = `<span class="muted small">${t('upd_' + u.how)}</span>`;
+  }
+  const appAvail = app && latest && vNewer(latest, app.v);
+  box.innerHTML = row(t('updServer'), u.current, u.available, srvAction) + (app ? row(t(app.kind === 'android' ? 'updAndroid' : 'updDesktop'), app.v, appAvail, appAvail ? `<button class="btn primary" data-updapp>${t('updNow')}</button>` : '') : '') + (!latest ? `<p class="muted small">${t('updOffline')}</p>` : '') + '<div id="updprog" class="muted small"></div>';
+}
+async function updateServer() {
+  const prog = $('#updprog');
+  const before = (await api('GET', '/api/info', undefined, { token: null }).catch(() => ({}))).version;
+  if (prog) prog.textContent = t('updServerRunning');
+  const r = await post('/api/update');
+  // the server restarts; wait until it answers with the new version
+  for (let i = 0; i < 60; i++) {
+    await new Promise((res) => setTimeout(res, 2000));
+    const v = (await api('GET', '/api/info', undefined, { token: null, timeout: 3000 }).catch(() => ({}))).version;
+    if (v && v !== before) {
+      toast(t('updDone', { v }));
+      setTimeout(() => location.reload(), 900);
+      return;
+    }
+  }
+  if (prog) prog.textContent = t('updSlow', { v: r.to || '' });
+}
+function updateApp() {
+  const app = appVersion();
+  if (!app) return;
+  const prog = $('#updprog');
+  if (prog) prog.textContent = t('updDownloading', { p: 0 });
+  if (app.kind === 'android') window.MusikAndroid.updateApp();
+  else window.musikDesktop.update();
+}
+// progress from the Android app while it downloads and installs
+window.musikAppUpdate = (stateName, pct) => {
+  const prog = $('#updprog');
+  const msg = stateName === 'download' ? t('updDownloading', { p: pct || 0 }) : t('updApp_' + stateName);
+  if (prog) prog.textContent = msg;
+  else if (stateName !== 'download') toast(msg);
+};
+/** Once a day after start: a short hint when something is out of date. */
+async function autoUpdateCheck() {
+  let last = 0;
+  try {
+    last = +localStorage.getItem('musik.updcheck') || 0;
+  } catch {}
+  if (Date.now() - last < 20 * 3600 * 1000) return;
+  try {
+    localStorage.setItem('musik.updcheck', String(Date.now()));
+  } catch {}
+  const u = await updateStatus(false).catch(() => null);
+  if (!u?.latest) return;
+  const app = appVersion();
+  if (u.available || (app && vNewer(u.latest, app.v))) toast(t('updNotice', { v: u.latest }));
+}
+
 function showScan(lib) {
   const el = $('#scaninfo');
   if (!el) return;
@@ -1458,7 +1551,7 @@ async function renderUsers() {
   } catch {}
 }
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
+  const el = e.target.closest('[data-updcheck],[data-updserver],[data-updapp],[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
   if (!el) return;
   if (el.dataset.copyremote) { navigator.clipboard?.writeText(el.dataset.copyremote).then(() => toast(t('copied'))).catch(() => {}); return; }
   if (el.matches('[data-settings]')) return openSettings();
@@ -1481,6 +1574,16 @@ document.addEventListener('click', async (e) => {
     return;
   }
   try {
+    if (el.matches('[data-updcheck]')) return renderUpdates(true);
+    if (el.matches('[data-updapp]')) return updateApp();
+    if (el.matches('[data-updserver]')) {
+      el.disabled = true;
+      return await updateServer().catch((err) => {
+        el.disabled = false;
+        const p = $('#updprog');
+        if (p) p.textContent = errorText(err);
+      });
+    }
     if (el.matches('[data-scan]')) {
       await post('/api/library/scan');
       showScan({ scanning: true, progress: { found: 0 } });
@@ -1753,6 +1856,7 @@ function startApp() {
         buildShell();
       } else if (!settings.lang) saveSettings({ lang: prefs.lang }).catch(() => {});
       await spotify.finishLogin().catch(() => false);
+      setTimeout(() => autoUpdateCheck(), 4000);
       if (!settings.setupDone && state.route !== 'welcome') go('#/welcome');
       else render();
     })

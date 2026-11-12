@@ -95,6 +95,86 @@ fn saved_server(app: AppHandle) -> String {
     load_config(&app).server.unwrap_or_default()
 }
 
+// ---- self-update: download the latest build from the release page and swap it in
+fn download(url: &str, dest: &std::path::Path, win: &WebviewWindow) -> Result<(), String> {
+    use std::io::{Read, Write};
+    let res = ureq::get(url).set("User-Agent", "Musik-Desktop").timeout(Duration::from_secs(600)).call().map_err(|_| "offline".to_string())?;
+    let total: u64 = res.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut r = res.into_reader();
+    let mut f = std::fs::File::create(dest).map_err(|_| "write".to_string())?;
+    let (mut done, mut last, mut buf) = (0u64, -1i64, vec![0u8; 64 * 1024]);
+    loop {
+        let n = r.read(&mut buf).map_err(|_| "offline".to_string())?;
+        if n == 0 {
+            break;
+        }
+        f.write_all(&buf[..n]).map_err(|_| "write".to_string())?;
+        done += n as u64;
+        if total > 0 {
+            let p = (done * 100 / total) as i64;
+            if p != last {
+                last = p;
+                let _ = win.eval(&format!("window.updProgress && window.updProgress({p})"));
+            }
+        }
+    }
+    if done < 1_000_000 {
+        return Err("offline".into());
+    }
+    Ok(())
+}
+
+fn do_update(app: &AppHandle, win: &WebviewWindow) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let installer = std::env::temp_dir().join("Musik-update.exe");
+        download("https://github.com/Labtoso/Musik/releases/latest/download/Musik.exe", &installer, win)?;
+        let exe = std::env::current_exe().map_err(|_| "write".to_string())?;
+        // wait until this app has closed, install silently, start the new version
+        let cmd = format!(
+            "ping -n 3 127.0.0.1 >nul & start \"\" /wait \"{}\" /S & start \"\" \"{}\"",
+            installer.display(),
+            exe.display()
+        );
+        std::process::Command::new("cmd").arg("/C").raw_arg(cmd).creation_flags(0x0800_0000).spawn().map_err(|_| "write".to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let target = std::env::var_os("APPIMAGE").map(PathBuf::from).ok_or_else(|| "unsupported".to_string())?;
+        let new = target.with_extension("new");
+        download("https://github.com/Labtoso/Musik/releases/latest/download/Musik.AppImage", &new, win)?;
+        std::fs::set_permissions(&new, std::fs::Permissions::from_mode(0o755)).map_err(|_| "write".to_string())?;
+        std::fs::rename(&new, &target).map_err(|_| "write".to_string())?;
+        std::process::Command::new("sh").arg("-c").arg("sleep 1; exec \"$0\"").arg(&target).spawn().map_err(|_| "write".to_string())?;
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = win;
+        return Err("unsupported".into());
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(600));
+        app.exit(0);
+    });
+    Ok(())
+}
+
+#[tauri::command]
+async fn self_update(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || do_update(&app, &window)).await.map_err(|_| "write".to_string())?
+}
+
+/// Back from the update page to the server.
+#[tauri::command]
+fn open_saved(app: AppHandle, window: WebviewWindow) {
+    if let Some(s) = load_config(&app).server {
+        open_server(&window, &s);
+    }
+}
+
 fn home_url() -> &'static str {
     if cfg!(windows) {
         "http://tauri.localhost/index.html"
@@ -105,12 +185,14 @@ fn home_url() -> &'static str {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![connect, saved_server])
+        .invoke_handler(tauri::generate_handler![connect, saved_server, self_update, open_saved])
         .setup(|app| {
             let handle = app.handle().clone();
             // Available on every page, also on the server's web app: switch back to the connect page.
             let init = format!(
-                "window.musikDesktop = {{ changeServer: function () {{ location.href = {:?} + '?change=1'; }} }};",
+                "window.musikDesktop = {{ version: {:?}, changeServer: function () {{ location.href = {:?} + '?change=1'; }}, update: function () {{ location.href = {:?} + '?update=1'; }} }};",
+                app.package_info().version.to_string(),
+                home_url(),
                 home_url()
             );
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))

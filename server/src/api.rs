@@ -20,7 +20,10 @@ use tower::ServiceExt;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeFile;
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = match option_env!("MUSIK_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 #[derive(rust_embed::RustEmbed)]
 #[folder = "../web/"]
@@ -1144,6 +1147,7 @@ pub fn router(st: St) -> Router {
         .route("/recommend/shuffle", post(rec_shuffle))
         .route("/home", get(home))
         .merge(crate::ext::routes())
+        .merge(crate::update::routes())
         .fallback(|| async { ApiError::new(404, "not_found") });
     let cors = CorsLayer::new()
         .allow_origin(Any)

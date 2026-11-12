@@ -4,6 +4,7 @@ mod db;
 mod ext;
 mod library;
 mod recommend;
+mod update;
 
 use api::{AppState, VERSION};
 use std::path::{Path, PathBuf};

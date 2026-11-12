@@ -45,8 +45,8 @@
     location.reload();
   };
   const T = de
-    ? { h: 'Mit Server verbinden', l: 'Server-Adresse', help: 'Die Adresse zeigt der Server beim Start an, z. B. http://192.168.1.50:8484', b: 'Verbinden', connecting: 'Verbinde …', offline: 'Server nicht erreichbar. Adresse prüfen.', notmusik: 'Unter dieser Adresse läuft kein Musik-Server.' }
-    : { h: 'Connect to server', l: 'Server address', help: 'The server prints its address on start, e.g. http://192.168.1.50:8484', b: 'Connect', connecting: 'Connecting …', offline: 'Server not reachable. Check the address.', notmusik: 'No Musik server at this address.' };
+    ? { h: 'Mit Server verbinden', l: 'Server-Adresse', help: 'Die Adresse zeigt der Server beim Start an, z. B. http://192.168.1.50:8484', b: 'Verbinden', connecting: 'Verbinde …', offline: 'Server nicht erreichbar. Adresse prüfen.', notmusik: 'Unter dieser Adresse läuft kein Musik-Server.', upd: 'Musik wird aktualisiert', updHelp: 'Die neue Version wird geladen. Danach schließt sich Musik kurz und startet neu.', updP: 'Lade … {p} %', updFail: 'Update fehlgeschlagen. Prüfe die Internetverbindung.', updUnsupported: 'Diese Version kann sich nicht selbst aktualisieren. Lade die neue Version von der Download-Seite.', back: 'Zurück' }
+    : { h: 'Connect to server', l: 'Server address', help: 'The server prints its address on start, e.g. http://192.168.1.50:8484', b: 'Connect', connecting: 'Connecting …', offline: 'Server not reachable. Check the address.', notmusik: 'No Musik server at this address.', upd: 'Updating Musik', updHelp: 'Downloading the new version. Musik then closes for a moment and starts again.', updP: 'Downloading … {p} %', updFail: 'Update failed. Check the internet connection.', updUnsupported: 'This version cannot update itself. Get the new version from the download page.', back: 'Back' };
   document.documentElement.lang = de ? 'de' : 'en';
   for (const k of ['h', 'l', 'help', 'b']) document.getElementById(k).textContent = T[k];
   const q = new URLSearchParams(location.search);
@@ -58,7 +58,22 @@
     e.textContent = T[code] || T.offline;
     b.disabled = false;
   };
-  invoke('saved_server').then((saved) => {
+  if (q.has('update')) {
+    // update screen: no address field, just progress
+    document.querySelector('label').style.display = 'none';
+    langBtn.style.display = 'none';
+    document.getElementById('h').textContent = T.upd;
+    document.getElementById('help').textContent = T.updHelp;
+    b.disabled = true;
+    b.textContent = T.updP.replace('{p}', 0);
+    window.updProgress = (p) => { b.textContent = T.updP.replace('{p}', p); };
+    invoke('self_update').catch((err) => {
+      e.textContent = err === 'unsupported' ? T.updUnsupported : T.updFail;
+      b.disabled = false;
+      b.textContent = T.back;
+      document.getElementById('f').onsubmit = (ev) => { ev.preventDefault(); invoke('open_saved'); };
+    });
+  } else invoke('saved_server').then((saved) => {
     s.value = saved || '';
     if (saved && !q.has('change')) {
       // The app opens the saved server by itself; show progress meanwhile.

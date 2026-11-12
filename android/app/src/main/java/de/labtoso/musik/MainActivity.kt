@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.media.audiofx.Visualizer
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -25,6 +26,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.MediaItem
@@ -37,6 +39,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
@@ -240,6 +243,71 @@ class MainActivity : ComponentActivity() {
         emit(JSONObject().put("type", "time").put("position", c.currentPosition / 1000.0).put("duration", dur))
     }
 
+    // ---- app update: download the latest APK from the release page and hand it to the installer
+    private fun updState(s: String, pct: Int = 0) {
+        main.post { web.evaluateJavascript("window.musikAppUpdate && window.musikAppUpdate(${JSONObject.quote(s)}, $pct)", null) }
+    }
+
+    private fun downloadAndInstall() {
+        if (!packageManager.canRequestPackageInstalls()) {
+            updState("permission")
+            main.post { runCatching { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) } }
+            return
+        }
+        try {
+            val dir = File(cacheDir, "updates").apply { mkdirs() }
+            val out = File(dir, "Musik.apk")
+            var url = URL("https://github.com/Labtoso/Musik/releases/latest/download/Musik.apk")
+            lateinit var conn: HttpURLConnection
+            var hops = 0
+            while (true) {
+                conn = url.openConnection() as HttpURLConnection
+                conn.instanceFollowRedirects = false
+                conn.connectTimeout = 15000
+                conn.readTimeout = 30000
+                conn.setRequestProperty("User-Agent", "Musik-Android")
+                val code = conn.responseCode
+                if (code in 300..399 && hops < 8) {
+                    url = URL(url, conn.getHeaderField("Location"))
+                    conn.disconnect()
+                    hops++
+                    continue
+                }
+                if (code != 200) throw IllegalStateException("http $code")
+                break
+            }
+            val total = conn.contentLengthLong
+            updState("download", 0)
+            conn.inputStream.use { inp ->
+                out.outputStream().use { o ->
+                    val buf = ByteArray(64 * 1024)
+                    var done = 0L
+                    var last = -1
+                    while (true) {
+                        val n = inp.read(buf)
+                        if (n < 0) break
+                        o.write(buf, 0, n)
+                        done += n
+                        if (total > 0) {
+                            val p = (done * 100 / total).toInt()
+                            if (p != last) { last = p; updState("download", p) }
+                        }
+                    }
+                }
+            }
+            conn.disconnect()
+            if (out.length() < 1_000_000) throw IllegalStateException("short download")
+            updState("install")
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", out)
+            val i = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            main.post { runCatching { startActivity(i) }.onFailure { updState("error") } }
+        } catch (e: Exception) {
+            updState("error")
+        }
+    }
+
     private fun emit(o: JSONObject) {
         val js = "window.__musikNative && window.__musikNative(${JSONObject.quote(o.toString())})"
         main.post { web.evaluateJavascript(js, null) }
@@ -385,6 +453,9 @@ class MainActivity : ComponentActivity() {
             }
             runCatching { startActivity(Intent.createChooser(send, null)) }
         }
+        @JavascriptInterface fun appVersion(): String =
+            runCatching { packageManager.getPackageInfo(packageName, 0).versionName ?: "" }.getOrDefault("")
+        @JavascriptInterface fun updateApp() { thread { downloadAndInstall() } }
         @JavascriptInterface fun getLang(): String = prefs.getString("lang", "") ?: ""
         @JavascriptInterface fun setLang(lang: String) {
             if (lang == "de" || lang == "en") prefs.edit().putString("lang", lang).apply()

@@ -267,8 +267,9 @@ footer a { color: var(--muted); }
 
 <h2 id="de-update"><span class="n">12</span>Updates und Sicherung</h2>
 <ul>
-  <li><b>Server:</b> Proxmox-Skript erneut ausführen oder <code>musik-update</code>. Docker: <code>git pull && docker compose up -d --build</code>.</li>
-  <li><b>Apps:</b> neue Version von der <a href="https://github.com/Labtoso/Musik/releases/latest">Release-Seite</a> drüber installieren.</li>
+  <li><b>Per Knopf:</b> In jeder App unter <b>Einstellungen → Updates</b> siehst du die Versionen von Server und App. <b>Jetzt updaten</b> lädt die neue Version und startet neu. Den Server darf nur ein Admin updaten. Einmal am Tag weist die App von selbst auf ein Update hin.</li>
+  <li><b>Server von Hand:</b> Proxmox-Skript erneut ausführen oder <code>musik-update</code>. Docker: <code>git pull && docker compose up -d --build</code>.</li>
+  <li><b>Apps von Hand:</b> neue Version von der <a href="https://github.com/Labtoso/Musik/releases/latest">Release-Seite</a> drüber installieren. Android fragt beim ersten Update einmal, ob Musik Apps installieren darf.</li>
   <li><b>Sicherung:</b> Es reicht der Datenordner (<code>/var/lib/musik</code> bzw. <code>data/</code>). Darin liegen Datenbank, Cover und hochgeladene Songs. Am einfachsten über das Proxmox-Backup des Containers.</li>
 </ul>
 
@@ -445,8 +446,9 @@ footer a { color: var(--muted); }
 
 <h2 id="en-update"><span class="n">12</span>Updates and backup</h2>
 <ul>
-  <li><b>Server:</b> run the Proxmox script again or <code>musik-update</code>. Docker: <code>git pull && docker compose up -d --build</code>.</li>
-  <li><b>Apps:</b> install the new version from the <a href="https://github.com/Labtoso/Musik/releases/latest">release page</a> over the old one.</li>
+  <li><b>With one tap:</b> every app shows the server and app versions under <b>Settings → Updates</b>. <b>Update now</b> downloads the new version and restarts. Only an admin can update the server. Once a day the app points out new versions by itself.</li>
+  <li><b>Server by hand:</b> run the Proxmox script again or <code>musik-update</code>. Docker: <code>git pull && docker compose up -d --build</code>.</li>
+  <li><b>Apps by hand:</b> install the new version from the <a href="https://github.com/Labtoso/Musik/releases/latest">release page</a> over the old one. On the first update Android asks once whether Musik may install apps.</li>
   <li><b>Backup:</b> the data folder is enough (<code>/var/lib/musik</code> or <code>data/</code>): database, covers and uploaded songs. Easiest with a Proxmox backup of the container.</li>
 </ul>
 

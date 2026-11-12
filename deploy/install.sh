@@ -108,6 +108,8 @@ chmod +x /usr/local/bin/musik-update
 
 step "Setting up service"
 id musik >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin musik
+# the server may replace its own binary (update button in the apps)
+chown -R musik:musik "$APP_DIR"
 mkdir -p "$DATA_DIR" "$MUSIC_DIR"
 chown -R musik:musik "$DATA_DIR"
 # Only fix ownership of the music folder when it is empty (never touch a mounted collection).
