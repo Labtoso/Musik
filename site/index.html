@@ -281,7 +281,7 @@ body.set-open .panel { transform: none; }
 footer { padding: 60px var(--gut) 0; overflow: hidden; }
 .fl { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; font: 12px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
 .fl a:hover { color: var(--paper); }
-.big { font: italic 800 clamp(120px, 30vw, 520px)/.74 var(--serif); font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1; letter-spacing: -.06em; margin: 30px 0 -.12em -.04em; background: linear-gradient(100deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; white-space: nowrap; padding-right: .1em; }
+.big { display: block; width: fit-content; max-width: 100%; margin: 24px auto 0; padding: .02em .12em .14em; font: italic 800 clamp(84px, 21vw, 380px)/1 var(--serif); font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1; letter-spacing: -.05em; text-align: center; background: linear-gradient(100deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; white-space: nowrap; }
 
 .rv { opacity: 0; transform: translateY(28px); transition: opacity .9s, transform .9s cubic-bezier(.2,.9,.2,1); }
 .rv.in { opacity: 1; transform: none; }

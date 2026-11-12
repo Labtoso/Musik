@@ -229,22 +229,57 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     s.castShadow = s.receiveShadow = true; crate.add(s);
   }
 
-  // speaker
+  // speaker: walnut cabinet on short feet, recessed baffle, real drivers built from turned profiles
   const spk = new THREE.Group(); spk.position.set(-6.4, TOP, -1.2); spk.rotation.y = 0.22; root.add(spk);
-  const cab = new THREE.Mesh(new RoundedBoxGeometry(2.6, 4.2, 2.4, 4, 0.06), new THREE.MeshStandardMaterial({ map: oak, color: 0x9a7656, roughness: 0.5 }));
-  cab.position.y = 2.1; cab.castShadow = cab.receiveShadow = true; spk.add(cab);
-  const baffle = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 3.9), new THREE.MeshStandardMaterial({ color: 0x101117, roughness: 0.9 }));
-  baffle.position.set(0, 2.1, 1.205); spk.add(baffle);
-  const cone = (r, y) => {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, r * 0.08, 12, 48), new THREE.MeshStandardMaterial({ color: 0x2a2b33, roughness: 0.4, metalness: 0.6 }));
-    ring.position.set(0, y, 1.22); spk.add(ring);
-    const c = new THREE.Mesh(new THREE.ConeGeometry(r * 0.95, r * 0.5, 48, 1, true), new THREE.MeshStandardMaterial({ color: 0x1a1b22, roughness: 0.8, side: THREE.DoubleSide }));
-    c.rotation.x = -Math.PI / 2; c.position.set(0, y, 1.0); spk.add(c);
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(r * 0.22, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x30323b, roughness: 0.3, metalness: 0.5 }));
-    cap.rotation.x = Math.PI / 2; cap.position.set(0, y, 1.0); spk.add(cap);
-    return c;
+  const LIFT = 0.14, FRONT = 1.2 + 0.05;
+  const walnut = new THREE.MeshPhysicalMaterial({ map: oak, color: 0x8a6448, roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.4 });
+  const cab = new THREE.Mesh(new RoundedBoxGeometry(2.6, 4.2, 2.4, 5, 0.09), walnut);
+  cab.position.y = LIFT + 2.1; cab.castShadow = cab.receiveShadow = true; spk.add(cab);
+  const baffle = new THREE.Mesh(new RoundedBoxGeometry(2.36, 3.96, 0.12, 4, 0.04), new THREE.MeshStandardMaterial({ color: 0x15161b, roughness: 0.78 }));
+  baffle.position.set(0, LIFT + 2.1, 1.2 - 0.01); baffle.receiveShadow = true; spk.add(baffle);
+  const footMat = new THREE.MeshStandardMaterial({ color: 0x1c1d22, roughness: 0.35, metalness: 0.8 });
+  for (const [x, z] of [[-1.05, -0.95], [1.05, -0.95], [-1.05, 0.95], [1.05, 0.95]]) {
+    const f = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.09, LIFT, 24), footMat); f.position.set(x, LIFT / 2, z); f.castShadow = true; spk.add(f);
+  }
+  const satin = new THREE.MeshStandardMaterial({ color: 0x2c2d33, roughness: 0.32, metalness: 0.85 });
+  const rubber = new THREE.MeshStandardMaterial({ color: 0x0d0d10, roughness: 0.55 });
+  const paper = new THREE.MeshStandardMaterial({ color: 0x55575f, roughness: 0.7, metalness: 0.1, side: THREE.DoubleSide });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x17181d, roughness: 0.3, metalness: 0.2 });
+  const domeMat = new THREE.MeshStandardMaterial({ color: 0x3a3b42, roughness: 0.45, metalness: 0.35 });
+  const hole = new THREE.MeshBasicMaterial({ color: 0x050506 });
+  // profile points: [radius, depth] (depth > 0 sticks out of the baffle)
+  const lathe = (pts, mat, parent, segs = 72) => {
+    const m = new THREE.Mesh(new THREE.LatheGeometry(pts.map(([r, d]) => new THREE.Vector2(r, d)), segs), mat);
+    m.rotation.x = Math.PI / 2; m.castShadow = true; parent.add(m); return m;
   };
-  const woofer = cone(0.85, 1.35); cone(0.32, 3.25);
+  const arc = (r0, r1, d0, h, n = 10) => Array.from({ length: n + 1 }, (_, i) => { const a = (i / n) * Math.PI; return [r0 + (r1 - r0) * (i / n), d0 + Math.sin(a) * h]; });
+  function driver(R, y) {
+    const g = new THREE.Group(); g.position.set(0, LIFT + y, FRONT); spk.add(g);
+    lathe([[R * 0.9, -0.01], [R * 1.04, -0.01], [R * 1.05, 0.012], [R * 1.02, 0.03], [R * 0.95, 0.034], [R * 0.9, 0.022]], satin, g);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+      const sc = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.025, R * 0.025, 0.02, 12), capMat);
+      sc.rotation.x = Math.PI / 2; sc.position.set(Math.cos(a) * R * 0.975, Math.sin(a) * R * 0.975, 0.04); g.add(sc);
+    }
+    const moving = new THREE.Group(); g.add(moving);
+    lathe(arc(R * 0.9, R * 0.74, 0.012, R * 0.07, 14).reverse(), rubber, moving);
+    const cone = Array.from({ length: 13 }, (_, i) => { const k = i / 12; return [R * (0.74 - 0.47 * k), 0.012 - R * 0.36 * Math.pow(k, 0.75)]; });
+    lathe(cone, paper, moving);
+    const cr = R * 0.27, ch = R * 0.09, cd = cone[12][1];
+    lathe(Array.from({ length: 11 }, (_, i) => { const k = i / 10; return [cr * Math.cos(k * Math.PI / 2) + 0.0001, cd + ch * Math.sin(k * Math.PI / 2)]; }), capMat, moving);
+    return moving;
+  }
+  const woofer = driver(0.86, 1.62);
+  // tweeter: shallow waveguide, metal ring and a soft dome
+  const tw = new THREE.Group(); tw.position.set(0, LIFT + 3.3, FRONT); spk.add(tw);
+  lathe([[0.36, -0.01], [0.42, -0.01], [0.43, 0.014], [0.41, 0.026], [0.36, 0.024]], satin, tw);
+  lathe(Array.from({ length: 11 }, (_, i) => { const k = i / 10; return [0.36 - 0.21 * k, 0.024 - 0.07 * Math.sin(k * Math.PI / 2)]; }), new THREE.MeshStandardMaterial({ color: 0x1a1b20, roughness: 0.5, metalness: 0.4, side: THREE.DoubleSide }), tw);
+  lathe([[0.15, -0.046], [0.152, -0.04], [0.14, -0.036], [0.13, -0.04]], satin, tw);
+  lathe(Array.from({ length: 11 }, (_, i) => { const k = i / 10; return [0.125 * Math.cos(k * Math.PI / 2) + 0.0001, -0.046 + 0.075 * Math.sin(k * Math.PI / 2)]; }), domeMat, tw);
+  // slot port and a small badge
+  const port = new THREE.Mesh(new RoundedBoxGeometry(1.5, 0.2, 0.06, 3, 0.03), hole); port.position.set(0, LIFT + 0.42, FRONT - 0.035); spk.add(port);
+  const portLip = new THREE.Mesh(new RoundedBoxGeometry(1.58, 0.28, 0.04, 3, 0.04), new THREE.MeshStandardMaterial({ color: 0x0f1014, roughness: 0.5 })); portLip.position.set(0, LIFT + 0.42, FRONT - 0.045); spk.add(portLip);
+  const badge = new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.07, 0.015, 2, 0.006), satin); badge.position.set(0, LIFT + 2.78, FRONT + 0.005); spk.add(badge);
 
   // CDs: a stack and a few standing
   const cds = new THREE.Group(); cds.position.set(-9.4, TOP, 0.9); cds.rotation.y = 0.35; root.add(cds);
@@ -472,7 +507,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   tracks.forEach((tr, i) => {
     const im = new Image();
     im.onload = () => {
-      covers[i] = im; texs[i] = vinylTexture(accentCol, true, im);
+      covers[i] = im; texs[i] = vinylTexture(accentTo, true, im);
       if (i === cur) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
     };
     im.src = tr.cover;
@@ -530,6 +565,15 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     wall: { a: [-0.5, 0.02, 17, [-1.0, 5.2, -4.0], 0.02, 30], b: [0.3, 0.12, 13, [1.0, 5.4, -4.0], -0.02, 30] },
     neon: { a: [0.6, 0.0, 10, [-10.5, 7.2, -4.2], -0.05, 30], b: [-0.15, -0.08, 7, [-11, 7.8, -4.2], 0.04, 30] },
     ledge: { a: [-0.5, 0.05, 12, [9.0, 5.4, -4.0], 0.04, 30], b: [0.4, -0.05, 9, [12.0, 5.6, -4.0], -0.03, 30] },
+    // wide views of the whole room
+    roomL: { a: [0.62, 0.2, 36, [-1, -0.8, -2], -0.02, 30], b: [0.42, 0.26, 32, [1, -0.6, -2], 0.01, 30] },
+    roomR: { a: [-0.72, 0.16, 38, [6, -0.8, -2], 0.02, 30], b: [-0.5, 0.22, 34, [4, -0.6, -2], -0.01, 30] },
+    floorWide: { a: [0.25, -0.02, 30, [2.5, -0.6, -2], 0, 32], b: [-0.2, 0.02, 27, [3.5, -0.4, -2], 0, 32] },
+    pullback: { a: [-0.3, 0.42, 9, [0.5, 0.1, 0], 0, 30], b: [-0.18, 0.24, 34, [3, -0.8, -2], 0, 30] },
+    high: { a: [-0.35, 0.95, 32, [3, -2.2, -2], 0.02, 30], b: [0.25, 0.85, 28, [2, -2, -2], -0.02, 30] },
+    along: { a: [-1.32, 0.1, 22, [1, 0.2, -1], 0.02, 32], b: [-1.18, 0.18, 19, [2.5, 0.4, -1], -0.01, 32] },
+    alongR: { a: [1.12, 0.14, 21, [-3, 0.6, -1], -0.02, 32], b: [0.98, 0.2, 18, [-4, 0.8, -1], 0.01, 32] },
+    spk2: { a: [0.05, 0.1, 12, [-6.1, 1.6, 0], 0.03, 30], b: [0.45, 0.18, 9.5, [-6.15, 1.5, 0], -0.03, 30] },
     // fly along the sideboard from the neon sign to the record shelf
     fly: { path: [V(-20, 10, 13), V(-13, 4.2, 11), V(-7, 2.4, 10.5), V(-1, 3.4, 10.5), V(5, 4.2, 11), V(10.5, 2.8, 10), V(15, 1.6, 13), V(22, 4.0, 17)],
       look: [V(-11, 7.5, -4), V(-9.0, 0.4, 0.6), V(-6.4, 1.8, -1), V(0.5, 0.2, 0), V(7.4, 1.6, 0.4), V(11, 1.2, -0.2), V(17, 1.0, -2.4), V(17, 2.4, -2.4)], roll: [0.06, -0.06] },
@@ -537,7 +581,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     sweep: { path: [V(-14, 13, 14), V(-4, 9, 12), V(6, 8, 11), V(15, 11, 12)], look: [V(-6, -0.5, -1), V(-1, -0.2, 0), V(4, 0.2, 0), V(10, 0, -1)], roll: [-0.03, 0.04] },
   };
   for (const k in MV) if (MV[k].path) { MV[k].pc = new THREE.CatmullRomCurve3(MV[k].path, false, 'centripetal'); MV[k].lc = new THREE.CatmullRomCurve3(MV[k].look, false, 'centripetal'); }
-  const REST = [['needle', 'fly'], ['label', 'shelf', 'amp'], ['speaker', 'sweep'], ['phones', 'ledge', 'mug'], ['arm', 'neon', 'crate'], ['low', 'cds', 'top'], ['wall', 'fly']];
+  const REST = [['roomL', 'needle', 'fly'], ['label', 'shelf', 'amp'], ['spk2', 'speaker', 'sweep'], ['pullback', 'phones', 'ledge'], ['arm', 'neon', 'crate'], ['floorWide', 'cds', 'mug'], ['high', 'low', 'top'], ['along', 'wall', 'roomR'], ['alongR', 'spk2', 'fly']];
   const T0 = 24, C = 46, CH = 24; // first change, cycle length, change duration
   // returns [move, start, end]
   function shotAt(t) {
@@ -583,13 +627,24 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const T_SWING = [1.2, 5.2], T_DROP = [5.2, 7.2], T_SPIN = [6.2, 9.4];
   const RPM = (33.333 / 60) * Math.PI * 2;
   const clock = new THREE.Clock();
+  let eS = 0, lastNow = performance.now();
+  const accentTo = accentCol.clone(), _c = new THREE.Color();
+  const accentMats = () => [rim, fill, cart.material, strip.material, under, neonGlow, ...accentBits.map((m) => m.material)];
   let angle = 0, energy = 0, raf = 0, visible = true, lastT = 0, cur = 0, shown = -1;
-  const fixed = new URLSearchParams(location.search).get('tt');
+  const fixed = new URLSearchParams(location.search).get('tt'), testShot = new URLSearchParams(location.search).get('shot');
   const start = reduced ? -10 : 0;
   if (reduced) lastT = 10;
 
   function frame() {
     const t = fixed !== null ? +fixed : clock.getElapsedTime() - start;
+    const now = performance.now(), rdt = Math.min(0.1, (now - lastNow) / 1000); lastNow = now;
+    // energy follows the music gently; colours fade over to the next record
+    eS += (energy - eS) * (1 - Math.exp(-rdt * (energy > eS ? 7 : 2.5)));
+    if (!accentCol.equals(accentTo)) {
+      _c.copy(accentCol).lerp(accentTo, fixed !== null ? 1 : 1 - Math.exp(-rdt * 2.2));
+      if (Math.abs(_c.r - accentTo.r) + Math.abs(_c.g - accentTo.g) + Math.abs(_c.b - accentTo.b) < 0.003) _c.copy(accentTo);
+      accentCol.copy(_c); accentMats().forEach((m) => m.color.copy(_c));
+    }
     let armY, up, spin, idx = 0;
     let recP = REC_P, recQ = null, recVis = true, slP = SLOT_P, slQ = SLOT_Q, slTex = 0;
     const playY = (since) => PLAY_Y + (INNER_Y - PLAY_Y) * 0.1 * Math.min(1, Math.max(0, since / 20));
@@ -656,20 +711,20 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     for (let i = 0; i < DUST; i++) { const d = dustSeed[i]; dustPos[i * 3] = d[0] + Math.sin(t * 0.07 + d[3]) * 0.8; dustPos[i * 3 + 1] = d[1] + Math.sin(t * 0.05 + d[3] * 2) * 0.6; dustPos[i * 3 + 2] = d[2] + Math.cos(t * 0.06 + d[3]) * 0.5; }
     dustGeo.attributes.position.needsUpdate = true;
     steam.forEach((st, i) => { const k = ((t * 0.25 + i / 3) % 1); st.position.y = 1.1 + k * 1.4; st.material.opacity = Math.sin(k * Math.PI) * 0.07; st.rotation.y = t * 0.3 + i; st.scale.x = 1 + k; });
-    needles.forEach((n, i) => { n.rotation.z = -0.8 + Math.min(1.5, energy * 2.4 + 0.15 + Math.sin(t * (7 + i * 3)) * 0.06 * (spin > 0.5 ? 1 : 0)) * spin; });
-    neon.material.opacity = 0.92 + Math.sin(t * 31) * 0.03 + (Math.sin(t * 1.7) > 0.995 ? -0.5 : 0);
-    woofer.position.z = 1.0 + energy * 0.08;
+    needles.forEach((n, i) => { n.rotation.z = -0.8 + Math.min(1.5, eS * 2.4 + 0.15 + Math.sin(t * (7 + i * 3)) * 0.06 * (spin > 0.5 ? 1 : 0)) * spin; });
+    neon.material.opacity = 0.92 + Math.sin(t * 31) * 0.02 - Math.max(0, Math.sin(t * 1.7) - 0.99) * 30;
+    woofer.position.z = eS * 0.03;
 
     // camera
-    let cur3 = scrollT > 0.05 ? ['wide', t, t + 1] : shotAt(t);
+    let cur3 = testShot ? [testShot, 0, 1] : scrollT > 0.05 ? ['wide', t, t + 1] : shotAt(t);
     if (cur3[0] !== shot) { from = lastP; shot = cur3[0]; switchT = t; }
     let P = poseAt(cur3[0], t, cur3[1], cur3[2]);
     if (shot === 'wide') { const o = orbit([MV.wide.a[0] + scrollT * 0.3, MV.wide.a[1] - scrollT * 0.1, wide ? MV.wide.a[2] : 9.9, MV.wide.a[3]], false); P = o; }
-    const blend = from ? sine((t - switchT) / 4.2) : 1;
+    const bk = Math.min(1, Math.max(0, (t - switchT) / 5)), blend = from ? bk * bk * bk * (bk * (bk * 6 - 15) + 10) : 1;
     if (from && blend < 1) {
       // travel on an arc between the two moves instead of a straight line
       const dist = from.p.distanceTo(P.p);
-      const p = from.p.clone().lerp(P.p, blend); p.y += Math.sin(blend * Math.PI) * Math.min(6, dist * 0.18);
+      const p = from.p.clone().lerp(P.p, blend); p.y += Math.sin(blend * Math.PI) * Math.min(4, dist * 0.12);
       P = { p, l: from.l.clone().lerp(P.l, blend), r: lerp(from.r, P.r, blend), f: lerp(from.f, P.f, blend) };
     }
     lastP = P;
@@ -679,8 +734,8 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     camera.up.set(0, 1, 0).applyAxisAngle(_f, P.r);
     camera.lookAt(P.l);
     if (Math.abs(camera.fov - P.f) > 0.01) { camera.fov = P.f; camera.updateProjectionMatrix(); }
-    rim.intensity = 40 + energy * 160;
-    fill.intensity = 12 + energy * 50;
+    rim.intensity = 40 + eS * 120;
+    fill.intensity = 12 + eS * 40;
     renderer.render(scene, camera);
     raf = visible ? requestAnimationFrame(frame) : 0;
   }
@@ -691,10 +746,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   raf = requestAnimationFrame(frame);
 
   return {
-    setAccent(hex) {
-      accentCol.set(hex);
-      rim.color.set(hex); fill.color.set(hex); cart.material.color.set(hex); strip.material.color.set(hex); under.color.set(hex); neonGlow.color.set(hex); accentBits.forEach((m) => m.material.color.set(hex));
-    },
+    setAccent(hex) { accentTo.set(hex); },
     setEnergy(v) { energy = v; }
   };
 }
