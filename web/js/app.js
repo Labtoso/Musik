@@ -300,6 +300,24 @@ document.addEventListener('click', (e) => {
 // ---------- views ----------
 const views = {};
 
+function pageHead(title, extra = '') {
+  const initial = esc(((conn.user && conn.user.name) || '?').trim().charAt(0).toUpperCase() || '?');
+  return `<div class="mhead"><button class="avatar" data-settings title="${t('settings')}">${initial}</button><h1>${title}</h1>${extra}</div>`;
+}
+function greeting() {
+  const h = new Date().getHours();
+  return t(h < 5 ? 'greetNight' : h < 11 ? 'greetMorning' : h < 18 ? 'greetDay' : 'greetEvening');
+}
+const albumHref = (album, artist) => `#/album?album=${encodeURIComponent(album)}&artist=${encodeURIComponent(artist || '')}`;
+// tint elements with the colour of their cover
+function tintAll(root = document) {
+  root.querySelectorAll('[data-tint]').forEach((el) => {
+    const url = el.dataset.tint;
+    el.removeAttribute('data-tint');
+    colorFromUrl(url).then((c) => { if (c) { el.style.setProperty('--tint', c.bg); el.style.setProperty('--tint2', c.accent); el.classList.add('tinted'); } });
+  });
+}
+
 function section(title, body, extra = '') {
   return `<section class="sec"><div class="sec-head"><h2>${esc(title)}</h2>${extra}</div>${body}</section>`;
 }
@@ -337,18 +355,37 @@ views.home = async () => {
     return `<div class="emptystate">${icon('note', 'big')}<p>${t('emptyLibrary')}</p><button class="btn primary" data-upload>${icon('upload')}${t('upload')}</button></div>`;
   }
   state.homeMix = h.mix;
-  let html = `<div class="hero">
+  // quick tiles: the mix plus albums played lately and new ones
+  const quick = [];
+  const seenAlb = new Set();
+  for (const x of [...h.recent.map((tr) => ({ album: tr.album, artist: tr.album_artist || tr.artist, cover_id: tr.id })), ...h.newAlbums]) {
+    const k = (x.album || '').toLowerCase();
+    if (!x.album || seenAlb.has(k)) continue;
+    seenAlb.add(k);
+    quick.push(x);
+  }
+  let html = pageHead(greeting());
+  html += `<div class="quick"><button class="qt" data-playmix><div class="cover accent">${icon('mix')}</div><span>${t('mixForYou')}</span></button>${quick
+    .slice(0, 7)
+    .map((a) => `<a class="qt" href="${albumHref(a.album, a.artist)}">${coverImg(a.cover_id)}<span>${esc(a.album)}</span></a>`)
+    .join('')}</div>`;
+  html += `<div class="hero">
     <div class="hero-text"><h1>${t('mixForYou')}</h1><p class="muted">${h.cold ? t('coldHint') : esc(h.mix.slice(0, 4).map(artistName).filter((v, i, a) => a.indexOf(v) === i).join(', '))}</p></div>
     <button class="btn primary" data-playmix>${icon('play')}${t('playAll')}</button></div>`;
-  html += `<section class="sec">${trackList(h.mix, { reasons: true })}</section>`;
+  html += `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(h.mix, { reasons: true })}</section>`;
   if (h.recent.length) html += section(t('recent'), trackCards(h.recent, 'recent'));
   if (h.rediscover.length) html += section(t('rediscover'), trackCards(h.rediscover, 'rediscover'));
   if (h.newAlbums.length) html += section(t('newAlbums'), albumCards(h.newAlbums));
-  if (h.topArtists.length)
+  if (h.topArtists.length) {
+    const all = await cached('artists', () => get('/api/artists')).catch(() => []);
+    const cov = Object.fromEntries(all.map((a) => [a.name, a.cover_id]));
     html += section(
       t('yourArtists'),
-      `<div class="chips">${h.topArtists.map((a) => `<a class="chip" href="#/artist?name=${encodeURIComponent(a)}">${esc(a)}</a>`).join('')}</div>`
+      `<div class="cards">${h.topArtists
+        .map((a) => `<a class="card artist" href="#/artist?name=${encodeURIComponent(a)}">${coverImg(cov[a], 'lg round')}<div class="c-title">${esc(a)}</div><div class="c-sub">${t('artist')}</div></a>`)
+        .join('')}</div>`
     );
+  }
   return html;
 };
 
@@ -366,13 +403,21 @@ document.addEventListener('click', async (e) => {
 
 views.search = async (params) => {
   const q = params.get('q') || '';
-  return `<div class="searchbar">${icon('search')}<input id="q" type="search" placeholder="${t('searchPlaceholder')}" value="${esc(q)}" autocomplete="off"></div><div id="results"></div>`;
+  return `${pageHead(t('search'))}<div class="searchbar">${icon('search')}<input id="q" type="search" placeholder="${t('searchPlaceholder')}" value="${esc(q)}" autocomplete="off"></div><div id="results"></div>`;
 };
 async function runSearch(q) {
   const box = $('#results');
   if (!box) return;
   if (!q.trim()) {
-    box.innerHTML = '';
+    const albums = await cached('albums', () => get('/api/albums')).catch(() => []);
+    if ($('#q')?.value.trim()) return;
+    box.innerHTML = albums.length
+      ? section(t('browseAll'), `<div class="browse">${albums
+          .slice(0, 24)
+          .map((a) => `<a class="bt" href="${albumHref(a.album, a.artist)}" data-tint="${a.cover_id ? coverUrl(a.cover_id) : ''}"><span>${esc(a.album)}</span>${coverImg(a.cover_id)}</a>`)
+          .join('')}</div>`)
+      : '';
+    tintAll(box);
     return;
   }
   const lq = q.toLowerCase();
@@ -418,10 +463,10 @@ views.library = async (params) => {
       ${trackList(r.items)}`;
   } else if (tab === 'albums') {
     state.cache.albums = await get('/api/albums');
-    body = albumCards(state.cache.albums);
+    body = albumCards(state.cache.albums).replace('class="cards"', 'class="cards libgrid"');
   } else if (tab === 'artists') {
     state.cache.artists = await get('/api/artists');
-    body = `<div class="cards">${state.cache.artists
+    body = `<div class="cards libgrid">${state.cache.artists
       .map(
         (a) => `<a class="card artist" href="#/artist?name=${encodeURIComponent(a.name)}">${coverImg(a.cover_id, 'lg round')}<div class="c-title">${esc(a.name)}</div><div class="c-sub">${songCount(a.tracks)}</div></a>`
       )
@@ -429,10 +474,10 @@ views.library = async (params) => {
   } else {
     const lists = await get('/api/playlists');
     body = `<div class="toolbar"><button class="btn" data-newpl>${icon('plus')}${t('newPlaylist')}</button></div>
-      <div class="cards"><a class="card" href="#/likes"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
+      <div class="cards libgrid"><a class="card" href="#/likes"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
       ${lists.map((p) => `<a class="card" href="#/playlist/${p.id}">${coverImg(p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`).join('')}</div>`;
   }
-  return `<h1>${t('library')}</h1><div class="tabs">${LIB_TABS.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
+  return `${pageHead(t('yourLibrary'), `<button class="icon-btn" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button>`)}<div class="tabs">${LIB_TABS.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
 };
 document.addEventListener('change', (e) => {
   if (e.target.id === 'sort') go(`#/library?tab=tracks&sort=${e.target.value}`);
@@ -451,7 +496,7 @@ document.addEventListener('click', async (e) => {
 });
 
 function detailHeader({ coverId, kind, title, sub, round = false, actions = '' }) {
-  return `<div class="detail-head">${coverImg(coverId, 'xl' + (round ? ' round' : ''))}<div class="dh-text"><div class="muted kind">${esc(kind)}</div><h1>${esc(title)}</h1><div class="muted">${sub}</div>
+  return `<button class="mback" data-back title="${t('back')}">${icon('back')}</button><div class="detail-head" ${coverId ? `data-tint="${coverUrl(coverId)}"` : ''}>${coverImg(coverId, 'xl' + (round ? ' round' : ''))}<div class="dh-text"><div class="muted kind">${esc(kind)}</div><h1>${esc(title)}</h1><div class="muted">${sub}</div>
     <div class="toolbar">${actions}</div></div></div>`;
 }
 
@@ -645,13 +690,15 @@ async function render() {
     const html = await view(params, id);
     if (seq !== renderSeq) return;
     main.innerHTML = html;
+    main.classList.toggle('detail', !!main.querySelector('.detail-head'));
+    tintAll(main);
     main.scrollTop = 0;
     $('#content').scrollTop = 0;
     if (state.route === 'search') {
       const q = $('#q');
       if (q) {
         if (!matchMedia('(hover: none)').matches) q.focus();
-        if (q.value) runSearch(q.value);
+        runSearch(q.value).catch(() => {});
       }
     }
   } catch (e) {
@@ -660,6 +707,9 @@ async function render() {
   }
 }
 addEventListener('hashchange', render);
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-back]')) history.length > 1 ? history.back() : go('#/home');
+});
 
 // ---------- player UI ----------
 function renderPlayer() {
