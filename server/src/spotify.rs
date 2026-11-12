@@ -30,6 +30,7 @@ pub fn routes() -> Router<St> {
         .route("/spotify/status", get(status))
         .route("/spotify/token", get(token))
         .route("/spotify/disconnect", post(disconnect))
+        .route("/spotify/embed", get(embed))
 }
 
 struct Pending {
@@ -238,5 +239,75 @@ mod tests {
         assert_eq!(decode_state(&s).unwrap()["s"], "http://192.168.1.5:8484");
         // challenge checked against Python hashlib + urlsafe_b64encode
         assert_eq!(b64url(&Sha256::digest(b"dBjftJeZ4CVP-mB92K2uhbUjZOdmqmEWU6XU7O8_9HTr")), "ctfj756xmMF6Drt7ZK833vhgUh5lDGBouHTGenP8aNM");
+    }
+}
+
+/// The track list from Spotify's public embed page, like the Msik bot reads it: works for every
+/// public playlist, album or track, also those the Web API no longer lists (not your own).
+pub fn parse_embed(html: &str) -> Option<Value> {
+    let start = html.find("<script id=\"__NEXT_DATA__\"")?;
+    let body = &html[start..];
+    let open = body.find('>')? + 1;
+    let close = body[open..].find("</script>")?;
+    let data: Value = serde_json::from_str(&body[open..open + close]).ok()?;
+    let e = &data["props"]["pageProps"]["state"]["data"]["entity"];
+    if !e.is_object() {
+        return None;
+    }
+    let mut imgs: Vec<&Value> = e["visualIdentity"]["image"]
+        .as_array()
+        .or_else(|| e["coverArt"]["sources"].as_array())
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
+    imgs.sort_by_key(|i| -(i["maxWidth"].as_i64().unwrap_or(0)));
+    let cover = imgs.first().and_then(|i| i["url"].as_str()).unwrap_or("").to_string();
+    let name = e["name"].as_str().or_else(|| e["title"].as_str()).unwrap_or("").to_string();
+    let id_of = |uri: &str| uri.rsplit(':').next().unwrap_or("").to_string();
+    let tracks: Vec<Value> = if let Some(list) = e["trackList"].as_array() {
+        list.iter()
+            .filter(|t| t["uri"].as_str().map(|u| u.starts_with("spotify:track:")).unwrap_or(false))
+            .map(|t| json!({ "id": id_of(t["uri"].as_str().unwrap_or("")), "title": t["title"], "artist": t["subtitle"].as_str().unwrap_or("").replace('\u{a0}', " "), "duration": t["duration"].as_f64().unwrap_or(0.0) / 1000.0 }))
+            .collect()
+    } else {
+        let artist = e["artists"].as_array().map(|a| a.iter().filter_map(|x| x["name"].as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+        vec![json!({ "id": id_of(e["uri"].as_str().unwrap_or("")), "title": name, "artist": artist, "duration": e["duration"].as_f64().unwrap_or(0.0) / 1000.0, "cover": cover })]
+    };
+    Some(json!({ "name": name, "cover": cover, "description": e["description"].as_str().unwrap_or(""), "owner": e["subtitle"].as_str().unwrap_or(""), "tracks": tracks }))
+}
+
+/// ?kind=playlist|album|track&id= → { name, cover, description, owner, tracks:[{id,title,artist,duration}] }
+async fn embed(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let kind = q.get("kind").map(String::as_str).unwrap_or("playlist").to_string();
+    let id: String = q.get("id").map(|s| s.chars().filter(|c| c.is_ascii_alphanumeric()).take(40).collect()).unwrap_or_default();
+    if !["playlist", "album", "track"].contains(&kind.as_str()) || id.is_empty() {
+        return Err(ApiError::new(400, "bad_query"));
+    }
+    let html = tokio::task::spawn_blocking(move || {
+        ureq::get(&format!("https://open.spotify.com/embed/{kind}/{id}"))
+            .set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36")
+            .timeout(std::time::Duration::from_secs(10))
+            .call()
+            .ok()
+            .and_then(|r| r.into_string().ok())
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?
+    .ok_or_else(|| ApiError::new(502, "spotify_unreachable"))?;
+    parse_embed(&html).map(Json).ok_or_else(|| ApiError::new(404, "notfound"))
+}
+
+#[cfg(test)]
+mod embed_tests {
+    #[test]
+    fn reads_the_embed_page() {
+        let data = r#"{"props":{"pageProps":{"state":{"data":{"entity":{"name":"Rock","subtitle":"Spotify","coverArt":{"sources":[{"url":"s","maxWidth":60},{"url":"big","maxWidth":640}]},"trackList":[{"uri":"spotify:track:abc","title":"Song","subtitle":"Band A, Band B","duration":200000},{"uri":"spotify:episode:x","title":"Pod","subtitle":"","duration":1}]}}}}}}"#;
+        let html = format!("<html><script id=\"__NEXT_DATA__\" type=\"application/json\">{data}</script></html>");
+        let v = super::parse_embed(&html).unwrap();
+        assert_eq!(v["name"], "Rock");
+        assert_eq!(v["cover"], "big");
+        assert_eq!(v["tracks"].as_array().unwrap().len(), 1);
+        assert_eq!(v["tracks"][0]["id"], "abc");
+        assert_eq!(v["tracks"][0]["artist"], "Band A, Band B");
+        assert_eq!(v["tracks"][0]["duration"], 200.0);
     }
 }

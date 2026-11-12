@@ -1,6 +1,6 @@
 import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
 import { Player, EQ_FREQS } from './player.js';
-import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, spotifyArtist, spotifyAlbum, extTrack } from './sources.js';
+import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyAlbum, extTrack } from './sources.js';
 import { placeStage } from './engines.js';
 import { Visualizer, VIZ_MODES } from './viz.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -186,7 +186,7 @@ function menu(anchor, items) {
     const b = e.target.closest('button');
     if (!b) return;
     closeMenu();
-    list[Number(b.dataset.i)]?.run();
+    Promise.resolve(list[Number(b.dataset.i)]?.run?.()).catch((err) => toast(errorText(err)));
   });
   const r = anchor.getBoundingClientRect();
   const mw = m.offsetWidth;
@@ -753,6 +753,7 @@ function plainAlbumCards(list, row = false) {
   return `<div class="cards${row ? ' srow' : ''}">${list.map((a) => `<a class="card" href="${a.href}">${coverImg(a.cover, 'lg')}<div class="c-title">${esc(a.title)}</div><div class="c-sub">${esc(a.artist || '')}</div></a>`).join('')}</div>`;
 }
 let searchSeq = 0;
+const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/\(.*?\)|\[.*?\]|feat\..*$/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 async function runSearch(q) {
   const box = $('#results');
   if (!box) return;
@@ -760,7 +761,7 @@ async function runSearch(q) {
   if (!q.trim()) return browseView(box);
   const mode = searchMode();
   const lq = q.trim().toLowerCase();
-  const data = { q, mode, tracks: [], artists: [], albums: [], playlists: [], cat: null, ext: [], note: '' };
+  const data = { q, mode, tracks: [], artists: [], albums: [], playlists: [], cat: null, ytm: [], note: '' };
   if (mode === 'all') {
     const [tr, albums, artists, pls] = await Promise.all([
       get('/api/tracks?limit=50&q=' + encodeURIComponent(q)).catch(() => ({ items: [] })),
@@ -779,23 +780,26 @@ async function runSearch(q) {
   // the platforms follow as they arrive
   const later = [];
   const useSpotify = (mode === 'all' || mode === 'spotify') && spotify.connected();
+  const deezer = () =>
+    get('/api/catalog/search?q=' + encodeURIComponent(q)).then((c) => {
+      data.cat = { tracks: (c.tracks || []).map(extTrack), artists: (c.artists || []).map(catArtist), albums: (c.albums || []).map(catAlbum), playlists: [], src: 'deezer' };
+    });
+  // like the Msik bot: names, covers and everything else from Spotify, the sound later from YouTube Music
   if (useSpotify)
     later.push(
-      searchSpotifyAll(q).then((r) => {
-        if (!r) return;
-        data.cat = { tracks: r.tracks.map(extTrack), artists: r.artists.map(spArtist), albums: r.albums.map(spAlbum), playlists: r.playlists.map(spPlaylist), src: 'spotify' };
-      }).catch(() => {})
+      searchSpotifyAll(q)
+        .then((r) => {
+          if (!r) throw new Error('none');
+          data.cat = { tracks: r.tracks.map(extTrack), artists: r.artists.map(spArtist), albums: r.albums.map(spAlbum), playlists: r.playlists.map(spPlaylist), src: 'spotify' };
+        })
+        .catch(() => (mode === 'all' ? deezer() : null))
+        .catch(() => {})
     );
   else if (mode === 'spotify') data.note = 'spotifyConnectFirst';
   // without Spotify the public Deezer catalog fills in names and covers
-  if (mode === 'all' && !useSpotify)
-    later.push(
-      get('/api/catalog/search?q=' + encodeURIComponent(q)).then((c) => {
-        data.cat = { tracks: (c.tracks || []).map(extTrack), artists: (c.artists || []).map(catArtist), albums: (c.albums || []).map(catAlbum), playlists: [], src: 'deezer' };
-      }).catch(() => {})
-    );
-  if (mode === 'all' || mode === 'ytmusic')
-    later.push(searchYouTubeFree(q, 'ytmusic').then((l) => l.length && data.ext.push([t('onYouTube'), l])).catch(() => {}));
+  if (mode === 'all' && !useSpotify) later.push(deezer().catch(() => {}));
+  // YouTube Music: only songs (the audio tracks), never videos
+  if (mode === 'all' || mode === 'ytmusic') later.push(searchYouTubeMusic(q).then((l) => { data.ytm = l; }).catch(() => {}));
   for (const p of later) p.then(() => seq === searchSeq && state.search === data && drawSearch(box, false));
   await Promise.all(later);
   if (seq === searchSeq) drawSearch(box, false, true);
@@ -804,9 +808,11 @@ function drawSearch(box, loading, done = false) {
   const d = state.search;
   if (!d || !$('#results')) return;
   const cat = d.cat || { tracks: [], artists: [], albums: [], playlists: [] };
-  const extTracks = d.ext.flatMap((x) => x[1]);
-  // Spotify / catalog songs first (names and covers like on Spotify), YouTube videos after
-  const songs = [...d.tracks, ...cat.tracks, ...extTracks];
+  // Spotify / catalog songs first (names and covers like on Spotify), YouTube Music songs after (same song only once)
+  const key = (x) => norm(`${artistName(x).split(',')[0]} ${x.title}`);
+  const seenSongs = new Set([...d.tracks, ...cat.tracks].map(key));
+  const ytm = (d.ytm || []).filter((x) => !seenSongs.has(key(x)) && seenSongs.add(key(x)));
+  const songs = [...d.tracks, ...cat.tracks, ...ytm];
   const artists = [...d.artists, ...cat.artists.filter((a) => !d.artists.some((x) => x.name.toLowerCase() === a.name.toLowerCase()))];
   const albums = [...d.albums, ...cat.albums];
   const playlists = [...d.playlists, ...(cat.playlists || [])];
@@ -836,7 +842,6 @@ function drawSearch(box, loading, done = false) {
     if (artists.length) html += section(t('artists'), artistCards(artists.slice(0, 10), true), artists.length > 10 ? `<button class="link" data-sfilter="artists">${t('showAll')}</button>` : '');
     if (albums.length) html += section(t('albums'), plainAlbumCards(albums.slice(0, 10), true), albums.length > 10 ? `<button class="link" data-sfilter="albums">${t('showAll')}</button>` : '');
     if (playlists.length) html += section(t('playlists'), plainAlbumCards(playlists.slice(0, 10), true));
-    for (const [title, l] of d.ext) html += section(title, trackList(l.slice(0, 8)));
   } else if (f === 'songs') html += trackList(songs);
   else if (f === 'artists') html += artistCards(artists);
   else if (f === 'albums') html += plainAlbumCards(albums);

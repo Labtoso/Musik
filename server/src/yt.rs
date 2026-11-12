@@ -98,6 +98,130 @@ pub fn search(query: &str) -> Result<Vec<Value>, String> {
     Ok(parse_search(&res))
 }
 
+/* ---------- YouTube Music: songs only (the "Topic" audio tracks), like music.youtube.com ---------- */
+
+const MUSIC_ENDPOINT: &str = "https://music.youtube.com/youtubei/v1/search?prettyPrint=false";
+const MUSIC_VERSION: &str = "1.20251105.01.00";
+/// "Songs" filter of music.youtube.com
+const SONGS: &str = "EgWKAQIIAWoMEA4QChADEAQQCRAF";
+
+fn runs(v: &Value) -> Vec<&Value> {
+    v["runs"].as_array().map(|a| a.iter().collect()).unwrap_or_default()
+}
+
+fn music_walk<'a>(node: &'a Value, depth: usize, out: &mut Vec<&'a Value>) {
+    if depth > 60 {
+        return;
+    }
+    match node {
+        Value::Array(a) => a.iter().for_each(|n| music_walk(n, depth + 1, out)),
+        Value::Object(o) => {
+            if let Some(v) = o.get("musicResponsiveListItemRenderer") {
+                out.push(v);
+                return;
+            }
+            o.values().for_each(|n| music_walk(n, depth + 1, out));
+        }
+        _ => {}
+    }
+}
+
+fn page_type(r: &Value) -> &str {
+    r["navigationEndpoint"]["browseEndpoint"]["browseEndpointContextSupportedConfigs"]["browseEndpointContextMusicConfig"]["pageType"]
+        .as_str()
+        .unwrap_or("")
+}
+
+/// Songs from a music.youtube.com search answer: { id, title, artist, album, duration, cover }.
+/// Music videos, podcasts, episodes and artist/album rows are left out.
+pub fn parse_music(json: &Value) -> Vec<Value> {
+    let mut found = Vec::new();
+    music_walk(json, 0, &mut found);
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for r in found {
+        let cols: Vec<&Value> = r["flexColumns"]
+            .as_array()
+            .map(|a| a.iter().map(|c| &c["musicResponsiveListItemFlexColumnRenderer"]["text"]).collect())
+            .unwrap_or_default();
+        if cols.is_empty() {
+            continue;
+        }
+        let title_runs = runs(cols[0]);
+        let watch = title_runs.first().map(|x| &x["navigationEndpoint"]["watchEndpoint"]);
+        let id = r["playlistItemData"]["videoId"]
+            .as_str()
+            .or_else(|| watch.and_then(|w| w["videoId"].as_str()))
+            .unwrap_or("");
+        if id.len() != 11 || !seen.insert(id.to_string()) {
+            continue;
+        }
+        // ATV = the plain audio track; OMV/UGC are videos
+        let kind = watch
+            .and_then(|w| w["watchEndpointMusicSupportedConfigs"]["watchEndpointMusicConfig"]["musicVideoType"].as_str())
+            .unwrap_or("MUSIC_VIDEO_TYPE_ATV");
+        if kind != "MUSIC_VIDEO_TYPE_ATV" {
+            continue;
+        }
+        let title = text(cols[0]);
+        let meta: Vec<&Value> = cols.iter().skip(1).flat_map(|c| runs(c)).collect();
+        let mut artists: Vec<String> = meta.iter().filter(|x| page_type(x) == "MUSIC_PAGE_TYPE_ARTIST").filter_map(|x| x["text"].as_str().map(String::from)).collect();
+        let album = meta.iter().find(|x| page_type(x) == "MUSIC_PAGE_TYPE_ALBUM").and_then(|x| x["text"].as_str()).unwrap_or("").to_string();
+        let parts: Vec<String> = meta.iter().filter_map(|x| x["text"].as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && s != "•" && s != "&" && s != ",").collect();
+        let duration = parts.iter().rev().find(|s| s.split(':').count() >= 2 && s.split(':').all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))).map(|s| parse_length(s)).unwrap_or(0.0);
+        if artists.is_empty() {
+            // without links the first part is the artist (unless it is the word "Song")
+            if let Some(a) = parts.iter().find(|s| s.as_str() != "Song" && s.as_str() != "Lied" && parse_length(s) == 0.0) {
+                artists.push(a.clone());
+            }
+        }
+        let thumbs = r["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"].as_array();
+        let cover = thumbs
+            .and_then(|t| t.last())
+            .and_then(|t| t["url"].as_str())
+            .map(|u| match u.find("=w") {
+                Some(i) if u.contains("googleusercontent") => format!("{}=w544-h544-l90-rj", &u[..i]),
+                _ => u.to_string(),
+            })
+            .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"));
+        if title.is_empty() {
+            continue;
+        }
+        out.push(json!({ "id": id, "title": title, "artist": artists.join(", "), "album": album, "duration": duration, "cover": cover }));
+    }
+    out
+}
+
+/// Songs on YouTube Music for a search, no key needed
+pub fn music_search(query: &str) -> Result<Vec<Value>, String> {
+    let body = json!({
+        "context": { "client": { "clientName": "WEB_REMIX", "clientVersion": MUSIC_VERSION, "hl": "en", "gl": "DE" } },
+        "query": query,
+        "params": SONGS,
+    });
+    let res = ureq::post(MUSIC_ENDPOINT)
+        .set("content-type", "application/json")
+        .set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36")
+        .set("x-youtube-client-name", "67")
+        .set("x-youtube-client-version", MUSIC_VERSION)
+        .set("origin", "https://music.youtube.com")
+        .set("referer", "https://music.youtube.com/")
+        .timeout(Duration::from_secs(8))
+        .send_json(body)
+        .map_err(|e| e.to_string())?
+        .into_json::<Value>()
+        .map_err(|e| e.to_string())?;
+    Ok(parse_music(&res))
+}
+
+/// Songs as candidates for `best` (artist counts as the channel)
+pub fn as_candidates(songs: &[Value]) -> Vec<Value> {
+    songs
+        .iter()
+        .map(|s| json!({ "id": s["id"], "title": s["title"], "channel": format!("{} - Topic", s["artist"].as_str().unwrap_or("")), "duration": s["duration"] }))
+        .collect()
+}
+
 fn words(s: &str) -> Vec<String> {
     crate::ext::norm(s).split_whitespace().map(String::from).collect()
 }
@@ -176,5 +300,27 @@ mod tests {
             assert!(v.len() >= 5);
             assert!(v.iter().all(|x| x["id"].as_str().unwrap().len() == 11 && x["duration"].as_f64().unwrap() > 0.0));
         }
+    }
+
+    #[test]
+    fn parses_music_songs() {
+        let run = |t: &str, page: &str| json!({"text": t, "navigationEndpoint": {"browseEndpoint": {"browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": page}}}}});
+        let item = |id: &str, kind: &str| json!({"musicResponsiveListItemRenderer": {
+            "playlistItemData": {"videoId": id},
+            "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [{"url": "https://lh3.googleusercontent.com/abc=w60-h60-l90-rj"}]}}},
+            "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Handwerker", "navigationEndpoint": {"watchEndpoint": {"videoId": id, "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": kind}}}}}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [run("Mickie Krause", "MUSIC_PAGE_TYPE_ARTIST"), {"text": " & "}, run("Julian Sommer", "MUSIC_PAGE_TYPE_ARTIST"), {"text": " • "}, run("Handwerker", "MUSIC_PAGE_TYPE_ALBUM"), {"text": " • "}, {"text": "3:01"}]}}}
+            ]}});
+        let answer = json!({"contents": {"tabbedSearchResultsRenderer": {"tabs": [{"tabRenderer": {"content": {"sectionListRenderer": {"contents": [{"musicShelfRenderer": {"contents": [item("aaaaaaaaaaa", "MUSIC_VIDEO_TYPE_ATV"), item("bbbbbbbbbbb", "MUSIC_VIDEO_TYPE_OMV")]}}]}}}}]}}});
+        let v = parse_music(&answer);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0]["id"], "aaaaaaaaaaa");
+        assert_eq!(v[0]["artist"], "Mickie Krause, Julian Sommer");
+        assert_eq!(v[0]["album"], "Handwerker");
+        assert_eq!(v[0]["duration"], 181.0);
+        assert_eq!(v[0]["cover"], "https://lh3.googleusercontent.com/abc=w544-h544-l90-rj");
+        let c = as_candidates(&v);
+        assert_eq!(best(&c, "Handwerker", "Mickie Krause", 181.0).as_deref(), Some("aaaaaaaaaaa"));
     }
 }

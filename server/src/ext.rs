@@ -98,6 +98,7 @@ pub fn routes() -> Router<St> {
         .route("/fetch/oembed", get(fetch_oembed))
         .route("/ytfind", get(yt_find))
         .route("/ytsearch", get(yt_search))
+        .route("/ytmsearch", get(ytm_search))
         .route("/art/{kind}/{id}", get(get_art).put(put_art).delete(delete_art))
         .route("/lyrics", get(lyrics_lookup))
         .route("/lyrics/{id}", get(lyrics))
@@ -346,6 +347,23 @@ async fn create_import(State(st): State<St>, Auth(u, _): Auth, req: Request) -> 
     }
     let mut db = st.db.lock().unwrap();
     let now = now_ms();
+    // the same playlist imported again updates the one already there instead of adding a copy
+    let url = clip(&b.url, 1000);
+    if !url.is_empty() {
+        let old: Option<i64> = db
+            .query_row("SELECT id FROM imports WHERE user_id = ? AND url = ? ORDER BY id LIMIT 1", params![u.id, url], |r| r.get(0))
+            .optional()
+            .unwrap_or(None);
+        if let Some(id) = old {
+            db.execute(
+                "UPDATE imports SET name = ?, cover = ?, meta = ? WHERE id = ?",
+                params![name, clip(&b.cover, 1000), meta_text(&b.meta), id],
+            )
+            .ok();
+            write_items(&mut db, id, &b.source, &b.items);
+            return Ok(Json(json!({ "id": id, "existing": true })));
+        }
+    }
     db.execute(
         "INSERT INTO imports (user_id, source, name, url, cover, created, updated, meta) VALUES (?,?,?,?,?,?,?,?)",
         params![u.id, clip(&b.source, 20), name, clip(&b.url, 1000), clip(&b.cover, 1000), now, now, meta_text(&b.meta)],
@@ -536,6 +554,10 @@ async fn import_to_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Pa
             .collect();
         v
     };
+    // playlists hold songs on the server only; an empty copy would just be clutter
+    if ids.is_empty() {
+        return Err(ApiError::new(400, "no_local_tracks"));
+    }
     let now = now_ms();
     db.execute(
         "INSERT INTO playlists (user_id, name, created, updated) VALUES (?,?,?,?)",
@@ -695,11 +717,14 @@ async fn yt_find(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap
     let g = |k: &str| q.get(k).map(|s| s.trim().chars().take(200).collect::<String>()).unwrap_or_default();
     let (title, artist) = (g("title"), g("artist"));
     let duration: f64 = g("duration").parse().unwrap_or(0.0);
-    let term = if title.is_empty() { g("q") } else { format!("{artist} {title}").trim().to_string() };
+    // like the Msik bot: "<first artist> - <title>"
+    let first = artist.split(',').next().unwrap_or("").trim().to_string();
+    let term = if title.is_empty() { g("q") } else { format!("{first} - {title}").trim_matches(|c: char| c == ' ' || c == '-').to_string() };
     if term.is_empty() {
         return Err(ApiError::new(400, "bad_query"));
     }
-    let ck = norm(&term);
+    // "m:" = found through YouTube Music songs (older entries were plain videos)
+    let ck = format!("m:{}", norm(&term));
     let cached: Option<(String, i64)> = {
         let db = st.db.lock().unwrap();
         db.query_row("SELECT vid, found FROM yt_find WHERE q = ?", [&ck], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -716,7 +741,13 @@ async fn yt_find(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap
     let (t2, a2) = (if title.is_empty() { term.clone() } else { title.clone() }, artist.clone());
     let term2 = term.clone();
     let vid = tokio::task::spawn_blocking(move || -> Result<String, ApiError> {
-        // like the Msik bot: YouTube's own search first, no key needed
+        // the song itself on YouTube Music first (the plain audio track, no video)
+        if let Ok(songs) = crate::yt::music_search(&term2) {
+            if let Some(id) = crate::yt::best(&crate::yt::as_candidates(&songs), &t2, &a2, duration) {
+                return Ok(id);
+            }
+        }
+        // like the Msik bot: YouTube's own search next, no key needed
         if let Ok(v) = crate::yt::search(&format!("{term2} audio")) {
             if let Some(id) = crate::yt::best(&v, &t2, &a2, duration) {
                 return Ok(id);
@@ -767,6 +798,18 @@ async fn yt_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -
         return Ok(Json(json!([])));
     }
     let v = tokio::task::spawn_blocking(move || crate::yt::search(&term))
+        .await
+        .map_err(|_| ApiError::new(500, "internal"))?
+        .map_err(|_| ApiError::new(502, "youtube_unreachable"))?;
+    Ok(Json(json!(v.into_iter().take(20).collect::<Vec<_>>())))
+}
+/// ?q= → songs on YouTube Music (no videos, no key needed)
+async fn ytm_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let term: String = q.get("q").map(|s| s.trim().chars().take(200).collect()).unwrap_or_default();
+    if term.is_empty() {
+        return Ok(Json(json!([])));
+    }
+    let v = tokio::task::spawn_blocking(move || crate::yt::music_search(&term))
         .await
         .map_err(|_| ApiError::new(500, "internal"))?
         .map_err(|_| ApiError::new(502, "youtube_unreachable"))?;

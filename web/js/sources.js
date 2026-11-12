@@ -373,6 +373,13 @@ export async function fetchLink(raw, onProgress) {
   const url = String(raw).trim();
   if (L.source === 'spotify') {
     if (L.kind === 'playlist') return spotifyPlaylist(L.id, url, onProgress);
+    if (!spotify.connected()) {
+      // without a Spotify login the public page still has names, artists, lengths and the cover
+      const e = await get(`/api/spotify/embed?kind=${L.kind}&id=${encodeURIComponent(L.id)}`);
+      const items = await spotifyEmbedItems(L.kind, L.id, onProgress, e);
+      if (L.kind === 'album') items.forEach((x) => (x.album = x.album || e.name));
+      return { source: 'spotify', name: e.name, url, cover: e.cover, items };
+    }
     if (L.kind === 'album') {
       const a = await spotify.api(`/albums/${L.id}`);
       const items = (await spotify.all(`/albums/${L.id}/tracks?limit=50`)).map((t) => spotify.item(t, a)).filter(Boolean);
@@ -402,22 +409,54 @@ const unhtml = (h) => {
   d.innerHTML = String(h || '').replace(/<[^>]*>/g, '');
   return d.textContent.trim();
 };
+/** Songs of a public Spotify page (embed), each with its own cover from the Web API where it answers. */
+export async function spotifyEmbedItems(kind, id, onProgress, pre) {
+  const e = pre || await get(`/api/spotify/embed?kind=${kind}&id=${encodeURIComponent(id)}`).catch(() => null);
+  const list = (e?.tracks || []).filter((t) => t.id);
+  const out = list.map((t) => ({ source: 'spotify', ext_id: t.id, title: t.title, artist: t.artist, album: '', duration: t.duration || 0, cover: t.cover || '', url: `https://open.spotify.com/track/${t.id}` }));
+  // covers and albums one by one (Spotify dropped the batch call), a few at a time
+  let i = 0;
+  const work = async () => {
+    while (i < out.length) {
+      const it = out[i++];
+      try {
+        const t = await spotify.api(`/tracks/${it.ext_id}`);
+        const full = spotify.item(t);
+        if (full) Object.assign(it, { album: full.album, cover: full.cover || it.cover, duration: full.duration || it.duration });
+      } catch (err) {
+        if (err.message === 'spotify_login') i = out.length;
+      }
+      onProgress?.(i, out.length);
+    }
+  };
+  if (spotify.connected()) await Promise.all([work(), work(), work(), work()]);
+  for (const it of out) if (!it.cover) it.cover = e?.cover || '';
+  return out;
+}
 /** A Spotify playlist with everything it shows there: cover, description, owner, followers, songs. */
 export async function spotifyPlaylist(id, url = `https://open.spotify.com/playlist/${id}`, onProgress) {
-  const p = await spotify.api(`/playlists/${id}?fields=name,description,images,owner(display_name),followers(total),tracks(total),items(total)`);
-  let raw;
-  try {
-    raw = await spotify.all(`/playlists/${id}/items?limit=50`, undefined, onProgress);
-  } catch (e) {
-    if (e.message === 'spotify_login') throw e;
-    raw = await spotify.all(`/playlists/${id}/tracks?limit=50`, undefined, onProgress).catch((e2) => {
-      throw e2.message === 'spotify_forbidden' || e.message === 'spotify_forbidden' ? new Error('spotify_not_own') : e2;
+  let p = null;
+  let raw = [];
+  if (spotify.connected()) {
+    p = await spotify.api(`/playlists/${id}?fields=name,description,images,owner(display_name),followers(total),tracks(total),items(total)`).catch((e) => {
+      if (e.message === 'spotify_login') throw e;
+      return null;
+    });
+    if (p) raw = await spotify.all(`/playlists/${id}/items?limit=50`, undefined, onProgress).catch((e) => {
+      if (e.message === 'spotify_login') throw e;
+      return [];
     });
   }
-  const items = raw.map((x) => spotify.item(x.item || x.track)).filter(Boolean);
+  let items = raw.map((x) => spotify.item(x.item || x.track)).filter(Boolean);
+  // playlists of others: Spotify only lists your own ones now, so read the public embed page like the Msik bot
+  let em = null;
+  if (!items.length) {
+    em = await get(`/api/spotify/embed?kind=playlist&id=${encodeURIComponent(id)}`).catch(() => null);
+    items = await spotifyEmbedItems('playlist', id, onProgress, em);
+  }
   if (!items.length) throw new Error('spotify_not_own');
-  const meta = { description: unhtml(p.description), owner: p.owner?.display_name || '', followers: p.followers?.total || 0, total: items.length, duration: items.reduce((n, x) => n + (x.duration || 0), 0) };
-  return { source: 'spotify', name: p.name, url, cover: p.images?.[0]?.url || '', meta, items };
+  const meta = { description: unhtml(p?.description || em?.description || ''), owner: p?.owner?.display_name || em?.owner || '', followers: p?.followers?.total || 0, total: items.length, duration: items.reduce((n, x) => n + (x.duration || 0), 0) };
+  return { source: 'spotify', name: p?.name || em?.name || 'Spotify', url, cover: p?.images?.[0]?.url || em?.cover || '', meta, items };
 }
 export async function spotifyLiked(onProgress) {
   const items = (await spotify.all('/me/tracks?limit=50', undefined, onProgress)).map((x) => spotify.item(x.track)).filter(Boolean);
@@ -526,7 +565,7 @@ const spImg = (images) => (images || []).slice().sort((a, b) => (b.width || 0) -
 /** Songs, artists, albums and playlists from Spotify, with current pictures. */
 export async function searchSpotifyAll(q) {
   if (!spotify.connected()) return null;
-  const j = await spotify.api(`/search?type=track,artist,album,playlist&limit=12&q=${encodeURIComponent(q)}`);
+  const j = await spotify.api(`/search?type=track,artist,album,playlist&limit=10&market=from_token&q=${encodeURIComponent(q)}`);
   return {
     tracks: (j.tracks?.items || []).map((x) => spotify.item(x)).filter(Boolean),
     artists: (j.artists?.items || []).filter(Boolean).map((a) => ({ id: a.id, name: a.name, picture: spImg(a.images), followers: a.followers?.total || 0, popularity: a.popularity || 0 })),
@@ -537,7 +576,8 @@ export async function searchSpotifyAll(q) {
 export async function spotifyArtist(id) {
   const [a, top, al] = await Promise.all([
     spotify.api(`/artists/${id}`),
-    spotify.api(`/artists/${id}/top-tracks?market=from_token`).catch(() => ({ tracks: [] })),
+    // Spotify removed "top tracks" for apps like this one: the artist's best search hits instead
+    spotify.api(`/artists/${id}`).then((x) => spotify.api(`/search?type=track&limit=10&market=from_token&q=${encodeURIComponent(`artist:"${x.name}"`)}`)).then((j) => ({ tracks: (j.tracks?.items || []).filter((t) => (t.artists || []).some((a) => a.id === id)) })).catch(() => ({ tracks: [] })),
     spotify.api(`/artists/${id}/albums?include_groups=album,single&limit=30`).catch(() => ({ items: [] }))
   ]);
   return {
@@ -552,6 +592,11 @@ export async function spotifyAlbum(id) {
   return { name: a.name, artist: (a.artists || []).map((x) => x.name).join(', '), artistId: a.artists?.[0]?.id || '', cover: spImg(a.images), year: (a.release_date || '').slice(0, 4), label: a.label || '', items };
 }
 /** YouTube videos without a key (the server asks YouTube's own search). */
+/** Songs on YouTube Music (the plain audio tracks with album covers, no videos) */
+export async function searchYouTubeMusic(q) {
+  const l = await get('/api/ytmsearch?q=' + encodeURIComponent(q));
+  return l.map((v) => extTrack({ source: 'ytmusic', ext_id: v.id, title: v.title, artist: v.artist, album: v.album || '', duration: v.duration || 0, cover: v.cover, url: `https://music.youtube.com/watch?v=${v.id}` }));
+}
 export async function searchYouTubeFree(q, source = 'ytmusic') {
   const l = await get('/api/ytsearch?q=' + encodeURIComponent(q));
   return l.map((v) => {
@@ -561,6 +606,6 @@ export async function searchYouTubeFree(q, source = 'ytmusic') {
 }
 export async function searchSpotify(q) {
   if (!spotify.connected()) return [];
-  const j = await spotify.api(`/search?type=track&limit=10&q=${encodeURIComponent(q)}`);
+  const j = await spotify.api(`/search?type=track&limit=10&market=from_token&q=${encodeURIComponent(q)}`);
   return (j.tracks?.items || []).map((t) => extTrack(spotify.item(t))).filter(Boolean);
 }
