@@ -21,6 +21,8 @@ Run it again to update. Optional: `MUSIC_HOST_DIR=/mnt/pve/nas/music` mounts a h
 
 **Windows:** download `musik-server-windows-x64.exe` from the release and start it. It uses your Music folder (or set `MUSIC_DIRS` in a `.env` next to the exe).
 
+**On the go (Tailscale):** answer `y` when the Proxmox script asks, or add `--tailscale` to the Debian command. The apps then switch to the Tailscale address by themselves when you are away. Step by step guide (German): [docs/tailscale.md](docs/tailscale.md)
+
 Open `http://<server>:8484` and create the first account. It is the admin and can add more users.
 
 ## Apps

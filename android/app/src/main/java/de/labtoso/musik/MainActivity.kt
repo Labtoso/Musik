@@ -87,13 +87,14 @@ class MainActivity : ComponentActivity() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url.toString()
                 val server = prefs.getString("server", null)
-                if (url.startsWith("file:///android_asset/") || (server != null && url.startsWith(server))) return false
+                val remote = prefs.getString("remote", null)
+                if (url.startsWith("file:///android_asset/") || (server != null && url.startsWith(server)) || (remote != null && url.startsWith(remote))) return false
                 runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
                 return true
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame && !request.url.toString().startsWith("file:")) showConnect("offline")
+                if (request.isForMainFrame && !request.url.toString().startsWith("file:")) openBest()
             }
         }
         web.webChromeClient = object : WebChromeClient() {
@@ -127,7 +128,7 @@ class MainActivity : ComponentActivity() {
 
         val server = prefs.getString("server", null)
         if (savedInstanceState != null) web.restoreState(savedInstanceState)
-        else if (server == null) showConnect("") else web.loadUrl("$server/")
+        else if (server == null) showConnect("") else openBest()
 
         connectController()
         main.post(ticker)
@@ -136,6 +137,24 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         web.saveState(outState)
+    }
+
+    /** Home address first, then the address for on the go (Tailscale) that the server told us about. */
+    private var lastOpen = 0L
+    private fun openBest() {
+        val now = System.currentTimeMillis()
+        if (now - lastOpen < 8000) return showConnect("offline")
+        lastOpen = now
+        val server = prefs.getString("server", null) ?: return showConnect("")
+        val remote = prefs.getString("remote", null)
+        thread {
+            val target = when {
+                check(server, 3000) == "ok" -> server
+                remote != null && check(remote) == "ok" -> remote
+                else -> null
+            }
+            main.post { if (target != null) web.loadUrl("$target/") else showConnect("offline") }
+        }
     }
 
     private fun showConnect(error: String) {
@@ -250,12 +269,17 @@ class MainActivity : ComponentActivity() {
         }.getOrNull()
     }
 
-    private fun check(origin: String): String = runCatching {
+    private fun check(origin: String, timeout: Int = 6000): String = runCatching {
         val conn = URL("$origin/api/info").openConnection() as HttpURLConnection
-        conn.connectTimeout = 6000
-        conn.readTimeout = 6000
+        conn.connectTimeout = timeout
+        conn.readTimeout = timeout
         val text = conn.inputStream.bufferedReader().use { it.readText() }
-        if (JSONObject(text).optString("app") == "musik") "ok" else "notmusik"
+        val info = JSONObject(text)
+        if (info.optString("app") == "musik") {
+            val remote = info.optString("remote", "").trimEnd('/')
+            if (remote.startsWith("http")) prefs.edit().putString("remote", remote).apply()
+            "ok"
+        } else "notmusik"
     }.getOrElse { "offline" }
 
     inner class Bridge {
@@ -309,10 +333,12 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun connect(input: String) {
             thread {
                 val origin = normalize(input)
+                if (origin != null && origin != prefs.getString("server", null)) prefs.edit().remove("remote").apply()
                 val state = if (origin == null) "offline" else check(origin)
                 main.post {
                     if (state == "ok" && origin != null) {
                         prefs.edit().putString("server", origin).apply()
+                        if (prefs.getString("remote", null) == origin) prefs.edit().remove("remote").apply()
                         web.loadUrl("$origin/")
                     } else {
                         web.evaluateJavascript("window.onConnectResult && window.onConnectResult(${JSONObject.quote(state)})", null)

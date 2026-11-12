@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { colorFromUrl } from './dyncolor.js';
 
 const RELEASES = 'https://github.com/Labtoso/Musik/releases/latest';
+const GUIDE = 'https://github.com/Labtoso/Musik/blob/main/docs/tailscale.md';
 const VERSION = '1.0.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) =>
@@ -854,9 +855,9 @@ function closeSettings() {
 async function renderSettings() {
   const s = $('#settings-body');
   const user = conn.user || {};
-  let lib = null;
+  let lib = null, info = null;
   try {
-    lib = await get('/api/library');
+    [lib, info] = await Promise.all([get('/api/library'), api('GET', '/api/info', undefined, { token: null, timeout: 6000 }).catch(() => null)]);
   } catch {}
   const accents = ['blue', 'green', 'purple'];
   s.innerHTML = `
@@ -885,6 +886,9 @@ async function renderSettings() {
         ${sameOrigin && !window.musikDesktop && !window.MusikAndroid ? '' : `<button class="btn" data-chserver>${t('changeServer')}</button>`}
         <button class="btn" data-logout>${t('logout')}</button>
       </div></div>
+    <div class="set-group"><h3>${t('onTheGo')}</h3>
+      ${info?.remote ? `<p class="muted small">${t('remoteOn')}</p><p><code class="addr">${esc(info.remote)}</code></p><div class="stack"><button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button></div>`
+        : `<p class="muted small">${t('remoteOff')}</p><div class="stack"><a class="btn" href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a></div>`}</div>
     ${user.admin ? `<div class="set-group"><h3>${t('users')}</h3><div id="userlist" class="muted small">…</div><button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button></div>` : ''}
     <div class="set-group"><h3>${t('apps')}</h3>
       <div class="stack"><a class="btn" href="${RELEASES}" target="_blank" rel="noopener">${icon('download')}${t('allDownloads')}</a></div>
@@ -923,8 +927,9 @@ async function renderUsers() {
   } catch {}
 }
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-deluser],[data-settings],#scrim,[data-closesettings]');
+  const el = e.target.closest('[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
   if (!el) return;
+  if (el.dataset.copyremote) { navigator.clipboard?.writeText(el.dataset.copyremote).then(() => toast(t('copied'))).catch(() => {}); return; }
   if (el.matches('[data-settings]')) return openSettings();
   if (el.matches('#scrim,[data-closesettings]')) return closeSettings();
   if (el.dataset.lang) {

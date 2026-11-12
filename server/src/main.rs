@@ -63,6 +63,7 @@ fn main() {
     let web_dir = var("WEB_DIR").map(|d| resolve(&d)).filter(|d| d.join("index.html").is_file());
     let scan_minutes: u64 = var("SCAN_INTERVAL").and_then(|v| v.parse().ok()).unwrap_or(30);
     let name = var("SERVER_NAME").unwrap_or_else(|| "Musik".into());
+    let remote = var("REMOTE_URL").map(|u| u.trim().trim_end_matches('/').to_string()).filter(|u| u.starts_with("http"));
 
     for d in &music_dirs {
         std::fs::create_dir_all(d).ok();
@@ -74,6 +75,7 @@ fn main() {
         rec: recommend::Recommender::new(None, None),
         web_dir,
         name,
+        remote,
     });
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("runtime");

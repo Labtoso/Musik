@@ -227,6 +227,7 @@ body.set-open .panel { transform: none; }
 
 /* B2 server */
 .tabs { display: flex; gap: 28px; flex-wrap: wrap; border-bottom: 1px solid var(--line2); margin-bottom: 36px; }
+.steps a { color: var(--accent2); text-decoration: underline; text-underline-offset: 3px; }
 .tabs button { padding: 14px 0; font: italic 500 24px var(--serif); color: var(--dim); position: relative; }
 .tabs button.on { color: var(--paper); }
 .tabs button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); }
@@ -428,7 +429,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 <section class="track" id="b2">
   <div class="th rv"><div class="no"><b>B2</b>9:44 – 10:40</div><div><h2 data-h="b2h"></h2><p data-t="b2p"></p></div></div>
   <div class="body rv">
-    <div class="tabs"><button data-tab="px" class="on">Proxmox</button><button data-tab="deb">Debian</button><button data-tab="dock">Docker</button><button data-tab="win">Windows</button></div>
+    <div class="tabs"><button data-tab="px" class="on">Proxmox</button><button data-tab="deb">Debian</button><button data-tab="dock">Docker</button><button data-tab="win">Windows</button><button data-tab="ts" data-t="tsTab"></button></div>
     <div class="pane on" data-pane="px">
       <div class="term"><div class="term-h">root@pve<button data-copy="px" data-t="copy"></button></div>
 <pre><span class="p">#</span> <span data-cmd="px">bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</span>
@@ -453,6 +454,16 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
       <div class="term"><div class="term-h">PowerShell<button data-copy="win" data-t="copy"></button></div>
 <pre><span class="p">&gt;</span> <span data-cmd="win">.\musik-server-windows-x64.exe</span></pre></div>
       <ol class="steps"><li data-h="win1"></li><li data-h="win2"></li></ol>
+    </div>
+    <div class="pane" data-pane="ts">
+      <div class="term"><div class="term-h">root@pve<button data-copy="ts" data-t="copy"></button></div>
+<pre><span class="p">#</span> <span data-cmd="ts">TAILSCALE=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</span>
+<span class="o">==> Setting up Tailscale
+    https://login.tailscale.com/a/1f2e3d4c
+==> Done
+
+    On the go:  https://musik.tail1234.ts.net</span></pre></div>
+      <ol class="steps"><li data-h="ts1"></li><li data-h="ts2"></li><li data-h="ts3"></li></ol>
     </div>
   </div>
 </section>
@@ -512,11 +523,15 @@ const T = {
     deb3: 'Update später mit <code>sudo musik-update</code>.',
     dock1: 'Musik in den Ordner <code>music/</code> neben der <code>docker-compose.yml</code> legen.',
     dock2: 'Der Server läuft dann auf Port <code>8484</code>.',
+    tsTab: 'Unterwegs',
+    ts1: 'Kostenloses Konto bei <b>Tailscale</b> anlegen. Den Befehl in der Proxmox-Shell ausführen, auch bei einem laufenden Server. Den Link öffnen und das Gerät bestätigen.',
+    ts2: 'Tailscale-App aufs Handy und den PC, mit demselben Konto anmelden.',
+    ts3: 'Musik einmal zuhause öffnen. Unterwegs wechselt die App dann von selbst auf die Tailscale-Adresse. <a href="https://github.com/Labtoso/Musik/blob/main/docs/tailscale.md">Ganze Anleitung</a>',
     win1: '<code>musik-server-windows-x64.exe</code> laden und starten. Er nimmt deinen Musik-Ordner.',
     win2: 'Andere Ordner kommen in eine <code>.env</code> neben der exe: <code>MUSIC_DIRS=D:\\Musik</code>.',
     b3h: 'Liner <em>Notes.</em>',
     q1: 'Wo liegt meine Musik?', a1: 'Nur auf deinem Server. Nichts geht an fremde Dienste, die Apps streamen direkt von dir.',
-    q2: 'Geht das unterwegs?', a2: 'Ja, sobald dein Handy den Server erreicht, zum Beispiel über WireGuard oder Tailscale. Im WLAN zuhause sofort.',
+    q2: 'Geht das unterwegs?', a2: 'Ja, über Tailscale. Der Installer richtet es auf Wunsch mit ein, ohne Portfreigabe. Unterwegs wechselt die App von selbst auf die Tailscale-Adresse. Die Schritte stehen unter Server, Tab Unterwegs.',
     q3: 'Wie viele Leute?', a3: 'So viele du willst. Der erste Account ist Admin und legt weitere an. Jeder hat eigene Playlists, Likes und einen eigenen Mix.',
     q4: 'Wie kommen neue Songs rein?', a4: 'Datei in den Ordner legen oder in der App hochladen. Der Server schaut alle 30 Minuten nach, oder sofort mit „Bibliothek neu einlesen“.',
     q5: 'Was braucht der Server?', a5: 'Sehr wenig. Ein Kern und 512 MB RAM reichen. Läuft auf x64 und ARM, also auch auf einem Raspberry Pi.',
@@ -559,11 +574,15 @@ const T = {
     deb3: 'Update later with <code>sudo musik-update</code>.',
     dock1: 'Put your music into <code>music/</code> next to <code>docker-compose.yml</code>.',
     dock2: 'The server then runs on port <code>8484</code>.',
+    tsTab: 'On the go',
+    ts1: 'Create a free <b>Tailscale</b> account. Run the command in the Proxmox shell, also on a running server. Open the link and approve the device.',
+    ts2: 'Install the Tailscale app on your phone and PC, log in with the same account.',
+    ts3: 'Open Musik once at home. Away from home the app then switches to the Tailscale address by itself. <a href="https://github.com/Labtoso/Musik/blob/main/docs/tailscale.md">Full guide (German)</a>',
     win1: 'Download <code>musik-server-windows-x64.exe</code> and run it. It uses your Music folder.',
     win2: 'Other folders go into a <code>.env</code> next to the exe: <code>MUSIC_DIRS=D:\\Music</code>.',
     b3h: 'Liner <em>notes.</em>',
     q1: 'Where is my music?', a1: 'Only on your server. Nothing goes to third parties, the apps stream straight from you.',
-    q2: 'Does it work on the go?', a2: 'Yes, once your phone can reach the server, for example over WireGuard or Tailscale. On home Wi-Fi right away.',
+    q2: 'Does it work on the go?', a2: 'Yes, over Tailscale. The installer sets it up if you want, no port forwarding. Away from home the app switches to the Tailscale address by itself. The steps are under Server, tab On the go.',
     q3: 'How many people?', a3: 'As many as you like. The first account is admin and adds others. Everyone gets their own playlists, likes and mix.',
     q4: 'How do new songs get in?', a4: 'Drop files into the folder or upload them in the app. The server checks every 30 minutes, or right away with “Rescan library”.',
     q5: 'What does the server need?', a5: 'Very little. One core and 512 MB RAM. Runs on x64 and ARM, so a Raspberry Pi works too.',

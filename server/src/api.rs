@@ -32,6 +32,8 @@ pub struct AppState {
     pub rec: Recommender,
     pub web_dir: Option<PathBuf>,
     pub name: String,
+    /// Address that also works away from home, e.g. the Tailscale name (REMOTE_URL).
+    pub remote: Option<String>,
 }
 
 pub type St = Arc<AppState>;
@@ -220,7 +222,7 @@ async fn body_json<T: serde::de::DeserializeOwned + Default>(req: Request) -> Re
 // ---------- handlers ----------
 async fn info(State(st): State<St>) -> Json<Value> {
     let setup = auth::needs_setup(&st.db.lock().unwrap());
-    Json(json!({ "name": st.name, "app": "musik", "version": VERSION, "setup": setup }))
+    Json(json!({ "name": st.name, "app": "musik", "version": VERSION, "setup": setup, "remote": st.remote }))
 }
 
 async fn setup(State(st): State<St>, req: Request) -> R {

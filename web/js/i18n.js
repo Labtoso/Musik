@@ -30,6 +30,7 @@ const de = {
   scan: 'Bibliothek neu einlesen', scanning: 'Wird eingelesen … {n} Dateien', lastScan: 'Zuletzt eingelesen: {date}',
   upload: 'Musik hochladen', uploading: 'Lade hoch: {name}', uploaded: '{n} Dateien hochgeladen', uploadFailed: 'Fehler bei {name}',
   folders: 'Musikordner', stats: '{tracks} Titel · {artists} Künstler · {albums} Alben',
+  onTheGo: 'Unterwegs', remoteOn: 'Über Tailscale erreichbar. Die Apps wechseln unterwegs von selbst auf diese Adresse, Tailscale muss auf dem Gerät an sein.', remoteOff: 'Noch nicht eingerichtet. Mit Tailscale hörst du deine Musik auch unterwegs, ohne Portfreigabe.', guide: 'Anleitung', copy: 'Kopieren', copied: 'Kopiert',
   apps: 'Apps', androidApp: 'Android-App (APK)', windowsApp: 'Windows-App', allDownloads: 'Alle Downloads',
   version: 'Version', added: 'Hinzugefügt', saved: 'Gespeichert', addedTo: 'Zu „{name}“ hinzugefügt', addedQueue: 'Zur Warteschlange hinzugefügt',
   playsNext: 'Läuft als Nächstes', radioStarted: 'Radio gestartet', history: 'Verlauf', showAll: 'Alle anzeigen', top: 'Beliebt bei dir'
@@ -67,6 +68,7 @@ const en = {
   scan: 'Rescan library', scanning: 'Scanning … {n} files', lastScan: 'Last scan: {date}',
   upload: 'Upload music', uploading: 'Uploading: {name}', uploaded: '{n} files uploaded', uploadFailed: 'Failed: {name}',
   folders: 'Music folders', stats: '{tracks} songs · {artists} artists · {albums} albums',
+  onTheGo: 'On the go', remoteOn: 'Reachable over Tailscale. The apps switch to this address by themselves when you are away, Tailscale has to be on on the device.', remoteOff: 'Not set up yet. With Tailscale you can listen on the go, no port forwarding needed.', guide: 'Guide', copy: 'Copy', copied: 'Copied',
   apps: 'Apps', androidApp: 'Android app (APK)', windowsApp: 'Windows app', allDownloads: 'All downloads',
   version: 'Version', added: 'Added', saved: 'Saved', addedTo: 'Added to “{name}”', addedQueue: 'Added to queue',
   playsNext: 'Plays next', radioStarted: 'Radio started', history: 'History', showAll: 'Show all', top: 'Your top songs'

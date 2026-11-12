@@ -8,3 +8,5 @@ services:
     volumes:
       - ./data:/data
       - ./music:/music
+    # environment:
+    #   - REMOTE_URL=http://100.x.y.z:8484   # Tailscale address for on the go, see docs/tailscale.md

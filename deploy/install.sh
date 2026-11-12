@@ -3,6 +3,8 @@
 # Run again to update. Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash
 #   options: --music <dir>  --port <port>  --version <tag, e.g. v1.0.0>
+#            --tailscale            also set up Tailscale so the apps work away from home
+#            --ts-authkey <key>     log in to Tailscale without opening a link (tskey-auth-...)
 set -euo pipefail
 
 REPO="Labtoso/Musik"
@@ -12,6 +14,8 @@ DATA_DIR="/var/lib/musik"
 MUSIC_DIR="/srv/musik"
 PORT="8484"
 ENV_FILE="/etc/musik.env"
+TAILSCALE=""
+TS_AUTHKEY="${TS_AUTHKEY:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -20,6 +24,8 @@ while [ $# -gt 0 ]; do
     --version) VERSION="$2"; shift 2 ;;
     --branch) shift 2 ;;
     --update) shift ;;
+    --tailscale) TAILSCALE=1; shift ;;
+    --ts-authkey) TAILSCALE=1; TS_AUTHKEY="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -106,6 +112,40 @@ systemctl enable musik >/dev/null 2>&1
 systemctl restart musik
 
 PORT_NOW="$(awk -F= '/^PORT=/{print $2}' "$ENV_FILE")"
+
+# ---- Tailscale: reach the server from anywhere ----
+setenv() { # key value
+  if grep -q "^$1=" "$ENV_FILE"; then sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"; else printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"; fi
+}
+REMOTE=""
+if [ -n "$TAILSCALE" ]; then
+  step "Setting up Tailscale"
+  if [ ! -c /dev/net/tun ]; then
+    echo "No /dev/net/tun here. In a Proxmox container run the Proxmox script with Tailscale, it adds the device." >&2
+  else
+    command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh
+    systemctl enable --now tailscaled >/dev/null 2>&1 || true
+    if ! tailscale status >/dev/null 2>&1; then
+      if [ -n "$TS_AUTHKEY" ]; then
+        tailscale up --hostname=musik --authkey="$TS_AUTHKEY"
+      else
+        echo "Open the link below and log in to Tailscale (same account as on your phone):"
+        tailscale up --hostname=musik
+      fi
+    fi
+    # HTTPS name inside your tailnet (needs MagicDNS and HTTPS certificates, both on by default)
+    if tailscale serve --bg --https=443 "http://127.0.0.1:${PORT_NOW:-8484}" >/dev/null 2>&1; then
+      DNS="$(tailscale status --json 2>/dev/null | sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' | head -n1)"
+      [ -n "$DNS" ] && REMOTE="https://$DNS"
+    fi
+    if [ -z "$REMOTE" ]; then
+      TSIP="$(tailscale ip -4 2>/dev/null | head -n1)"
+      [ -n "$TSIP" ] && REMOTE="http://$TSIP:${PORT_NOW:-8484}"
+    fi
+    if [ -n "$REMOTE" ]; then setenv REMOTE_URL "$REMOTE"; systemctl restart musik; fi
+  fi
+fi
+REMOTE="$(awk -F= '/^REMOTE_URL=/{print $2}' "$ENV_FILE")"
 for _ in $(seq 1 30); do
   curl -fsS "http://127.0.0.1:${PORT_NOW:-8484}/api/info" >/dev/null 2>&1 && break
   sleep 1
@@ -119,6 +159,7 @@ else
   echo "Musik did not answer yet. Check: journalctl -u musik -n 50"
 fi
 echo "  Open:          http://${IP:-<server-ip>}:${PORT_NOW:-8484}"
+[ -n "$REMOTE" ] && echo "  On the go:     $REMOTE   (Tailscale on, the apps switch to it by themselves)"
 echo "  Music folder:  $(awk -F= '/^MUSIC_DIRS=/{print $2}' "$ENV_FILE")"
 echo "  Settings:      $ENV_FILE"
 echo "  Update:        musik-update"

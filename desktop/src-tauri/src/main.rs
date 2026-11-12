@@ -9,6 +9,9 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBui
 #[derive(Default, Serialize, Deserialize, Clone)]
 struct Config {
     server: Option<String>,
+    /// Address for on the go (e.g. Tailscale), reported by the server.
+    #[serde(default)]
+    remote: Option<String>,
 }
 
 fn config_path(app: &AppHandle) -> Option<PathBuf> {
@@ -51,13 +54,21 @@ fn normalize(input: &str) -> Option<String> {
 }
 
 fn check(origin: &str) -> &'static str {
-    let res = ureq::get(&format!("{origin}/api/info")).timeout(Duration::from_secs(6)).call();
+    probe(origin, 6).0
+}
+
+/// State of a server plus the address for on the go it reports.
+fn probe(origin: &str, secs: u64) -> (&'static str, Option<String>) {
+    let res = ureq::get(&format!("{origin}/api/info")).timeout(Duration::from_secs(secs)).call();
     match res {
         Ok(r) => match r.into_json::<serde_json::Value>() {
-            Ok(v) if v.get("app").and_then(|a| a.as_str()) == Some("musik") => "ok",
-            _ => "notmusik",
+            Ok(v) if v.get("app").and_then(|a| a.as_str()) == Some("musik") => {
+                let remote = v.get("remote").and_then(|r| r.as_str()).map(|r| r.trim_end_matches('/').to_string()).filter(|r| r.starts_with("http"));
+                ("ok", remote)
+            }
+            _ => ("notmusik", None),
         },
-        Err(_) => "offline",
+        Err(_) => ("offline", None),
     }
 }
 
@@ -71,9 +82,9 @@ fn open_server(win: &WebviewWindow, origin: &str) {
 async fn connect(app: AppHandle, window: WebviewWindow, server: String) -> String {
     let Some(origin) = normalize(&server) else { return "offline".into() };
     let o = origin.clone();
-    let state = tauri::async_runtime::spawn_blocking(move || check(&o)).await.unwrap_or("offline");
+    let (state, remote) = tauri::async_runtime::spawn_blocking(move || probe(&o, 6)).await.unwrap_or(("offline", None));
     if state == "ok" {
-        save_config(&app, &Config { server: Some(origin.clone()) });
+        save_config(&app, &Config { server: Some(origin.clone()), remote });
         open_server(&window, &origin);
     }
     state.into()
@@ -108,10 +119,18 @@ fn main() {
                 .min_inner_size(380.0, 560.0)
                 .initialization_script(&init)
                 .build()?;
-            if let Some(server) = load_config(&handle).server {
+            let cfg = load_config(&handle);
+            if let Some(server) = cfg.server.clone() {
                 std::thread::spawn(move || {
-                    if check(&server) == "ok" {
+                    // at home: the normal address; on the go: the Tailscale address
+                    let (state, remote) = probe(&server, 3);
+                    if state == "ok" {
+                        if remote.is_some() && remote != cfg.remote {
+                            save_config(&handle, &Config { server: Some(server.clone()), remote });
+                        }
                         open_server(&win, &server);
+                    } else if let Some(r) = cfg.remote.as_deref().filter(|r| check(r) == "ok") {
+                        open_server(&win, r);
                     } else {
                         let _ = win.eval("window.showError && window.showError('offline')");
                     }

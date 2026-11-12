@@ -355,3 +355,5 @@ body.auth #app { height: 100%; }
 @media (max-width: 899px) {
   .dyn .player { background: color-mix(in srgb, var(--dyn-bg) 70%, var(--surface2)); }
 }
+
+code.addr { display: inline-block; padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,.06); font-size: 13px; word-break: break-all; user-select: all; }
