@@ -797,3 +797,16 @@ body:has(.fs.open) .toast { top: calc(64px + var(--safe-t)); bottom: auto; }
 .pc-line { margin-top: 6px; font-size: 13.5px; }
 .pc-line.ok { color: #1ed760; }
 .pc-line.bad { color: #ff6b6b; }
+
+/* follow an artist */
+.btn.follow { border: 1px solid color-mix(in srgb, var(--text) 35%, transparent); background: transparent; border-radius: 999px; transition: border-color 0.2s, color 0.2s, background 0.2s, transform 0.12s; }
+.btn.follow:hover { border-color: var(--text); }
+.btn.follow:active { transform: scale(0.96); }
+.btn.follow.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.btn.follow svg { width: 16px; height: 16px; }
+@media (max-width: 899px) {
+  .detail-head .toolbar .btn.follow { order: -1; font-size: 13px; font-weight: 600; gap: 6px; width: auto; height: 34px; padding: 0 14px; margin-right: 8px; color: var(--text); }
+  .detail-head .toolbar .btn.follow.on { color: var(--accent); }
+  .detail-head .toolbar .btn.follow .ic { width: 15px; height: 15px; }
+}
+.libgrid + .sec-head, .sec + .sec-head { margin-top: 26px; }

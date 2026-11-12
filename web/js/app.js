@@ -611,6 +611,8 @@ views.home = async () => {
     // no own files yet: suggestions from Spotify / YouTube listening instead of an empty page
     let html = pageHead(greeting());
     if (recentExt.length) html += section(t('recent'), trackCards(recentExt, 'recentext'));
+    const fol = await loadFollows(true);
+    if (fol.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
     const fy = await forYouSections(null);
     html += fy || `<div class="emptystate">${icon('note', 'big')}<p>${t('emptyStart')}</p><div class="stack"><a class="btn primary" href="#/search">${icon('search')}${t('search')}</a><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><button class="btn" data-upload>${icon('upload')}${t('upload')}</button></div></div>`;
     return html;
@@ -636,6 +638,8 @@ views.home = async () => {
   html += `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(h.mix, { reasons: true })}</section>`;
   const recentAll = [...h.recent, ...recentExt].slice(0, 14);
   if (recentAll.length) html += section(t('recent'), trackCards(recentAll, 'recent'));
+  const fol = await loadFollows(true);
+  if (fol.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
   html += await forYouSections(h).catch(() => '');
   if (h.rediscover.length) html += section(t('rediscover'), trackCards(h.rediscover, 'rediscover'));
   if (h.newAlbums.length) html += section(t('newAlbums'), albumCards(h.newAlbums));
@@ -746,6 +750,41 @@ function catAlbum(a) {
   if (a.cover) extCovers.set(id, a.cover);
   return { title: a.title, artist: a.artist, cover: id, href: `#/calbum?id=${a.id}` };
 }
+// ---------- followed artists ----------
+let follows = null;
+async function loadFollows(force = false) {
+  if (!follows || force) follows = await get('/api/follows').catch(() => follows || []);
+  return follows;
+}
+const isFollowed = (kind, ref) => !!follows?.some((f) => f.kind === kind && f.ref === String(ref));
+function followBtn(kind, ref, name, cover = '') {
+  const on = isFollowed(kind, ref);
+  return `<button class="btn follow${on ? ' on' : ''}" data-follow="${esc(kind)}" data-fref="${esc(String(ref))}" data-fname="${esc(name)}" data-fcover="${esc(String(cover || ''))}">${icon(on ? 'check' : 'plus')}<span>${t(on ? 'following' : 'follow')}</span></button>`;
+}
+function followCard(f) {
+  if (f.kind === 'local') return { name: f.name, cover: Number(f.cover) || null, href: `#/artist?name=${encodeURIComponent(f.ref)}`, sub: t('artist') };
+  const id = `fol:${f.kind}:${f.ref}`;
+  if (f.cover) extCovers.set(id, f.cover);
+  return { name: f.name, cover: id, href: `#/${f.kind === 'spotify' ? 'spartist' : 'cartist'}?id=${encodeURIComponent(f.ref)}`, sub: t('artist') };
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-follow]');
+  if (!b) return;
+  const { follow: kind, fref: ref, fname: name, fcover: cover } = b.dataset;
+  const on = !b.classList.contains('on');
+  b.classList.toggle('on', on);
+  b.innerHTML = `${icon(on ? 'check' : 'plus')}<span>${t(on ? 'following' : 'follow')}</span>`;
+  try {
+    if (on) await put('/api/follows', { kind, ref, name, cover });
+    else await del(`/api/follows?kind=${encodeURIComponent(kind)}&ref=${encodeURIComponent(ref)}`);
+    await loadFollows(true);
+    toast(t(on ? 'followed' : 'unfollowed', { name }));
+  } catch {
+    b.classList.toggle('on', !on);
+    b.innerHTML = `${icon(!on ? 'check' : 'plus')}<span>${t(!on ? 'following' : 'follow')}</span>`;
+    toast(t('error'));
+  }
+});
 function artistCards(list, row = false) {
   return `<div class="cards${row ? ' srow' : ''}">${list.map((a) => `<a class="card" href="${a.href}">${coverImg(a.cover, 'lg round')}<div class="c-title">${esc(a.name)}</div><div class="c-sub">${esc(a.sub || t('artist'))}</div></a>`).join('')}</div>`;
 }
@@ -921,9 +960,10 @@ document.addEventListener('click', (e) => {
 views.cartist = async (params) => {
   const r = await get('/api/catalog/artist/' + encodeURIComponent(params.get('id') || ''));
   const a = catArtist(r.artist);
+  await loadFollows();
   const tracks = (r.tracks || []).map(extTrack);
   state.detail = { cartist: tracks };
-  let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : '', actions: tracks.length ? listActions('cartist') : '' });
+  let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : '', actions: (tracks.length ? listActions('cartist') : '') + followBtn('deezer', params.get('id') || '', a.name, r.artist.picture) });
   if (tracks.length) html += section(t('top'), trackList(tracks), `<span class="muted small">${t('catalogHint')}</span>`);
   if (r.albums?.length) html += section(t('albums'), plainAlbumCards(r.albums.map(catAlbum)));
   return html;
@@ -941,10 +981,11 @@ views.calbum = async (params) => {
 views.spartist = async (params) => {
   const r = await spotifyArtist(params.get('id') || '');
   const a = spArtist(r.artist);
+  await loadFollows();
   const tracks = r.tracks.map(extTrack);
   state.detail = { spartist: tracks };
   const sub = [r.artist.followers ? t('followersN', { n: r.artist.followers.toLocaleString() }) : '', r.artist.genres.slice(0, 3).join(', ')].filter(Boolean).join(' · ');
-  let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: `${srcBadge('spotify')} ${esc(sub)}`, actions: tracks.length ? listActions('spartist') : '' });
+  let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: `${srcBadge('spotify')} ${esc(sub)}`, actions: (tracks.length ? listActions('spartist') : '') + followBtn('spotify', params.get('id') || '', a.name, r.artist.picture) });
   if (tracks.length) html += section(t('top'), trackList(tracks));
   if (r.albums.length) html += section(t('albums'), plainAlbumCards(r.albums.map(spAlbum)));
   return html;
@@ -1034,7 +1075,8 @@ views.library = async (params) => {
     body = albumCards(state.cache.albums).replace('class="cards"', 'class="cards libgrid"');
   } else if (tab === 'artists') {
     state.cache.artists = await get('/api/artists');
-    body = `<div class="cards libgrid">${state.cache.artists
+    const fol = await loadFollows(true);
+    body = `${fol.length ? section(t('following'), artistCards(fol.map(followCard)).replace('class="cards"', 'class="cards libgrid"')) + (state.cache.artists.length ? `<div class="sec-head"><h2>${t('inLibrary')}</h2></div>` : '') : state.cache.artists.length ? '' : `<p class="muted empty">${t('followNone')}</p>`}<div class="cards libgrid">${state.cache.artists
       .map(
         (a) => `<a class="card artist" href="#/artist?name=${encodeURIComponent(a.name)}">${coverImg(a.cover_id, 'lg round')}<div class="c-title">${esc(a.name)}</div><div class="c-sub">${songCount(a.tracks)}</div></a>`
       )
@@ -1102,6 +1144,7 @@ views.album = async (params) => {
 
 views.artist = async (params) => {
   const r = await get(`/api/artist?name=${encodeURIComponent(params.get('name') || '')}`);
+  await loadFollows();
   state.detail = { artist: r.tracks };
   const albums = [];
   const seen = new Set();
@@ -1116,7 +1159,7 @@ views.artist = async (params) => {
     kind: t('artist'),
     title: r.name,
     sub: songCount(r.tracks.length),
-    actions: listActions('artist') + `<button class="btn" data-radioartist>${icon('radio')}${t('startRadio')}</button>`
+    actions: listActions('artist') + `<button class="btn" data-radioartist>${icon('radio')}${t('startRadio')}</button>` + followBtn('local', r.name, r.name, r.tracks[0]?.id || '')
   });
   html += section(t('top'), trackList(r.top));
   if (albums.length) html += section(t('albums'), albumCards(albums));

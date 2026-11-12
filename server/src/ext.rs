@@ -79,6 +79,15 @@ CREATE TABLE IF NOT EXISTS shares (
   ref TEXT NOT NULL,
   created INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS follows (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  name TEXT NOT NULL,
+  cover TEXT NOT NULL DEFAULT '',
+  created INTEGER NOT NULL,
+  PRIMARY KEY (user_id, kind, ref)
+);
 "#;
 
 pub fn routes() -> Router<St> {
@@ -107,6 +116,7 @@ pub fn routes() -> Router<St> {
         .route("/art/{kind}/{id}", get(get_art).put(put_art).delete(delete_art))
         .route("/lyrics", get(lyrics_lookup))
         .route("/lyrics/{id}", get(lyrics))
+        .route("/follows", get(list_follows).put(follow).delete(unfollow))
         .route("/shares", post(create_share))
         .route("/public/{token}", get(public_share))
         .route("/public/{token}/save", post(save_share))
@@ -142,6 +152,63 @@ async fn put_settings(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R
     let db = st.db.lock().unwrap();
     db.execute("INSERT INTO user_settings (user_id, data) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET data = excluded.data", params![u.id, text]).ok();
     Ok(Json(v))
+}
+
+// ---------- followed artists ----------
+const FOLLOW_KINDS: [&str; 3] = ["local", "spotify", "deezer"];
+
+async fn list_follows(State(st): State<St>, Auth(u, _): Auth) -> R {
+    let db = st.db.lock().unwrap();
+    let mut s = db
+        .prepare("SELECT kind, ref, name, cover, created FROM follows WHERE user_id = ? ORDER BY created DESC")
+        .unwrap();
+    let rows: Vec<Value> = s
+        .query_map([u.id], |r| {
+            Ok(json!({
+                "kind": r.get::<_, String>(0)?,
+                "ref": r.get::<_, String>(1)?,
+                "name": r.get::<_, String>(2)?,
+                "cover": r.get::<_, String>(3)?,
+                "created": r.get::<_, i64>(4)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    Ok(Json(json!(rows)))
+}
+async fn follow(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    let v: Value = body_json(req).await?;
+    let text = |k: &str| v[k].as_str().unwrap_or("").trim().to_string();
+    let (kind, rf, name, cover) = (text("kind"), text("ref"), text("name"), text("cover"));
+    if !FOLLOW_KINDS.contains(&kind.as_str()) || rf.is_empty() || name.is_empty() {
+        return Err(ApiError::new(400, "bad_json"));
+    }
+    if rf.len() > 300 || name.len() > 300 || cover.len() > 1000 {
+        return Err(ApiError::new(413, "too_large"));
+    }
+    st.db.lock().unwrap().execute(
+        "INSERT INTO follows (user_id, kind, ref, name, cover, created) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id, kind, ref) DO UPDATE SET name = excluded.name, cover = excluded.cover",
+        params![u.id, kind, rf, name, cover, now_ms()],
+    ).ok();
+    Ok(Json(json!({ "following": true })))
+}
+async fn unfollow(
+    State(st): State<St>,
+    Auth(u, _): Auth,
+    Query(q): Query<HashMap<String, String>>,
+) -> R {
+    let kind = q.get("kind").map(String::as_str).unwrap_or("");
+    let rf = q.get("ref").map(String::as_str).unwrap_or("");
+    st.db
+        .lock()
+        .unwrap()
+        .execute(
+            "DELETE FROM follows WHERE user_id = ? AND kind = ? AND ref = ?",
+            params![u.id, kind, rf],
+        )
+        .ok();
+    Ok(Json(json!({ "following": false })))
 }
 
 // ---------- matching ----------
