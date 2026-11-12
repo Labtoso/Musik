@@ -453,6 +453,12 @@ class MainActivity : ComponentActivity() {
             }
             runCatching { startActivity(Intent.createChooser(send, null)) }
         }
+        @JavascriptInterface fun copy(text: String) {
+            main.post {
+                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Musik", text))
+            }
+        }
         @JavascriptInterface fun appVersion(): String =
             runCatching { packageManager.getPackageInfo(packageName, 0).versionName ?: "" }.getOrDefault("")
         @JavascriptInterface fun updateApp() { thread { downloadAndInstall() } }

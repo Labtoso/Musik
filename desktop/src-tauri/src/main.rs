@@ -199,6 +199,9 @@ fn main() {
                 .title("Musik")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(380.0, 560.0)
+                // dark from the first frame, no white flash before the page has loaded
+                .theme(Some(tauri::Theme::Dark))
+                .background_color(tauri::window::Color(17, 18, 20, 255))
                 .initialization_script(&init)
                 .build()?;
             let cfg = load_config(&handle);

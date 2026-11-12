@@ -346,15 +346,41 @@ async function shareThing(kind, ref, title) {
         if (e.name === 'AbortError') return;
       }
     }
-    try {
-      await navigator.clipboard.writeText(url);
-      toast(t('linkCopied'));
-    } catch {
+    if (await copyText(url)) toast(t('linkCopied'));
+    else {
       dialog({ title: t('share'), fields: [{ name: 'url', label: 'Link', value: url }], ok: 'OK' });
     }
   } catch (e) {
     toast(errorText(e));
   }
+}
+/** Copy text everywhere: the clipboard API only exists on https, so the apps and plain http need other ways. */
+async function copyText(text) {
+  try {
+    if (window.MusikAndroid?.copy) {
+      window.MusikAndroid.copy(text);
+      return true;
+    }
+  } catch {}
+  try {
+    if (window.isSecureContext && navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {}
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+  document.body.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {}
+  ta.remove();
+  return ok;
 }
 function shareBtn(kind, ref, title) {
   return `<button class="btn" data-share="${esc(JSON.stringify({ kind, ref, title }))}" title="${t('share')}">${icon('share')}${t('share')}</button>`;
@@ -1515,7 +1541,39 @@ async function renderSidebarPlaylists() {
 }
 
 // ---------- settings panel ----------
+function filterSettings(q) {
+  q = q.trim().toLowerCase();
+  const box = $('#settings-body');
+  if (!box) return;
+  let any = false;
+  box.querySelectorAll('.set-card').forEach((c) => {
+    const whole = !q || c.dataset.k.includes(q);
+    let n = 0;
+    c.querySelectorAll('.set-row').forEach((r) => {
+      const hit = whole || r.dataset.k.includes(q) || r.textContent.toLowerCase().includes(q);
+      r.hidden = !hit;
+      if (hit) n++;
+    });
+    c.hidden = !n;
+    if (n) any = true;
+  });
+  const none = box.querySelector('.set-none');
+  if (none) none.hidden = any;
+  $('#setnav')?.classList.toggle('dim', !!q);
+}
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'setq') filterSettings(e.target.value);
+});
+document.addEventListener('click', (e) => {
+  const j = e.target.closest('[data-setjump]');
+  if (!j) return;
+  const c = document.getElementById(j.dataset.setjump);
+  c?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.querySelectorAll('[data-setjump]').forEach((b) => b.classList.toggle('on', b === j));
+});
 function openSettings() {
+  const q = $('#setq');
+  if (q) q.value = '';
   renderSettings();
   $('#settings').classList.add('open');
   $('#scrim').classList.add('show');
@@ -1525,6 +1583,15 @@ function closeSettings() {
   $('#scrim').classList.remove('show');
   clearInterval(state.scanTimer);
 }
+// ---------- settings: a full page with search, categories as cards, one row per setting ----------
+/** One setting: label and hint on the left, the control on the right (or below when wide). */
+function setRow(label, control, { hint = '', keys = '', wide = false } = {}) {
+  return `<div class="set-row ${wide ? 'wide' : ''}" data-k="${esc((label + ' ' + hint + ' ' + keys).toLowerCase())}"><div class="sr-text"><div class="sr-label">${label}</div>${hint ? `<div class="sr-hint">${hint}</div>` : ''}</div><div class="sr-ctl">${control}</div></div>`;
+}
+function setCard(id, ic, title, rows) {
+  return `<section class="set-card" id="set-${id}" data-k="${esc(title.toLowerCase())}"><h3>${icon(ic)}<span>${title}</span></h3>${rows}</section>`;
+}
+const sw = (id, on) => `<label class="switch"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span></span></label>`;
 async function renderSettings() {
   const s = $('#settings-body');
   const user = conn.user || {};
@@ -1533,47 +1600,39 @@ async function renderSettings() {
     [lib, info] = await Promise.all([get('/api/library'), api('GET', '/api/info', undefined, { token: null, timeout: 6000 }).catch(() => null)]);
   } catch {}
   const accents = ['blue', 'green', 'purple'];
-  s.innerHTML = `
-    <div class="set-group"><h3>${t('language')}</h3>
-      <div class="seg">${['de', 'en'].map((l) => `<button data-lang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div></div>
-    <div class="set-group"><h3>${t('accent')}</h3>
-      <div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div></div>
-    <div class="set-group"><h3>${t('playback')}</h3>
-      <label class="check"><input type="checkbox" id="autoplay" ${prefs.autoplay ? 'checked' : ''}><span>${t('autoplay')}</span></label></div>
-    <div class="set-group"><h3>${t('look')}</h3>
-      <label class="check"><input type="checkbox" id="dyncolor" ${prefs.dynamic ? 'checked' : ''}><span>${t('dynColor')}</span></label></div>
-    <div class="set-group"><h3>${t('sources')}</h3>
-      <p class="muted small">${SOURCES.filter((x) => enabled(x)).map((x) => t('src_' + x)).join(', ')}</p>
-      <div class="stack"><a class="btn" href="#/sources" data-closesettings>${t('manageSources')}</a><a class="btn" href="#/add" data-closesettings>${icon('download')}${t('importAdd')}</a></div></div>
-    <div class="set-group"><h3>${t('equalizer')}</h3>${eqHtml()}</div>
-    <div class="set-group"><h3>${t('viz')}</h3>
-      <select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>
-      <p class="muted small">${t('vizHint')}</p></div>
-    <div class="set-group"><h3>${t('library')}</h3>
-      ${lib ? `<p class="muted">${t('stats', { tracks: lib.tracks, artists: lib.artists, albums: lib.albums })}</p>` : ''}
-      <div id="scaninfo" class="muted small"></div>
-      <div class="stack">
-        <button class="btn" data-upload>${icon('upload')}${t('upload')}</button>
-        ${user.admin ? `<button class="btn" data-scan>${icon('refresh')}${t('scan')}</button>` : ''}
-      </div>
-      <div id="upload-progress"></div>
-      ${user.admin && lib ? `<p class="muted small">${t('folders')}: ${lib.dirs.map(esc).join(', ')}</p>` : ''}</div>
-    <div class="set-group"><h3>${t('account')}</h3>
-      <p><span class="muted">${t('name')}:</span> ${esc(user.name || '')}${user.admin ? ` <span class="muted">· ${t('admin')}</span>` : ''}</p>
-      <p class="muted small">${t('server')}: ${esc(conn.server)}</p>
-      <div class="stack">
-        <button class="btn" data-chpw>${t('changePassword')}</button>
-        ${sameOrigin && !window.musikDesktop && !window.MusikAndroid ? '' : `<button class="btn" data-chserver>${t('changeServer')}</button>`}
-        <button class="btn" data-logout>${t('logout')}</button>
-      </div></div>
-    <div class="set-group"><h3>${t('onTheGo')}</h3>
-      ${info?.remote ? `<p class="muted small">${t('remoteOn')}</p><p><code class="addr">${esc(info.remote)}</code></p><div class="stack"><button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button></div>`
-        : `<p class="muted small">${t('remoteOff')}</p><div class="stack"><a class="btn" href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a></div>`}</div>
-    ${user.admin ? `<div class="set-group"><h3>${t('users')}</h3><div id="userlist" class="muted small">…</div><button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button></div>` : ''}
-    <div class="set-group"><h3>${t('updates')}</h3>
-      <div id="updinfo" class="upd"></div>
-      <div class="stack"><button class="btn" data-updcheck>${icon('refresh')}${t('checkUpdates')}</button><a class="btn" href="${RELEASES}" target="_blank" rel="noopener">${icon('download')}${t('allDownloads')}</a></div>
-      <p class="muted small">LabtosoStudios</p></div>`;
+  const cards = [
+    setCard('general', 'gear', t('set_general'),
+      setRow(t('language'), `<div class="seg">${['de', 'en'].map((l) => `<button data-lang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`, { keys: 'deutsch english sprache language' }) +
+      setRow(t('accent'), `<div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, { keys: 'farbe color theme' }) +
+      setRow(t('dynColor'), sw('dyncolor', prefs.dynamic), { hint: t('dynColorHint'), keys: t('look') })),
+    setCard('playback', 'play', t('playback'),
+      setRow(t('autoplayShort'), sw('autoplay', prefs.autoplay), { hint: t('autoplay'), keys: 'autoplay radio' }) +
+      setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' })),
+    setCard('sound', 'eq', t('equalizer'), setRow(t('equalizer'), eqHtml(), { wide: true, keys: 'eq bass treble klang sound preset' })),
+    setCard('sources', 'link', t('sources'),
+      setRow(t('sourcesOn'), `<a class="btn" href="#/sources" data-closesettings>${t('manageSources')}</a>`, { hint: SOURCES.filter((x) => enabled(x)).map((x) => t('src_' + x)).join(', '), keys: 'youtube spotify soundcloud deezer quellen' }) +
+      setRow(t('importAdd'), `<a class="btn" href="#/add" data-closesettings>${icon('download')}${t('importAdd')}</a>`, { hint: t('importHint'), keys: 'import playlist csv m3u' })),
+    setCard('library', 'library', t('library'),
+      setRow(t('libraryNow'), user.admin ? `<button class="btn" data-scan>${icon('refresh')}${t('scan')}</button>` : '', { hint: (lib ? t('stats', { tracks: lib.tracks, artists: lib.artists, albums: lib.albums }) : '') + '<span id="scaninfo"></span>', keys: 'scan einlesen' }) +
+      setRow(t('upload'), `<button class="btn" data-upload>${icon('upload')}${t('upload')}</button>`, { hint: '<span id="upload-progress"></span>', keys: 'hochladen dateien files' }) +
+      (user.admin && lib ? setRow(t('folders'), '', { hint: lib.dirs.map(esc).join(', '), keys: 'ordner folder' }) : '')),
+    setCard('account', 'user', t('account'),
+      setRow(esc(user.name || ''), `<button class="btn" data-logout>${t('logout')}</button>`, { hint: user.admin ? t('admin') : t('account'), keys: 'name abmelden logout' }) +
+      setRow(t('changePassword'), `<button class="btn" data-chpw>${t('change')}</button>`, { keys: 'passwort password' }) +
+      setRow(t('server'), sameOrigin && !window.musikDesktop && !window.MusikAndroid ? '' : `<button class="btn" data-chserver>${t('changeServer')}</button>`, { hint: esc(conn.server), keys: 'adresse address' })),
+    setCard('remote', 'radio', t('onTheGo'),
+      info?.remote
+        ? setRow(t('remoteAddr'), `<button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button>`, { hint: `<code class="addr">${esc(info.remote)}</code><br>${t('remoteOn')}`, keys: 'tailscale unterwegs remote' })
+        : setRow(t('remoteAddr'), `<a class="btn" href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a>`, { hint: t('remoteOff'), keys: 'tailscale unterwegs remote' })),
+    user.admin ? setCard('users', 'user', t('users'), setRow(t('users'), `<button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button>`, { hint: '<span id="userlist">…</span>', keys: 'nutzer users admin konto' })) : '',
+    setCard('updates', 'download', t('updates'),
+      setRow(t('updates'), `<button class="btn" data-updcheck>${icon('refresh')}${t('checkUpdates')}</button>`, { wide: true, hint: '<div id="updinfo" class="upd"></div>', keys: 'update version neu' }) +
+      setRow(t('allDownloads'), `<a class="btn" href="${RELEASES}" target="_blank" rel="noopener">${icon('download')}${t('allDownloads')}</a>`, { hint: 'LabtosoStudios', keys: 'apk exe appimage download' }))
+  ].join('');
+  const q = $('#setq')?.value || '';
+  s.innerHTML = `<div class="set-cards">${cards}<p class="muted empty set-none" hidden>${t('noSettings')}</p></div>`;
+  $('#setnav').innerHTML = [...s.querySelectorAll('.set-card')].map((c) => `<button data-setjump="${c.id}">${esc(c.querySelector('h3 span').textContent)}</button>`).join('');
+  filterSettings(q);
   renderUpdates(false);
   if (lib) showScan(lib);
   if (user.admin) renderUsers();
@@ -1703,7 +1762,10 @@ async function renderUsers() {
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-updcheck],[data-updserver],[data-updapp],[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
   if (!el) return;
-  if (el.dataset.copyremote) { navigator.clipboard?.writeText(el.dataset.copyremote).then(() => toast(t('copied'))).catch(() => {}); return; }
+  if (el.dataset.copyremote) {
+    copyText(el.dataset.copyremote).then((ok) => (ok ? toast(t('copied')) : dialog({ title: t('onTheGo'), fields: [{ name: 'url', label: t('remoteAddr'), value: el.dataset.copyremote }], ok: 'OK' })));
+    return;
+  }
   if (el.matches('[data-settings]')) return openSettings();
   if (el.matches('#scrim,[data-closesettings]')) return closeSettings();
   if (el.dataset.lang) {
@@ -1974,7 +2036,7 @@ function buildShell() {
     <div id="fs-lyrics" class="fs-queue fs-lyrics"><div class="lyrbody"></div></div>
   </div>
   <div id="scrim" class="scrim"></div>
-  <aside id="settings" class="settings"><div class="set-head"><button class="icon-btn" data-closesettings>${icon('close')}</button><h2>${t('settings')}</h2></div><div id="settings-body"></div></aside>`;
+  <aside id="settings" class="settings" role="dialog" aria-label="${t('settings')}"><div class="set-top"><div class="set-head"><button class="icon-btn" data-closesettings title="${t('close')}">${icon('back')}</button><h2>${t('settings')}</h2></div><div class="searchbar set-search">${icon('search')}<input id="setq" type="search" placeholder="${t('settingsSearch')}" autocomplete="off"></div><nav id="setnav" class="setnav"></nav></div><div id="settings-body"></div></aside>`;
   if (player) {
     renderPlayer();
     renderState();
