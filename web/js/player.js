@@ -1,7 +1,7 @@
 // Queue + playback. Two engines with the same interface:
 //  - HtmlEngine: <audio> element (browser, desktop)
 //  - NativeEngine: Android bridge (ExoPlayer service, keeps playing in background)
-import { streamUrl, coverUrl, post, get } from './api.js';
+import { streamUrl, coverUrl, post, get, ytSongUrl, ytAudioUrl } from './api.js';
 import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showStage } from './engines.js';
 import { toBands } from './viz.js';
 import { findOnYouTube, spotify } from './sources.js';
@@ -36,6 +36,13 @@ class HtmlEngine extends EventTarget {
     a.addEventListener('playing', () => this.#emit('buffering', { buffering: false }));
     a.addEventListener('error', () => {
       if (this.index < 0) return;
+      const cur = this.items[this.index];
+      if (cur?.streamed && cur.url) {
+        // the server could not stream it: the official YouTube player as a fallback
+        cur.url = '';
+        cur.streamed = false;
+        return this.#load(this.index, 0, true, 'retry');
+      }
       this.#emit('error', { message: 'playback' });
       // skip broken files instead of stopping
       setTimeout(() => this.#advance('error'), 800);
@@ -143,16 +150,26 @@ class HtmlEngine extends EventTarget {
       this.#emit('playing', { playing: false });
     }
   }
+  /** Like the Msik bot: look up the next songs on YouTube already, so they start at once. */
+  #prefetchYt(i) {
+    clearTimeout(this.prefetchTimer);
+    this.prefetchTimer = setTimeout(() => {
+      for (const n of [1, 2, 3]) {
+        const nx = this.items[i + n];
+        if (nx?.ext && (nx.ext.player === 'ytfind' || nx.ext.source === 'deezer')) findOnYouTube(nx.ext.source + ':' + nx.ext.id, nx).catch(() => {});
+      }
+    }, 1500);
+  }
   #load(i, pos, autoplay, reason) {
     const it = this.items[i];
     if (!it) return;
     this.index = i;
     // songs from Spotify and the Deezer catalog: names and covers from there, the whole song from YouTube
-    const viaYt = it.ext && (it.ext.player === 'ytfind' || it.ext.source === 'deezer' || !!it._ytSkip?.length);
+    const viaYt = it.ext && !it.url && (it.ext.player === 'ytfind' || it.ext.source === 'deezer' || !!it._ytSkip?.length);
     const kind = viaYt ? 'youtube' : it.ext?.player;
-    const ad = it.ext ? this.#adapter(kind) : null;
+    const ad = it.ext && !it.url ? this.#adapter(kind) : null;
     if (this.active && this.active !== ad) this.active.stop();
-    if (it.ext) {
+    if (it.ext && !it.url) {
       this.ytVid = '';
       this.audio.pause();
       this.active = ad;
@@ -201,6 +218,7 @@ class HtmlEngine extends EventTarget {
           });
       } else ad.load(it.ext.id, pos, autoplay, it.ext.url).catch(() => this.#emit('error', { message: 'playback' }));
       this.#emit('index', { index: i, reason });
+      this.#prefetchYt(i);
       return;
     }
     this.active = null;
@@ -361,7 +379,19 @@ class NativeEngine extends EventTarget {
   }
 }
 
+// The server streams YouTube sound itself (yt-dlp, like the Msik bot) when it can
+let serverStreams = true;
+get('/api/info').then((i) => (serverStreams = i?.ytdlp !== false)).catch(() => {});
+const viaSearch = (x) => x.player === 'ytfind' || x.source === 'deezer' || x.source === 'spotify';
+const viaVideo = (x) => x.source === 'youtube' || x.source === 'ytmusic';
+/** Songs whose sound the server streams like a song of its own */
+export const streams = (t) => !!t?.ext && serverStreams && !t._noStream && (viaSearch(t.ext) || viaVideo(t.ext));
+const needsHtml = (t) => !!t?.ext && !streams(t);
+function streamOf(t) {
+  return viaVideo(t.ext) ? ytAudioUrl(t.ext.id) : ytSongUrl(t);
+}
 function toItem(t) {
+  if (streams(t)) return { id: t.id, ext: t.ext, url: streamOf(t), streamed: true, title: t.title, artist: t.artist || '', album: t.album || '', artwork: coverUrl(t.id), duration: t.duration || 0 };
   if (t.ext) return { id: t.id, ext: t.ext, url: '', title: t.title, artist: t.artist || '', album: t.album || '', artwork: coverUrl(t.id), duration: t.duration || 0 };
   return {
     id: t.id,
@@ -418,7 +448,7 @@ export class Player extends EventTarget {
   /** On Android, songs from other platforms can only play in the app view, so the queue moves there. */
   #pickEngine(list) {
     if (!this.native) return;
-    const want = list.some((t) => t.ext) ? this.#html() : this.nativeEngine;
+    const want = list.some(needsHtml) ? this.#html() : this.nativeEngine;
     if (want === this.engine) return;
     this.engine.pause();
     this.engine = want;
@@ -542,6 +572,13 @@ export class Player extends EventTarget {
     }
     this.skipHint = null;
     this.index = index;
+    // like the Msik bot: the next songs are looked up on YouTube while this one plays
+    const next = this.queue.slice(index + 1, index + 4).filter(streams);
+    if (next.length)
+      post('/api/ytprefetch', {
+        ids: next.filter((t) => viaVideo(t.ext)).map((t) => t.ext.id),
+        songs: next.filter((t) => !viaVideo(t.ext)).map((t) => ({ title: t.title, artist: t.artist || '', duration: t.duration || 0 }))
+      }).catch(() => {});
     this.position = 0;
     const cur = this.current;
     this.duration = cur?.duration || 0;
@@ -654,7 +691,7 @@ export class Player extends EventTarget {
     if (!this.queue.length) return this.playList(tracks, 0);
     const at = this.queue.length;
     this.queue.push(...tracks);
-    if (tracks.some((t) => t.ext) && this.#moveToHtml()) return (this.#emit('change'), toast);
+    if (tracks.some(needsHtml) && this.#moveToHtml()) return (this.#emit('change'), toast);
     this.engine.insert(at, tracks.map(toItem));
     this.#emit('change');
     return toast;
@@ -664,7 +701,7 @@ export class Player extends EventTarget {
     if (!this.queue.length) return this.playList(tracks, 0);
     const at = this.index + 1;
     this.queue.splice(at, 0, ...tracks);
-    if (tracks.some((t) => t.ext) && this.#moveToHtml()) return this.#emit('change');
+    if (tracks.some(needsHtml) && this.#moveToHtml()) return this.#emit('change');
     this.engine.insert(at, tracks.map(toItem));
     this.#emit('change');
   }

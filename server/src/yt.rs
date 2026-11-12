@@ -80,7 +80,7 @@ pub fn parse_search(json: &Value) -> Vec<Value> {
 
 pub fn search(query: &str) -> Result<Vec<Value>, String> {
     let body = json!({
-        "context": { "client": { "clientName": "WEB", "clientVersion": VERSION, "hl": "en", "gl": "DE" } },
+        "context": { "client": { "clientName": "WEB", "clientVersion": VERSION, "hl": "de", "gl": "DE" } },
         "query": query,
         "params": VIDEOS,
     });
@@ -222,6 +222,50 @@ pub fn as_candidates(songs: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+/// Lower case, letters and digits only (keeps brackets' content, unlike `ext::norm`)
+fn plain(s: &str) -> String {
+    s.to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Words that mean "not the original recording" (covers, piano versions, karaoke, ...).
+const NOT_ORIGINAL: &[&str] = &[
+    "cover", "piano", "klavier", "karaoke", "instrumental", "acoustic", "akustik", "live", "remix", "type beat",
+    "8d", "slowed", "sped up", "nightcore", "reaction", "tutorial", "how to play", "lesson", "guitar", "drum",
+    "bass cover", "orchestra", "orchestral", "lullaby", "music box", "spieluhr", "chipmunk", "reverb", "bass boosted",
+    "mashup", "medley", "parody", "tribute", "kids", "kinder", "8 bit", "8-bit", "midi", "synthesia", "ai cover",
+];
+
+/// Like the Msik bot: YouTube's own order for "<artist> - <title>" decides, the first hit wins.
+/// On top of the bot, versions that are not the original (piano, cover, live, ...) are left out
+/// unless the song itself is one, the artist or title has to show up, and the length has to fit.
+pub fn msik_order(videos: &[Value], title: &str, artist: &str, duration: f64) -> Vec<String> {
+    let tn = plain(title);
+    let an = plain(artist);
+    let tw: Vec<String> = plain(&crate::ext::norm(title)).split_whitespace().map(String::from).collect();
+    let aw: Vec<String> = plain(artist).split_whitespace().map(String::from).collect();
+    videos
+        .iter()
+        .filter(|v| {
+            let vt = plain(v["title"].as_str().unwrap_or(""));
+            let ch = plain(v["channel"].as_str().unwrap_or(""));
+            let hay = format!(" {vt} {ch} ");
+            let has = |w: &str| hay.contains(&format!(" {w} ")) || hay.contains(&format!(" {w}"));
+            if NOT_ORIGINAL.iter().any(|b| { let b = plain(b); has(&b) && !tn.contains(&b) && !an.contains(&b) }) {
+                return false;
+            }
+            // most of the title words, and the artist in title or channel
+            let tmatch = if tw.is_empty() { 1.0 } else { tw.iter().filter(|w| hay.contains(w.as_str())).count() as f64 / tw.len() as f64 };
+            let amatch = aw.is_empty() || aw.iter().any(|w| w.len() > 1 && hay.contains(w.as_str()));
+            if tmatch < 0.6 || !amatch {
+                return false;
+            }
+            let d = v["duration"].as_f64().unwrap_or(0.0);
+            !(duration > 0.0 && d > 0.0 && ((d - duration).abs() > (duration * 0.35).max(40.0)))
+        })
+        .filter_map(|v| v["id"].as_str().map(String::from))
+        .collect()
+}
+
 fn words(s: &str) -> Vec<String> {
     crate::ext::norm(s).split_whitespace().map(String::from).collect()
 }
@@ -340,5 +384,19 @@ mod tests {
         assert_eq!(v[0]["cover"], "https://lh3.googleusercontent.com/abc=w544-h544-l90-rj");
         let c = as_candidates(&v);
         assert_eq!(best(&c, "Handwerker", "Mickie Krause", 181.0).as_deref(), Some("aaaaaaaaaaa"));
+    }
+
+    #[test]
+    fn msik_order_skips_piano_versions() {
+        let v = vec![
+            json!({"id":"p","title":"When I Come Around - Green Day (Piano Cover)","channel":"Piano Guy","duration":178.0}),
+            json!({"id":"k","title":"Green Day - When I Come Around (Karaoke)","channel":"Sing King","duration":180.0}),
+            json!({"id":"o","title":"Green Day - When I Come Around [Official Music Video]","channel":"Green Day","duration":186.0}),
+            json!({"id":"x","title":"Something else","channel":"Green Day","duration":178.0}),
+        ];
+        assert_eq!(msik_order(&v, "When I Come Around", "Green Day", 178.0), vec!["o".to_string()]);
+        // a live song stays live
+        let l = vec![json!({"id":"l","title":"Green Day - Basket Case (Live)","channel":"Green Day","duration":200.0})];
+        assert_eq!(msik_order(&l, "Basket Case - Live", "Green Day", 200.0), vec!["l".to_string()]);
     }
 }

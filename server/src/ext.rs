@@ -2,17 +2,18 @@
 //! local library), fetching public playlist data, and share links.
 use crate::api::{
     body_json, nf, serve_cover, serve_track, set_playlist_tracks, track_json, tracks_by_ids,
-    with_likes, ApiError, Auth, St, R, TRACK_COLS,
+    with_likes, ApiError, Auth, AuthQ, St, R, TRACK_COLS,
 };
 use crate::db::now_ms;
 use axum::extract::{Path, Query, Request, State};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::io::Read;
 use std::time::Duration;
 
 pub const SCHEMA: &str = r#"
@@ -99,6 +100,9 @@ pub fn routes() -> Router<St> {
         .route("/ytfind", get(yt_find))
         .route("/ytsearch", get(yt_search))
         .route("/ytmsearch", get(ytm_search))
+        .route("/ytsong", get(yt_song))
+        .route("/ytaudio/{id}", get(yt_audio))
+        .route("/ytprefetch", post(yt_prefetch))
         .route("/art/{kind}/{id}", get(get_art).put(put_art).delete(delete_art))
         .route("/lyrics", get(lyrics_lookup))
         .route("/lyrics/{id}", get(lyrics))
@@ -712,21 +716,17 @@ fn yt_key(st: &St, uid: i64) -> String {
         k
     }
 }
-/// ?title=&artist=&duration= (or ?q=) → { id } of the YouTube video for that song
-async fn yt_find(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
-    let g = |k: &str| q.get(k).map(|s| s.trim().chars().take(200).collect::<String>()).unwrap_or_default();
-    let (title, artist) = (g("title"), g("artist"));
-    let duration: f64 = g("duration").parse().unwrap_or(0.0);
-    // like the Msik bot: "<first artist> - <title>"
+/// The YouTube video for a song. Like the Msik bot: one YouTube search for "<first artist> - <title>"
+/// and YouTube's first hit (versions that are not the original, like piano or karaoke, are passed
+/// over unless the song itself is one). With `embed`, only videos that may play inside other apps
+/// count (for the YouTube player fallback). Remembered per song.
+fn find_video(st: &St, uid: i64, title: &str, artist: &str, duration: f64, q: &str, skip: &[String], embed: bool) -> Result<String, ApiError> {
     let first = artist.split(',').next().unwrap_or("").trim().to_string();
-    let term = if title.is_empty() { g("q") } else { format!("{first} - {title}").trim_matches(|c: char| c == ' ' || c == '-').to_string() };
+    let term = if title.is_empty() { q.to_string() } else { format!("{first} - {title}").trim_matches(|c: char| c == ' ' || c == '-').to_string() };
     if term.is_empty() {
         return Err(ApiError::new(400, "bad_query"));
     }
-    // "e:" = checked to be playable outside YouTube (older entries were not)
-    let ck = format!("e:{}", norm(&term));
-    // ids the app could not play (embedding switched off): find another one
-    let skip: Vec<String> = g("skip").split(',').map(|x| x.trim().to_string()).filter(|x| x.len() == 11).collect();
+    let ck = format!("{}:{}", if embed { "e" } else { "s" }, norm(&term));
     let cached: Option<(String, i64)> = {
         let db = st.db.lock().unwrap();
         db.query_row("SELECT vid, found FROM yt_find WHERE q = ?", [&ck], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -736,45 +736,45 @@ async fn yt_find(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap
     // misses are tried again after a day
     if let Some((vid, found)) = cached {
         if (!vid.is_empty() && !skip.contains(&vid)) || (vid.is_empty() && skip.is_empty() && now_ms() / 1000 - found < 86400) {
-            return Ok(Json(json!({ "id": vid, "cached": true })));
+            return Ok(vid);
         }
     }
-    let key = yt_key(&st, u.id);
-    let (t2, a2) = (if title.is_empty() { term.clone() } else { title.clone() }, artist.clone());
-    let term2 = term.clone();
-    let skip2 = skip.clone();
-    let vid = tokio::task::spawn_blocking(move || -> Result<String, ApiError> {
-        // like the Msik bot: "<artist> - <title>" on YouTube, no key needed. The song itself on
-        // YouTube Music first (plain audio track), then normal YouTube; every match is checked
-        // for being playable outside YouTube, because labels often switch that off.
-        let mut cands: Vec<String> = Vec::new();
-        let mut reached = false;
-        if let Ok(songs) = crate::yt::music_search(&term2) {
-            reached = true;
-            cands.extend(crate::yt::rank(&crate::yt::as_candidates(&songs), &t2, &a2, duration));
+    let t2 = if title.is_empty() { term.clone() } else { title.to_string() };
+    let videos = crate::yt::search(&term);
+    let reached = videos.is_ok();
+    let videos = videos.unwrap_or_default();
+    let mut cands = crate::yt::msik_order(&videos, &t2, artist, duration);
+    // exactly the bot when nothing passes: YouTube's first hit
+    if cands.is_empty() {
+        cands.extend(videos.iter().filter_map(|v| v["id"].as_str().map(String::from)).take(1));
+    }
+    if embed {
+        // YouTube Music as a second source for the player fallback
+        if let Ok(sg) = crate::yt::music_search(&term) {
+            cands.extend(crate::yt::msik_order(&crate::yt::as_candidates(&sg), &t2, artist, duration));
         }
-        for q in [format!("{term2} audio"), term2.clone()] {
-            if let Ok(v) = crate::yt::search(&q) {
-                reached = true;
-                cands.extend(crate::yt::rank(&v, &t2, &a2, duration));
-            }
-        }
-        let mut seen = std::collections::HashSet::new();
-        cands.retain(|c| !skip2.contains(c) && seen.insert(c.clone()));
-        for c in cands.iter().take(8) {
-            if crate::yt::embeddable(c) {
-                return Ok(c.clone());
-            }
-        }
-        if reached && key.is_empty() {
-            return Ok(String::new());
-        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    cands.retain(|c| !skip.contains(c) && seen.insert(c.clone()));
+    let vid = if embed {
+        cands.truncate(6);
+        let ok: Vec<bool> = std::thread::scope(|sc| {
+            let hs: Vec<_> = cands.iter().map(|c| sc.spawn(move || crate::yt::embeddable(c))).collect();
+            hs.into_iter().map(|h| h.join().unwrap_or(true)).collect()
+        });
+        cands.iter().zip(ok).find(|(_, ok)| *ok).map(|(c, _)| c.clone()).unwrap_or_default()
+    } else {
+        cands.first().cloned().unwrap_or_default()
+    };
+    if vid.is_empty() && !reached {
+        // YouTube's own search is down: the official API with the user's key, if there is one
+        let key = yt_key(st, uid);
         if key.is_empty() {
             return Err(ApiError::new(502, "youtube_unreachable"));
         }
         let url = format!(
             "https://www.googleapis.com/youtube/v3/search?part=id&type=video&videoEmbeddable=true&maxResults=1&q={}&key={}",
-            urlencode(&term2),
+            urlencode(&term),
             urlencode(&key)
         );
         let res = ureq::get(&url)
@@ -787,17 +787,145 @@ async fn yt_find(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap
             })?
             .into_json::<Value>()
             .map_err(|_| ApiError::new(502, "bad_source_data"))?;
-        Ok(res["items"][0]["id"]["videoId"].as_str().unwrap_or("").to_string())
-    })
-    .await
-    .map_err(|_| ApiError::new(500, "internal"))??;
+        let v = res["items"][0]["id"]["videoId"].as_str().unwrap_or("").to_string();
+        return Ok(v);
+    }
     let db = st.db.lock().unwrap();
     db.execute(
         "INSERT INTO yt_find (q, vid, found) VALUES (?, ?, ?) ON CONFLICT(q) DO UPDATE SET vid = excluded.vid, found = excluded.found",
         params![ck, vid, now_ms() / 1000],
     )
     .ok();
-    Ok(Json(json!({ "id": vid, "cached": false })))
+    Ok(vid)
+}
+
+fn song_query(q: &HashMap<String, String>) -> (String, String, f64, String, Vec<String>) {
+    let g = |k: &str| q.get(k).map(|s| s.trim().chars().take(200).collect::<String>()).unwrap_or_default();
+    let skip = g("skip").split(',').map(|x| x.trim().to_string()).filter(|x| x.len() == 11).collect();
+    (g("title"), g("artist"), g("duration").parse().unwrap_or(0.0), g("q"), skip)
+}
+
+/// ?title=&artist=&duration= (or ?q=) [&skip=id,id] → { id } of a YouTube video that may be embedded
+async fn yt_find(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let (title, artist, duration, qq, skip) = song_query(&q);
+    let vid = tokio::task::spawn_blocking(move || find_video(&st, u.id, &title, &artist, duration, &qq, &skip, true))
+        .await
+        .map_err(|_| ApiError::new(500, "internal"))??;
+    Ok(Json(json!({ "id": vid })))
+}
+
+/// The sound of a song, streamed like the Msik bot: ?title=&artist=&duration=&t=
+async fn yt_song(State(st): State<St>, AuthQ(u): AuthQ, Query(q): Query<HashMap<String, String>>, headers: axum::http::HeaderMap) -> Response {
+    let (title, artist, duration, qq, skip) = song_query(&q);
+    let st2 = st.clone();
+    let vid = match tokio::task::spawn_blocking(move || find_video(&st2, u.id, &title, &artist, duration, &qq, &skip, false)).await {
+        Ok(Ok(v)) if !v.is_empty() => v,
+        Ok(Ok(_)) => return ApiError::new(404, "notfound").into_response(),
+        Ok(Err(e)) => return e.into_response(),
+        Err(_) => return ApiError::new(500, "internal").into_response(),
+    };
+    // the bot looks up the next songs ahead; here the app asks with ?next= (title|artist per line)
+    proxy_audio(vid, headers).await
+}
+
+/// The sound of one YouTube video: /api/ytaudio/{id}?t=
+async fn yt_audio(AuthQ(_): AuthQ, Path(vid): Path<String>, headers: axum::http::HeaderMap) -> Response {
+    if vid.len() != 11 || !vid.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return ApiError::new(400, "bad_query").into_response();
+    }
+    proxy_audio(vid, headers).await
+}
+
+/// Passes the audio stream on, with Range so seeking works. The googlevideo link only works from
+/// this server's address, so the app can't fetch it itself.
+async fn proxy_audio(vid: String, headers: axum::http::HeaderMap) -> Response {
+    use axum::body::Body;
+    use axum::http::{header, StatusCode};
+    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(String::from);
+    let res = tokio::task::spawn_blocking(move || {
+        for attempt in 0..2 {
+            let s = crate::ytdl::stream(&vid).map_err(|e| {
+                eprintln!("yt-dlp {vid}: {e}");
+                ApiError::new(502, "youtube_unreachable")
+            })?;
+            let mut req = ureq::get(&s.url);
+            for (k, v) in &s.headers {
+                req = req.set(k, v);
+            }
+            req = req.set("range", range.as_deref().unwrap_or("bytes=0-"));
+            match req.call() {
+                Ok(r) => return Ok(r),
+                Err(ureq::Error::Status(416, r)) => return Ok(r),
+                // an old link: look it up again once
+                Err(_) if attempt == 0 => crate::ytdl::forget(&vid),
+                Err(e) => {
+                    eprintln!("stream {vid}: {e}");
+                    return Err(ApiError::new(502, "youtube_unreachable"));
+                }
+            }
+        }
+        Err(ApiError::new(502, "youtube_unreachable"))
+    })
+    .await;
+    let r = match res {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return e.into_response(),
+        Err(_) => return ApiError::new(500, "internal").into_response(),
+    };
+    let status = StatusCode::from_u16(r.status()).unwrap_or(StatusCode::OK);
+    let mut out = axum::http::HeaderMap::new();
+    for h in ["content-type", "content-length", "content-range", "accept-ranges"] {
+        if let Some(v) = r.header(h).and_then(|v| v.parse().ok()) {
+            out.insert(h, v);
+        }
+    }
+    if !out.contains_key("accept-ranges") {
+        out.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+    }
+    out.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(8);
+    std::thread::spawn(move || {
+        let mut rd = r.into_reader();
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            match rd.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.blocking_send(Ok(buf[..n].to_vec())).is_err() {
+                        break; // the app stopped listening (skip, seek)
+                    }
+                }
+                Err(e) => {
+                    tx.blocking_send(Err(e)).ok();
+                    break;
+                }
+            }
+        }
+    });
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
+    (status, out, Body::from_stream(stream)).into_response()
+}
+
+/// POST {ids:[...]} or ?songs= : the next songs' streams are looked up ahead (like the bot does)
+async fn yt_prefetch(State(st): State<St>, Auth(u, _): Auth, Json(b): Json<Value>) -> R {
+    let songs: Vec<(String, String, f64)> = b["songs"]
+        .as_array()
+        .map(|a| a.iter().take(3).map(|x| (x["title"].as_str().unwrap_or("").to_string(), x["artist"].as_str().unwrap_or("").to_string(), x["duration"].as_f64().unwrap_or(0.0))).collect())
+        .unwrap_or_default();
+    let ids: Vec<String> = b["ids"].as_array().map(|a| a.iter().take(3).filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    tokio::task::spawn_blocking(move || {
+        for id in ids.into_iter().filter(|i| i.len() == 11) {
+            crate::ytdl::prefetch(id);
+        }
+        for (t, a, d) in songs {
+            if let Ok(v) = find_video(&st, u.id, &t, &a, d, "", &[], false) {
+                if !v.is_empty() {
+                    crate::ytdl::prefetch(v);
+                }
+            }
+        }
+    });
+    Ok(Json(json!({ "ok": true })))
 }
 /// ?q= → YouTube videos (no key needed)
 async fn yt_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {

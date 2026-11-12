@@ -6,6 +6,7 @@ mod library;
 mod recommend;
 mod spotify;
 mod yt;
+mod ytdl;
 mod update;
 
 use api::{AppState, VERSION};
@@ -103,6 +104,7 @@ fn main() {
         std::fs::create_dir_all(d).ok();
     }
     let conn = db::open(Some(&data_dir)).expect("cannot open database");
+    ytdl::init(&data_dir);
     let state = Arc::new(AppState {
         db: Arc::new(Mutex::new(conn)),
         library: library::Library::new(

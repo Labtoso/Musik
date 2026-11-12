@@ -90,6 +90,14 @@ export const post = (p, b = {}) => api('POST', p, b);
 export const put = (p, b = {}) => api('PUT', p, b);
 export const del = (p) => api('DELETE', p);
 
+/** Like the Msik bot: the server finds the song on YouTube and streams its sound */
+export function ytSongUrl(t) {
+  const q = new URLSearchParams({ title: t.title || '', artist: t.artist || '', duration: String(Math.round(t.duration || 0)), t: conn.token });
+  return `${conn.server}/api/ytsong?${q}`;
+}
+export function ytAudioUrl(vid) {
+  return `${conn.server}/api/ytaudio/${encodeURIComponent(vid)}?t=${conn.token}`;
+}
 export function streamUrl(id) {
   return `${conn.server}/api/stream/${id}?t=${conn.token}`;
 }
