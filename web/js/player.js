@@ -37,21 +37,12 @@ class HtmlEngine extends EventTarget {
     a.addEventListener('error', () => {
       if (this.index < 0) return;
       const cur = this.items[this.index];
-      if (cur?.streamed && cur.url && viaVideo(cur.ext)) {
-        // a YouTube video the server could not stream: the official YouTube player as a fallback
-        cur.url = '';
-        cur.streamed = false;
-        return this.#load(this.index, 0, true, 'retry');
-      }
-      // Spotify / Deezer songs never fall back to random YouTube videos (re-recordings, covers)
-      if (cur?.streamed) {
-        this.#emit('error', { message: 'song_not_on_ytm' });
-        return setTimeout(() => this.#advance('error'), 800);
-      }
+      if (cur?.streamed && cur.url) return this.#streamFailed(cur);
       this.#emit('error', { message: 'playback' });
       // skip broken files instead of stopping
-      setTimeout(() => this.#advance('error'), 800);
+      this.#skipAfterError(800);
     });
+    a.addEventListener('playing', () => (this.fails = 0));
     a.addEventListener('ended', () => {
       if (this.repeat === 'one') {
         a.currentTime = 0;
@@ -65,6 +56,43 @@ class HtmlEngine extends EventTarget {
   #emit(type, detail) {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
+  /** After an error: on to the next song, but stop when several in a row fail (server or network down). */
+  #skipAfterError(ms, guard = () => true) {
+    this.fails = (this.fails || 0) + 1;
+    if (this.fails >= 3) {
+      this.fails = 0;
+      return this.#emit('playing', { playing: false });
+    }
+    setTimeout(() => guard() && this.#advance('error'), ms);
+  }
+  /** The server could not stream a song: ask it why, then say so or use the YouTube player (hidden) as a last way out. */
+  async #streamFailed(cur) {
+    const mine = () => this.items[this.index] === cur;
+    let code = 'offline';
+    try {
+      const r = await fetch(cur.url, { headers: { Range: 'bytes=0-0' } });
+      code = r.ok ? 'playback' : (await r.json().catch(() => ({}))).error || 'youtube_unreachable';
+      r.body?.cancel?.().catch?.(() => {});
+    } catch {}
+    if (!mine()) return;
+    if (code === 'notfound') {
+      this.#emit('error', { message: 'song_not_on_ytm' });
+      return this.#skipAfterError(900, mine);
+    }
+    if (code === 'offline' || code === 'unauthorized') {
+      this.#emit('error', { message: code === 'offline' ? 'offline' : 'playback' });
+      return this.#emit('playing', { playing: false });
+    }
+    // the song exists but its stream did not open: once through the official player, without showing it
+    if (!cur._embedTried) {
+      cur._embedTried = true;
+      cur.url = '';
+      cur.streamed = false;
+      return this.#load(this.index, 0, true, 'retry');
+    }
+    this.#emit('error', { message: 'stream_failed' });
+    this.#skipAfterError(900, mine);
+  }
   #adapter(kind) {
     if (this.adapters[kind]) return this.adapters[kind];
     const Cls = { youtube: YouTubeAdapter, soundcloud: SoundCloudAdapter, spotify: SpotifyAdapter, deezer: DeezerAdapter }[kind];
@@ -72,7 +100,7 @@ class HtmlEngine extends EventTarget {
     const ad = new Cls();
     const mine = (fn) => (ev) => ad === this.active && fn(ev.detail || {});
     ad.addEventListener('time', mine((d) => this.#emit('time', d)));
-    ad.addEventListener('playing', mine((d) => this.#emit('playing', d)));
+    ad.addEventListener('playing', mine((d) => (d.playing && (this.fails = 0), this.#emit('playing', d))));
     ad.addEventListener('buffering', mine((d) => this.#emit('buffering', d)));
     ad.addEventListener('error', mine((d) => {
       // the label switched off playing outside YouTube: quietly take the next best video for the same song
@@ -86,13 +114,12 @@ class HtmlEngine extends EventTarget {
       this.#emit('error', { message: d.message || 'playback' });
       // a missing device would fail the same way for every song: stop instead of skipping the whole list
       if (d.message === 'spotify_no_device') return this.#emit('playing', { playing: false });
-      setTimeout(() => ad === this.active && this.#advance('error'), 1200);
+      this.#skipAfterError(1200, () => ad === this.active);
     }));
     ad.addEventListener('ended', mine(() => {
       if (this.repeat === 'one') {
-        const it = this.items[this.index];
-        ad.load(it.ext.id, 0, true, it.ext.url);
-        return this.#emit('index', { index: this.index, reason: 'repeat' });
+        // the same song again: through the normal loading (songs found on YouTube have another id than their own)
+        return this.#load(this.index, 0, true, 'repeat');
       }
       this.#advance('ended');
     }));
@@ -767,8 +794,8 @@ export class Player extends EventTarget {
     this.skipHint = 'skip';
     this.engine.next();
   }
-  prev() {
-    if (this.position > 3) return this.seek(0);
+  prev(always = false) {
+    if (this.position > 3 && !always) return this.seek(0);
     this.skipHint = 'skip';
     this.engine.prev();
   }

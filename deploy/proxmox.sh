@@ -4,7 +4,7 @@
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
 # Optional environment variables:
 #   MUSIC_HOST_DIR=/mnt/pve/nas/music   host folder mounted read-only into the container as /srv/musik
-#   CTID=120  CT_CORES=2  CT_RAM=512  CT_DISK=8  CT_BRIDGE=vmbr0  CT_STORAGE=local-lvm  BRANCH=main
+#   CTID=120  CT_CORES=2  CT_RAM=2048  CT_SWAP=2048  CT_DISK=8  CT_BRIDGE=vmbr0  CT_STORAGE=local-lvm  BRANCH=main
 #   TAILSCALE=1                         also set up Tailscale (apps work away from home); TAILSCALE=0 skips the question
 #   TS_AUTHKEY=tskey-auth-...           log in to Tailscale without opening a link
 set -euo pipefail
@@ -13,7 +13,8 @@ REPO="Labtoso/Musik"
 BRANCH="${BRANCH:-main}"
 RAW="https://raw.githubusercontent.com/$REPO/$BRANCH/deploy"
 CORES="${CT_CORES:-2}"
-RAM="${CT_RAM:-512}"
+RAM="${CT_RAM:-2048}"
+SWAP="${CT_SWAP:-2048}"
 DISK="${CT_DISK:-8}"
 BRIDGE="${CT_BRIDGE:-vmbr0}"
 
@@ -140,6 +141,12 @@ NOTES
 
 if [ -n "$EXISTING" ]; then
   step "Updating Musik in container $EXISTING"
+  # more memory for older containers (they started with 512 MB); applies at once, cores stay as they are
+  cur_ram="$(pct config "$EXISTING" | awk '/^memory:/{print $2}')"; cur_swap="$(pct config "$EXISTING" | awk '/^swap:/{print $2}')"
+  if [ "${cur_ram:-512}" -lt "$RAM" ] || [ "${cur_swap:-0}" -lt "$SWAP" ]; then
+    new_ram=$(( ${cur_ram:-512} > RAM ? ${cur_ram:-512} : RAM )); new_swap=$(( ${cur_swap:-0} > SWAP ? ${cur_swap:-0} : SWAP ))
+    pct set "$EXISTING" --memory "$new_ram" --swap "$new_swap" && echo "  Memory: ${new_ram} MB RAM, ${new_swap} MB swap (was ${cur_ram:-512} / ${cur_swap:-0})"
+  fi
   [ "$(pct status "$EXISTING" | awk '{print $2}')" = "running" ] || pct start "$EXISTING"
   if ! pct exec "$EXISTING" -- test -f /usr/bin/tailscale 2>/dev/null; then
     ask_tailscale
@@ -190,7 +197,7 @@ fi
 step "Creating container $CTID"
 pct create "$CTID" "$TSTORE:vztmpl/$TEMPLATE" \
   --hostname musik \
-  --cores "$CORES" --memory "$RAM" --swap 512 \
+  --cores "$CORES" --memory "$RAM" --swap "$SWAP" \
   --rootfs "$RSTORE:$DISK" \
   --net0 "name=eth0,bridge=$BRIDGE,ip=dhcp,ip6=auto" \
   --unprivileged 1 --features nesting=1 \

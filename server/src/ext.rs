@@ -103,6 +103,7 @@ pub fn routes() -> Router<St> {
         .route("/ytsong", get(yt_song))
         .route("/ytaudio/{id}", get(yt_audio))
         .route("/ytprefetch", post(yt_prefetch))
+        .route("/ytcheck", get(yt_check))
         .route("/art/{kind}/{id}", get(get_art).put(put_art).delete(delete_art))
         .route("/lyrics", get(lyrics_lookup))
         .route("/lyrics/{id}", get(lyrics))
@@ -753,6 +754,22 @@ fn find_video(st: &St, uid: i64, title: &str, artist: &str, duration: f64, q: &s
             }
         }
     }
+    // not on YouTube Music as a song: the artist's own upload on YouTube ("<artist> - Topic" or
+    // the artist's channel), never somebody else's version
+    if cands.is_empty() {
+        if let Ok(v) = crate::yt::search(&term) {
+            reached = true;
+            let fa = crate::yt::plain(&first);
+            let own: Vec<Value> = v
+                .into_iter()
+                .filter(|x| {
+                    let ch = crate::yt::plain(x["channel"].as_str().unwrap_or(""));
+                    !fa.is_empty() && (ch == fa || ch == format!("{fa} topic") || ch == format!("{fa}vevo") || ch == format!("{fa} vevo") || ch == format!("{fa} official"))
+                })
+                .collect();
+            cands = crate::yt::msik_order(&own, &t2, artist, duration);
+        }
+    }
     let mut seen = std::collections::HashSet::new();
     cands.retain(|c| !skip.contains(c) && seen.insert(c.clone()));
     let vid = if embed {
@@ -904,6 +921,24 @@ async fn proxy_audio(vid: String, headers: axum::http::HeaderMap) -> Response {
     });
     let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
     (status, out, Body::from_stream(stream)).into_response()
+}
+
+/// Checks the whole way for one known song: search on YouTube Music, pick, stream. For the settings.
+async fn yt_check(State(st): State<St>, Auth(u, _): Auth) -> R {
+    let out = tokio::task::spawn_blocking(move || {
+        let t = std::time::Instant::now();
+        let songs = crate::yt::music_search("Red Hot Chili Peppers Californication");
+        let search_ms = t.elapsed().as_millis() as u64;
+        let pick = songs.as_ref().ok().and_then(|s| crate::yt::pick_song(s, "Californication", "Red Hot Chili Peppers", 329.0).into_iter().next());
+        let title = pick.as_ref().and_then(|id| songs.as_ref().ok()?.iter().find(|s| s["id"] == id.as_str()).map(|s| format!("{} - {}", s["artist"].as_str().unwrap_or(""), s["title"].as_str().unwrap_or(""))));
+        let stream = pick.as_ref().map(|id| crate::ytdl::diagnose(id));
+        let cached: i64 = st.db.lock().unwrap().query_row("SELECT COUNT(*) FROM yt_find", [], |r| r.get(0)).unwrap_or(0);
+        let _ = u;
+        json!({ "search": songs.is_ok(), "search_error": songs.err(), "search_ms": search_ms, "pick": pick, "title": title, "stream": stream, "remembered": cached, "version": crate::api::VERSION })
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?;
+    Ok(Json(out))
 }
 
 /// POST {ids:[...]} or ?songs= : the next songs' streams are looked up ahead (like the bot does)

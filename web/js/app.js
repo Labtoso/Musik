@@ -871,6 +871,25 @@ async function browseView(box) {
   box.innerHTML = html;
   tintAll(box);
 }
+// Settings → Updates → playback check: asks the server to find and open one known song
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest('[data-playcheck]')) return;
+  const box = $('#playcheck');
+  if (!box) return;
+  box.innerHTML = `<p class="muted small">${t('searching')}</p>`;
+  const line = (ok, text) => `<div class="pc-line ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✕'} ${esc(text)}</div>`;
+  try {
+    const r = await get('/api/ytcheck');
+    const st = r.stream || {};
+    box.innerHTML =
+      line(r.search && !!r.pick, r.search ? (r.pick ? t('pcFound', { title: r.title || '', ms: r.search_ms }) : t('pcNoPick')) : t('pcNoSearch', { e: r.search_error || '' })) +
+      (r.pick ? line(!!st.direct && st.opens !== false, st.direct ? (st.opens === false ? t('pcNoOpen') : t('pcStream', { ms: st.direct_ms })) : t('pcNoStream', { e: st.direct_error || '' })) : '') +
+      (r.pick && !(st.direct && st.opens !== false) ? line(!!st.ytdlp, st.ytdlp ? t('pcYtdlp') : t('pcNoYtdlp')) : '') +
+      `<div class="muted small">Server ${esc(r.version || '')}</div>`;
+  } catch (err) {
+    box.innerHTML = line(false, errorText(err));
+  }
+});
 document.addEventListener('click', (e) => {
   const fb = e.target.closest('[data-sfilter]');
   if (fb) {
@@ -1426,6 +1445,85 @@ function toggleFsLyrics() {
   $('#fs-queue').classList.remove('open');
   l.classList.toggle('open');
   if (l.classList.contains('open')) renderLyrics(l.querySelector('.lyrbody'));
+  fsButtons();
+}
+// the three buttons under the big player show what is open
+function fsButtons() {
+  const on = (act, yes) => document.querySelector(`.fs-bottom [data-act="${act}"]`)?.classList.toggle('on', yes);
+  on('viz', (prefs.viz || 'off') !== 'off');
+  on('lyrics', $('#fs-lyrics').classList.contains('open'));
+  on('queue', $('#fs-queue').classList.contains('open'));
+}
+// swipe left for the next song, right for the previous one (big cover and small player)
+function bindSwipe(sel, moving) {
+  let el = null, x0 = 0, y0 = 0, dx = 0, active = false, locked = false, id = null;
+  const target = () => el.querySelector(moving) || el;
+  const settle = (m, cls) => setTimeout(() => m.classList.remove(cls), 240);
+  const reset = (dir) => {
+    const box = el;
+    const m = target();
+    m.classList.remove('swiping');
+    m.classList.add('swipe-back');
+    if (!dir) {
+      m.style.transform = '';
+      m.style.opacity = '';
+      return settle(m, 'swipe-back');
+    }
+    m.style.transform = `translateX(${dir * -110}%)`;
+    m.style.opacity = '0';
+    setTimeout(() => {
+      // the cover may have been replaced by the new song in the meantime
+      m.classList.remove('swipe-back');
+      m.style.transform = '';
+      m.style.opacity = '';
+      const n = box.querySelector(moving) || box;
+      n.classList.add('swiping');
+      n.style.transform = `translateX(${dir * 60}%)`;
+      n.style.opacity = '0';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        n.classList.remove('swiping');
+        n.classList.add('swipe-back');
+        n.style.transform = '';
+        n.style.opacity = '';
+        settle(n, 'swipe-back');
+      }));
+    }, 170);
+  };
+  document.addEventListener('pointerdown', (e) => {
+    const hit = e.target.closest?.(sel);
+    if (!hit || e.pointerType === 'mouse' || !player?.current || e.target.closest('button, input')) return;
+    el = hit; x0 = e.clientX; y0 = e.clientY; dx = 0; active = true; locked = false; id = e.pointerId;
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!active || e.pointerId !== id) return;
+    dx = e.clientX - x0;
+    const dy = e.clientY - y0;
+    if (!locked) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      if (Math.abs(dy) > Math.abs(dx)) return void (active = false);
+      locked = true;
+      target().classList.add('swiping');
+    }
+    const m = target();
+    m.style.transform = `translateX(${dx}px)`;
+    m.style.opacity = String(Math.max(0.35, 1 - Math.abs(dx) / (el.clientWidth * 0.9)));
+  });
+  const end = (e) => {
+    if (!active || e.pointerId !== id) return;
+    active = false;
+    if (!locked) return;
+    const box = el;
+    box.dataset.swiped = '1';
+    setTimeout(() => delete box.dataset.swiped, 350);
+    const far = Math.abs(dx) > Math.min(90, el.clientWidth * 0.22);
+    if (far && e.type === 'pointerup') {
+      const dir = dx < 0 ? 1 : -1;
+      reset(dir);
+      dir > 0 ? player.next() : player.prev(true);
+    } else reset(0);
+  };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
 }
 
 // ---------- equalizer ----------
@@ -1728,8 +1826,11 @@ function bindPlayer() {
       seeking = false;
     }
   });
-  $('#mini').addEventListener('click', (e) => {
-    if (e.target.closest('button')) return;
+  bindSwipe('#fs-cover', '.cover');
+  bindSwipe('#mini', '.np-text');
+  document.addEventListener('click', (e) => {
+    const mini = e.target.closest('#mini');
+    if (!mini || e.target.closest('button') || mini.dataset.swiped) return;
     if (innerWidth < 900 && player.current) openFs(true);
   });
   player.addEventListener('change', renderPlayer);
@@ -1770,6 +1871,7 @@ function setViz(mode) {
   prefs.viz = mode;
   savePrefs();
   vizSync();
+  fsButtons();
   const sel = $('#vizmode');
   if (sel) sel.value = mode;
 }
@@ -1783,14 +1885,17 @@ function openFs(open) {
   vizSync();
   if (!open) $('#fs-queue').classList.remove('open');
   if (!open) $('#fs-lyrics').classList.remove('open');
+  fsButtons();
   placeStage();
   setTimeout(placeStage, 350);
   if (open) history.pushState({ fs: 1 }, '');
 }
 function toggleFsQueue() {
   const q = $('#fs-queue');
+  $('#fs-lyrics').classList.remove('open');
   q.classList.toggle('open');
   if (q.classList.contains('open')) q.innerHTML = queueHtml();
+  fsButtons();
 }
 addEventListener('popstate', () => {
   if ($('#fs').classList.contains('open')) openFs(false);
@@ -2232,6 +2337,7 @@ async function renderSettings() {
     user.admin ? setCard('users', 'user', t('users'), setRow(t('users'), `<button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button>`, { hint: '<span id="userlist">…</span>', keys: 'nutzer users admin konto' })) : '',
     setCard('updates', 'download', t('updates'),
       setRow(t('updates'), `<button class="btn" data-updcheck>${icon('refresh')}${t('checkUpdates')}</button>`, { wide: true, hint: '<div id="updinfo" class="upd"></div>', keys: 'update version neu' }) +
+      setRow(t('playCheck'), `<button class="btn" data-playcheck>${icon('play')}${t('playCheckRun')}</button>`, { wide: true, hint: `${t('playCheckHint')}<div id="playcheck" class="upd"></div>`, keys: 'test check youtube stream wiedergabe playback prüfen' }) +
       setRow(t('allDownloads'), `<a class="btn" href="${RELEASES}" target="_blank" rel="noopener">${icon('download')}${t('allDownloads')}</a>`, { hint: 'LabtosoStudios', keys: 'apk exe appimage download' }))
   ].join('');
   const q = $('#setq')?.value || '';

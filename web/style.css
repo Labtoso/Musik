@@ -581,7 +581,7 @@ p.lead { position: static; width: auto; height: auto; display: block; max-width:
 .ext-stage[data-kind='yt'] .ext-sc, .ext-stage[data-kind='sc'] .ext-yt { display: none; }
 body:has(.fs-queue.open) .ext-stage.in-fs { visibility: hidden; }
 /* the YouTube player plays the sound only: no little video window in the corner (the cover shows instead) */
-.ext-stage[data-kind='yt']:not(.in-fs) { opacity: 0; pointer-events: none; width: 200px; height: 200px; right: 0; bottom: 0; box-shadow: none; }
+.ext-stage[data-kind='yt'] { opacity: 0 !important; pointer-events: none !important; width: 200px !important; height: 200px !important; left: auto !important; top: auto !important; right: 0; bottom: 0; box-shadow: none; z-index: -1 !important; }
 @media (max-width: 899px) {
   .ext-stage:not([data-kind='yt']) { right: 12px; width: 176px; height: 99px; bottom: calc(var(--bar) + 76px + var(--safe-b)); }
   .eqbands { gap: 2px; }
@@ -601,12 +601,22 @@ body:has(.fs-queue.open) .ext-stage.in-fs { visibility: hidden; }
 .fs[data-viz='ring'] .fs-cover .cover.huge { transform: scale(calc(0.56 * var(--pulse, 1))); border-radius: 50%; transition: transform 0.08s linear, border-radius 0.35s; }
 .fs[data-viz='bars'] .fs-cover .cover.huge, .fs[data-viz='wave'] .fs-cover .cover.huge { opacity: 0.14; filter: blur(18px) saturate(1.4); transform: scale(0.9); }
 .fs[data-viz='bars'] canvas.viz, .fs[data-viz='wave'] canvas.viz { z-index: 2; }
-.fs-bottom { gap: 4px; flex-wrap: wrap; }
+.fs-bottom { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; position: relative; z-index: 8; height: 44px; flex: none; }
+.fs-bottom .btn { justify-content: center; min-width: 0; height: 44px; white-space: nowrap; overflow: hidden; }
+.fs-bottom .btn.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+/* queue and lyrics lie over cover and visualizer and end above the three buttons, which never move */
+.fs-queue { z-index: 6; bottom: calc(22px + var(--safe-b) + 44px + 10px); border-radius: var(--r-win); border: 1px solid var(--line); left: 10px; right: 10px; visibility: hidden; transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1), visibility 0s 0.22s; }
+.fs-queue.open { visibility: visible; transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1); }
+.fs:has(.fs-queue.open)::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: calc(22px + var(--safe-b) + 44px + 10px); background: var(--bg); z-index: 5; }
+/* swipe on the cover or the small player: next and previous song */
+.fs-cover, #mini { touch-action: pan-y; }
+.swiping { transition: none !important; }
+.swipe-back { transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1), opacity 0.22s !important; }
 @media (min-width: 900px) {
   .fs { padding-left: max(22px, calc(50vw - 360px)); padding-right: max(22px, calc(50vw - 360px)); }
 }
 body:has(.fs.open) .toast { top: calc(64px + var(--safe-t)); bottom: auto; }
-@media (max-width: 420px) { .fs-bottom .btn { padding: 0 9px; gap: 6px; font-size: 13px; } }
+@media (max-width: 480px) { .fs-bottom .btn { padding: 0 4px; gap: 5px; font-size: 12.5px; letter-spacing: -0.01em; } .fs-bottom .btn svg { width: 16px; height: 16px; flex: none; } }
 
 /* updates */
 .upd { display: grid; gap: 10px; margin-bottom: 12px; }
@@ -782,3 +792,8 @@ body:has(.fs.open) .toast { top: calc(64px + var(--safe-t)); bottom: auto; }
   .set-row:has(.swatches) .sr-ctl, .set-row:has(.colpick) .sr-ctl, .set-row:has(.seg [data-smode]) .sr-ctl { width: 100%; }
   .seg:has([data-smode]) button { white-space: nowrap; padding-inline: 8px; }
 }
+
+/* playback check in the settings */
+.pc-line { margin-top: 6px; font-size: 13.5px; }
+.pc-line.ok { color: #1ed760; }
+.pc-line.bad { color: #ff6b6b; }

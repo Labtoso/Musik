@@ -40,13 +40,14 @@ fn on_path(cmd: &str) -> Option<PathBuf> {
 
 fn download(url: &str, to: &Path) -> Result<(), String> {
     let res = ureq::get(url).timeout(Duration::from_secs(300)).call().map_err(|e| e.to_string())?;
-    let mut buf = Vec::new();
-    res.into_reader().take(400 << 20).read_to_end(&mut buf).map_err(|e| e.to_string())?;
     if let Some(d) = to.parent() {
         std::fs::create_dir_all(d).ok();
     }
+    // straight to disk, the server may have little memory
     let tmp = to.with_extension("part");
-    std::fs::write(&tmp, &buf).map_err(|e| e.to_string())?;
+    let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    std::io::copy(&mut res.into_reader().take(400 << 20), &mut f).map_err(|e| e.to_string())?;
+    drop(f);
     std::fs::rename(&tmp, to).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
@@ -86,9 +87,9 @@ fn unzip_one(zip: &Path, name: &str, to: &Path) -> Result<(), String> {
     let f = std::fs::File::open(zip).map_err(|e| e.to_string())?;
     let mut a = zip::ZipArchive::new(f).map_err(|e| e.to_string())?;
     let mut e = a.by_name(name).map_err(|e| e.to_string())?;
-    let mut buf = Vec::new();
-    e.read_to_end(&mut buf).map_err(|e| e.to_string())?;
-    std::fs::write(to, buf).map_err(|e| e.to_string())?;
+    let mut f = std::fs::File::create(to).map_err(|e| e.to_string())?;
+    std::io::copy(&mut e, &mut f).map_err(|e| e.to_string())?;
+    drop(f);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -125,7 +126,7 @@ pub fn init(data_dir: &Path) {
         // keep it current, YouTube changes often (only our own copy, a system one is the system's)
         if let Some(y) = &ytdlp {
             if *y == local {
-                Command::new(y).arg("-U").stdout(Stdio::null()).stderr(Stdio::null()).status().ok();
+                Command::new(y).arg("-U").env("TMPDIR", bin.join("tmp")).stdout(Stdio::null()).stderr(Stdio::null()).status().ok();
             }
         }
         let deno_local = bin.join(if cfg!(windows) { "deno.exe" } else { "deno" });
@@ -164,8 +165,28 @@ pub fn init(data_dir: &Path) {
     });
 }
 
+/// The server can stream on its own (the light way needs nothing installed)
 pub fn available() -> bool {
-    bins().lock().unwrap().ytdlp.is_some() || READY.get().is_none()
+    true
+}
+
+/// What works right now, for the check in the settings
+pub fn diagnose(vid: &str) -> serde_json::Value {
+    let t = Instant::now();
+    let d = direct(vid);
+    let direct_ms = t.elapsed().as_millis() as u64;
+    let opens = d.as_ref().ok().map(|s| {
+        let mut req = ureq::get(&s.url).set("range", "bytes=0-1023").timeout(Duration::from_secs(10));
+        for (k, v) in &s.headers {
+            req = req.set(k, v);
+        }
+        req.call().map(|r| r.status() < 300).unwrap_or(false)
+    });
+    let b = bins().lock().unwrap();
+    serde_json::json!({
+        "direct": d.is_ok(), "direct_error": d.err(), "direct_ms": direct_ms, "opens": opens,
+        "ytdlp": b.ytdlp.as_ref().map(|p| p.display().to_string()), "js": b.js, "ytdlp_ready": READY.get().is_some(),
+    })
 }
 
 fn wait_ready() {
@@ -271,7 +292,7 @@ pub fn pick_audio(player: &serde_json::Value) -> Option<String> {
 }
 
 fn direct(vid: &str) -> Result<Stream, String> {
-    let mut last = String::from("no client answered");
+    let mut last = String::new();
     for (name, version, id, ua, extra) in CLIENTS {
         let mut client: serde_json::Value = serde_json::from_str(extra).unwrap_or_else(|_| serde_json::json!({}));
         client["clientName"] = (*name).into();
@@ -290,7 +311,7 @@ fn direct(vid: &str) -> Result<Stream, String> {
         let json: serde_json::Value = match res.map_err(|e| e.to_string()).and_then(|r| r.into_json().map_err(|e| e.to_string())) {
             Ok(j) => j,
             Err(e) => {
-                last = format!("{name}: {e}");
+                last = format!("{last}{name}: {e}; ");
                 continue;
             }
         };
@@ -298,7 +319,7 @@ fn direct(vid: &str) -> Result<Stream, String> {
             Some(url) => {
                 return Ok(Stream { until: expires(&url), url, headers: vec![("User-Agent".into(), ua.to_string())] });
             }
-            None => last = format!("{name}: {}", json["playabilityStatus"]["reason"].as_str().or(json["playabilityStatus"]["status"].as_str()).unwrap_or("no audio")),
+            None => last = format!("{last}{name}: {}; ", json["playabilityStatus"]["reason"].as_str().or(json["playabilityStatus"]["status"].as_str()).unwrap_or("no audio")),
         }
     }
     Err(last)
@@ -362,10 +383,6 @@ pub fn stream_with(vid: &str, deep: bool) -> Result<Stream, String> {
     Ok(s)
 }
 
-pub fn stream(vid: &str) -> Result<Stream, String> {
-    stream_with(vid, false)
-}
-
 pub fn forget(vid: &str) {
     if let Some(c) = STREAMS.get() {
         c.lock().unwrap().remove(vid);
@@ -375,7 +392,14 @@ pub fn forget(vid: &str) {
 /// Looks up the stream ahead of time (next songs), errors are ignored.
 pub fn prefetch(vid: String) {
     std::thread::spawn(move || {
-        stream(&vid).ok();
+        // only the light way ahead of time, yt-dlp is kept for the song that is really played
+        let cache = STREAMS.get_or_init(|| Mutex::new(HashMap::new()));
+        if cache.lock().unwrap().get(&vid).map(|s| s.until > Instant::now()).unwrap_or(false) {
+            return;
+        }
+        if let Ok(s) = direct(&vid) {
+            cache.lock().unwrap().insert(vid, s);
+        }
     });
 }
 

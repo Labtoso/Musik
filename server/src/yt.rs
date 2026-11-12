@@ -239,7 +239,6 @@ const NOT_ORIGINAL: &[&str] = &[
 /// Like the Msik bot: YouTube's own order for "<artist> - <title>" decides, the first hit wins.
 /// On top of the bot, versions that are not the original (piano, cover, live, ...) are left out
 /// unless the song itself is one, the artist or title has to show up, and the length has to fit.
-#[allow(dead_code)]
 pub fn msik_order(videos: &[Value], title: &str, artist: &str, duration: f64) -> Vec<String> {
     let tn = plain(title);
     let an = plain(artist);
