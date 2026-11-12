@@ -34,6 +34,20 @@ EXISTING=""
 for id in $(pct list | awk 'NR>1 {print $1}'); do
   if pct config "$id" 2>/dev/null | grep -Eq '^tags:.*\bmusik\b'; then EXISTING="$id"; break; fi
 done
+# older containers without the tag: hostname musik with the server inside
+if [ -z "$EXISTING" ]; then
+  for id in $(pct list | awk 'NR>1 {print $1}'); do
+    if pct config "$id" 2>/dev/null | grep -q '^hostname: musik$' && pct exec "$id" -- test -x /opt/musik/musik-server 2>/dev/null; then
+      EXISTING="$id"; pct set "$id" --tags musik >/dev/null 2>&1 || true; break
+    fi
+  done
+fi
+echo
+if [ -n "$EXISTING" ]; then
+  echo "==> Musik container $EXISTING found: UPDATE. Settings, accounts, playlists and music are kept."
+else
+  echo "==> No Musik container found: CLEAN INSTALL into a new container."
+fi
 
 ask_tailscale() {
   if [ -z "${TAILSCALE+x}" ] && [ -r /dev/tty ]; then
@@ -75,21 +89,53 @@ run_inside() {
 }
 
 show_links() {
-  local id="$1" ip port
-  ip="$(pct exec "$id" -- hostname -I 2>/dev/null | awk '{print $1}')"
-  port="$(pct exec "$id" -- awk -F= '/^PORT=/{print $2}' /etc/musik.env 2>/dev/null || echo 8484)"
+  local id="$1" mode="$2" ip port url remote version music when ts
+  ip="$(pct exec "$id" -- hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  port="$(pct exec "$id" -- awk -F= '/^PORT=/{print $2}' /etc/musik.env 2>/dev/null || true)"
   port="${port:-8484}"
-  local url="http://${ip:-<container-ip>}:$port" remote
+  url="http://${ip:-<container-ip>}:$port"
   remote="$(pct exec "$id" -- awk -F= '/^REMOTE_URL=/{print $2}' /etc/musik.env 2>/dev/null || true)"
-  pct set "$id" --description "$(printf '# Musik\n\nWeb app: %s\n\nServer address for the apps: %s\n\nOn the go (Tailscale): %s\n\nApps: https://github.com/%s/releases/latest\n\nUpdate: run the Proxmox script again or `musik-update` in the container.\n' "$url" "$url" "${remote:-not set up}" "$REPO")" >/dev/null
+  music="$(pct exec "$id" -- awk -F= '/^MUSIC_DIRS=/{print $2}' /etc/musik.env 2>/dev/null || true)"
+  version="$(pct exec "$id" -- bash -c "curl -fsS --max-time 5 http://127.0.0.1:$port/api/info" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' || true)"
+  ts="$(pct exec "$id" -- bash -c 'command -v tailscale >/dev/null && tailscale ip -4 2>/dev/null | head -n1' 2>/dev/null || true)"
+  when="$(date '+%Y-%m-%d %H:%M')"
+  # notes shown under the container's Summary in the Proxmox web UI
+  pct set "$id" --description "$(cat <<NOTES
+<div align='center'><a href='https://musik.labtoso.de'><img src='https://musik.labtoso.de/icon.svg' width='72' alt='Musik'/></a>
+
+## Musik server ${version:+v$version}
+
+Your own music server for Android, Windows, Linux and the browser.
+</div>
+
+| | |
+|---|---|
+| **Version** | ${version:-unknown} |
+| **Web app** | [$url]($url) |
+| **Server address for the apps** | \`$url\` |
+| **On the go (Tailscale)** | ${remote:-not set up} |
+| **Tailscale IP** | ${ts:--} |
+| **Music folder** | \`${music:-/srv/musik}\` |
+| **Last ${mode:-install}** | $when |
+
+**Update:** run the Proxmox script again on this node, or \`musik-update\` inside the container.
+**Logs:** \`pct exec $id -- journalctl -u musik -f\`
+**Settings:** \`pct exec $id -- nano /etc/musik.env\`
+
+[Download the apps](https://github.com/$REPO/releases/latest) · [Docs](https://musik.labtoso.de/docs.html) · [Website](https://musik.labtoso.de)
+NOTES
+)" >/dev/null || true
   echo
-  echo "Done. Container $id"
+  echo "────────────────────────────────────────────────────────────"
+  if [ "$mode" = "update" ]; then echo " Musik ${version:+$version }updated in container $id."; else echo " Musik ${version:+$version }installed in new container $id."; fi
+  echo "────────────────────────────────────────────────────────────"
   echo "  Web app:              $url"
   echo "  Server address (app): $url"
   [ -n "$remote" ] && echo "  On the go:            $remote   (Tailscale, the apps switch by themselves)"
   echo "  Downloads (APK/EXE):  https://github.com/$REPO/releases/latest"
   echo "  Logs:                 pct exec $id -- journalctl -u musik -f"
   echo "  Settings:             pct exec $id -- nano /etc/musik.env"
+  echo "  The same overview is in Proxmox: container $id -> Summary -> Notes."
 }
 
 if [ -n "$EXISTING" ]; then
@@ -106,7 +152,7 @@ if [ -n "$EXISTING" ]; then
   fi
   sleep 3
   run_inside "$EXISTING" "curl -fsSL $RAW/install.sh | bash -s -- --update$(ts_args)"
-  show_links "$EXISTING"
+  show_links "$EXISTING" update
   exit 0
 fi
 
@@ -164,4 +210,4 @@ done
 
 step "Installing Musik inside the container"
 run_inside "$CTID" "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates >/dev/null && curl -fsSL $RAW/install.sh | bash -s -- --music /srv/musik$(ts_args)"
-show_links "$CTID"
+show_links "$CTID" install

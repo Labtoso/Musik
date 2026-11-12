@@ -40,6 +40,25 @@ cat <<'BANNER'
  |_|  |_|\__,_|___/_|_|\_\   server installer
 BANNER
 
+# clean install or update?
+info_version() { # port -> version of the running server, empty if none answers
+  command -v curl >/dev/null || return 0
+  curl -fsS --max-time 3 "http://127.0.0.1:${1:-8484}/api/info" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p'  || true
+}
+OLD_PORT="$(awk -F= '/^PORT=/{print $2}' "$ENV_FILE" 2>/dev/null || true)"
+if [ -x "$APP_DIR/musik-server" ] || [ -f "$ENV_FILE" ]; then
+  MODE=update
+  OLD_VERSION="$(info_version "${OLD_PORT:-8484}")"
+  echo
+  echo "==> Existing installation found${OLD_VERSION:+ (version $OLD_VERSION)}: UPDATE."
+  echo "    Settings, accounts, playlists and your music stay as they are."
+else
+  MODE=fresh
+  OLD_VERSION=""
+  echo
+  echo "==> No installation found: CLEAN INSTALL."
+fi
+
 # ask once, unless a flag decided it or Tailscale is already set up
 if [ -z "$TAILSCALE" ] && ! grep -q '^REMOTE_URL=' "$ENV_FILE" 2>/dev/null && [ -r /dev/tty ]; then
     echo
@@ -149,15 +168,49 @@ if [ "$TAILSCALE" = "1" ]; then
       if [ -n "$TS_AUTHKEY" ]; then
         tailscale up --hostname=musik --authkey="$TS_AUTHKEY"
       else
-        echo "Open the link below and log in to Tailscale (same account as on your phone):"
+        echo; echo "┌─ Your turn ─────────────────────────────────────────────────"; echo "│ Open the link below and log in to Tailscale (same account as on your phone)."; echo "│ The installer continues by itself after the login."; echo "└─────────────────────────────────────────────────────────────"
         tailscale up --hostname=musik
       fi
     fi
-    # HTTPS name inside your tailnet (needs MagicDNS and HTTPS certificates, both on by default)
-    if tailscale serve --bg --https=443 "http://127.0.0.1:${PORT_NOW:-8484}" >/dev/null 2>&1; then
-      DNS="$(tailscale status --json 2>/dev/null | sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' | head -n1)"
-      [ -n "$DNS" ] && REMOTE="https://$DNS"
+    # HTTPS name inside your tailnet. It needs HTTPS switched on in the Tailscale account; the script
+    # checks that first and tells the person exactly what to click instead of waiting silently.
+    https_on() { tailscale status --json 2>/dev/null | tr -d ' \n' | grep -q '"CertDomains":\["'; }
+    todo() { # message lines...; returns 1 when the person types s (skip) or no keyboard is attached
+      echo
+      echo "┌─ Your turn ─────────────────────────────────────────────────"
+      for l in "$@"; do echo "│ $l"; done
+      echo "└─────────────────────────────────────────────────────────────"
+      [ -r /dev/tty ] || { echo "(no keyboard attached, skipping)"; return 1; }
+      local a=""
+      read -rp "Press Enter when done, or type s to skip: " a </dev/tty || return 1
+      case "$a" in [sS]*) return 1 ;; esac
+      return 0
+    }
+    TRY=0
+    while ! https_on && [ $TRY -lt 5 ]; do
+      TRY=$((TRY + 1))
+      todo "HTTPS is switched off in your Tailscale account." \
+           "1) Open https://login.tailscale.com/admin/dns" \
+           "2) Scroll down to 'HTTPS Certificates' and click 'Enable HTTPS'." \
+           "Without it the apps still work on the go, just over the Tailscale IP." || break
+      sleep 2
+    done
+    if https_on; then
+      SERVE_LOG="$(mktemp)"
+      for _ in 1 2 3; do
+        # tailscale serve can wait silently for a confirmation, so it gets a time limit
+        if timeout 30 tailscale serve --bg --https=443 "http://127.0.0.1:${PORT_NOW:-8484}" >"$SERVE_LOG" 2>&1; then
+          DNS="$(tailscale status --json 2>/dev/null | sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' | head -n1)"
+          [ -n "$DNS" ] && REMOTE="https://$DNS"
+          break
+        fi
+        LINK="$(grep -o 'https://login.tailscale.com[^ ]*' "$SERVE_LOG" | head -n1 || true)"
+        todo "Tailscale asks you to allow 'Serve' for this device once." \
+             "Open ${LINK:-https://login.tailscale.com/admin/machines} and confirm it." || break
+      done
+      rm -f "$SERVE_LOG"
     fi
+    [ -n "$REMOTE" ] || echo "Using the Tailscale IP for now. Run musik-update later to switch to https."
     if [ -z "$REMOTE" ]; then
       TSIP="$(tailscale ip -4 2>/dev/null | head -n1)"
       [ -n "$TSIP" ] && REMOTE="http://$TSIP:${PORT_NOW:-8484}"
@@ -173,8 +226,14 @@ done
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
-if curl -fsS "http://127.0.0.1:${PORT_NOW:-8484}/api/info" >/dev/null 2>&1; then
-  echo "Musik is running."
+NEW_VERSION="$(info_version "${PORT_NOW:-8484}")"
+if [ -n "$NEW_VERSION" ]; then
+  if [ "$MODE" = "update" ]; then
+    if [ -n "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then echo "Musik updated: $OLD_VERSION -> $NEW_VERSION. It is running."
+    else echo "Musik $NEW_VERSION is up to date and running."; fi
+  else
+    echo "Musik $NEW_VERSION is installed and running."
+  fi
 else
   echo "Musik did not answer yet. Check: journalctl -u musik -n 50"
 fi
