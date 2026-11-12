@@ -149,6 +149,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   platter.add(spindle);
 
   // ── the room around the turntable
+  const accentBits = [];
   const TOP = -0.64, FLOOR = -6.6, WALL = -4.4;
   const loader = new THREE.TextureLoader();
   const coverTex = tracks.map((tr) => { const t = loader.load(tr.cover); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; });
@@ -269,39 +270,118 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const discLabel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.014, 48), new THREE.MeshStandardMaterial({ map: coverTex[0], roughness: 0.5 }));
   discLabel.position.set(1.0, 0.012, 1.3); cds.add(discLabel);
 
-  // big plant on the floor
-  function plant(x, z, scale, leaves) {
-    const g = new THREE.Group(); g.position.set(x, FLOOR, z); g.scale.setScalar(scale); root.add(g);
-    const pot = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 0.95, 2.3, 48), new THREE.MeshStandardMaterial({ color: 0xb8643f, roughness: 0.85 }));
-    pot.position.y = 1.15; pot.castShadow = pot.receiveShadow = true; g.add(pot);
-    const rim2 = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.08, 12, 48), pot.material); rim2.rotation.x = Math.PI / 2; rim2.position.y = 2.3; g.add(rim2);
-    const soil = new THREE.Mesh(new THREE.CircleGeometry(1.2, 32), new THREE.MeshStandardMaterial({ color: 0x2a1d14, roughness: 1 })); soil.rotation.x = -Math.PI / 2; soil.position.y = 2.2; g.add(soil);
-    const shape = new THREE.Shape();
-    shape.moveTo(0, 0); shape.bezierCurveTo(0.55, 0.25, 0.75, 1.0, 0, 2.0); shape.bezierCurveTo(-0.75, 1.0, -0.55, 0.25, 0, 0);
-    const leafGeo = new THREE.ShapeGeometry(shape, 12);
-    const pos = leafGeo.attributes.position;
-    for (let i = 0; i < pos.count; i++) { const y = pos.getY(i), xx = pos.getX(i); pos.setZ(i, -0.18 * y * y + 0.25 * xx * xx); }
-    leafGeo.computeVertexNormals();
-    const stemMat = new THREE.MeshStandardMaterial({ color: 0x3f6a37, roughness: 0.7 });
-    for (let i = 0; i < leaves; i++) {
-      const a = (i / leaves) * Math.PI * 2 + rnd() * 0.5, h = 2.3 + 1.2 + rnd() * 2.4, out = 0.4 + rnd() * 0.9;
-      const tip = new THREE.Vector3(Math.cos(a) * out, h, Math.sin(a) * out);
-      g.add(tube(new THREE.Vector3(Math.cos(a) * 0.15, 2.2, Math.sin(a) * 0.15), tip, 0.035, stemMat));
-      const leaf = new THREE.Mesh(leafGeo, new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.31 + rnd() * 0.05, 0.45, 0.2 + rnd() * 0.1), roughness: 0.55, side: THREE.DoubleSide }));
-      leaf.position.copy(tip);
-      leaf.rotation.set(-0.5 - rnd() * 0.6, -a + Math.PI / 2, 0, 'YXZ');
-      leaf.rotation.order = 'YXZ'; leaf.rotation.y = -a - Math.PI / 2; leaf.rotation.x = 0.6 + rnd() * 0.5;
-      leaf.scale.setScalar(0.9 + rnd() * 0.5);
-      leaf.castShadow = true; g.add(leaf);
-      leaf.userData.sway = rnd() * 6;
-      sway.push(leaf);
+  // floor shelf full of records, with an amplifier on top
+  const SHX = 17.2, SHZ = -2.4;
+  const shelf = new THREE.Group(); shelf.position.set(SHX, FLOOR, SHZ); shelf.rotation.y = -0.25; root.add(shelf);
+  const shelfMat = new THREE.MeshStandardMaterial({ color: 0xe8e2d6, roughness: 0.6 });
+  const plank = (w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), shelfMat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; shelf.add(m); };
+  const CW = 3.7, SW = CW * 2 + 0.3 * 3, SH_H = CW * 2 + 0.3 * 3;
+  for (let i = 0; i < 3; i++) { plank(SW, 0.3, 3.8, 0, 0.15 + i * (CW + 0.3), 0); plank(0.3, SH_H, 3.8, -SW / 2 + 0.15 + i * (CW + 0.3), SH_H / 2, 0); }
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(SW, SH_H), new THREE.MeshStandardMaterial({ color: 0x1b1d26, roughness: 0.9 })); back.position.set(0, SH_H / 2, -1.85); shelf.add(back);
+  const spineCols = ['#c4472f', '#1f3b63', '#e3b23c', '#2b2b30', '#5c7c5a', '#8a3b6e', '#d9d2c3', '#3d6f8f', '#f0e6d2', '#6b4a3a'];
+  for (let cx = 0; cx < 2; cx++) for (let cy = 0; cy < 2; cy++) {
+    const x0 = -SW / 2 + 0.3 + cx * (CW + 0.3), y0 = 0.3 + cy * (CW + 0.3);
+    if (cx === 1 && cy === 1) {
+      // one cube shows a record face out
+      const f = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.4, 0.05), [sleeveSide, sleeveSide, sleeveSide, sleeveSide, new THREE.MeshStandardMaterial({ map: coverTex[3 % tracks.length], roughness: 0.7 }), sleeveSide]);
+      f.position.set(x0 + CW / 2, y0 + 1.72, -0.4); f.rotation.x = -0.12; f.castShadow = true; shelf.add(f);
+      continue;
     }
-    return g;
+    let x = x0 + 0.05;
+    while (x < x0 + CW - 0.12) {
+      const th = 0.05 + rnd() * 0.06, lean = x > x0 + CW - 0.9 && rnd() < 0.5 ? 0.18 : 0;
+      const sp = new THREE.Mesh(new THREE.BoxGeometry(th, 3.45, 3.45), new THREE.MeshStandardMaterial({ color: spineCols[Math.floor(rnd() * spineCols.length)], roughness: 0.75 }));
+      sp.position.set(x + th / 2, y0 + 1.73, 0); sp.rotation.z = -lean; sp.castShadow = true; shelf.add(sp);
+      x += th + 0.008;
+      if (lean) break;
+    }
   }
-  const sway = [];
-  plant(14.8, -1.6, 1.25, 16);
-  // small plant on the board
-  plant(-10.2, -2.4, 0.45, 9).position.y = TOP;
+  // amplifier with glowing VU meters
+  const amp = new THREE.Mesh(new RoundedBoxGeometry(6.2, 1.35, 3.2, 3, 0.06), new THREE.MeshStandardMaterial({ color: 0xb9bcc6, roughness: 0.32, metalness: 1 }));
+  amp.position.set(0, SH_H + 0.68, 0); amp.castShadow = amp.receiveShadow = true; shelf.add(amp);
+  const vuTex = canvasTex(256, 128, (g, w, h) => {
+    g.fillStyle = '#f3d9a4'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#2a1d10'; g.lineWidth = 2;
+    for (let i = 0; i <= 12; i++) { const a = -0.9 + (i / 12) * 1.8; g.beginPath(); g.moveTo(w / 2 + Math.sin(a) * 90, h - 8 - Math.cos(a) * 90); g.lineTo(w / 2 + Math.sin(a) * (i % 3 ? 100 : 108), h - 8 - Math.cos(a) * (i % 3 ? 100 : 108)); g.stroke(); }
+    g.fillStyle = '#b3261e'; g.fillRect(w / 2 + 48, 12, 30, 6);
+    g.fillStyle = '#2a1d10'; g.font = '600 18px sans-serif'; g.fillText('VU', w / 2 - 12, h - 30);
+  });
+  const needles = [];
+  for (const x of [-1.6, 1.6]) {
+    const vu = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.9), new THREE.MeshStandardMaterial({ map: vuTex, emissive: 0xffb45a, emissiveMap: vuTex, emissiveIntensity: 0.9 }));
+    vu.position.set(x, SH_H + 0.72, 1.61); shelf.add(vu);
+    const nd = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.62, 0.01), new THREE.MeshBasicMaterial({ color: 0x1a1208 }));
+    nd.geometry.translate(0, 0.31, 0); nd.position.set(x, SH_H + 0.3, 1.62); shelf.add(nd); needles.push(nd);
+  }
+  for (const x of [-2.75, 2.75]) {
+    const k = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.2, 32), metal); k.rotation.x = Math.PI / 2; k.position.set(x, SH_H + 0.68, 1.68); shelf.add(k);
+  }
+
+  // headphones on a stand
+  const phones = new THREE.Group(); phones.position.set(11.0, TOP, -0.2); phones.rotation.y = -0.5; root.add(phones);
+  const black = new THREE.MeshStandardMaterial({ color: 0x15161c, roughness: 0.45, metalness: 0.3 });
+  const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.8, 0.12, 48), black); foot.position.y = 0.06; foot.castShadow = true; phones.add(foot);
+  phones.add(tube(new THREE.Vector3(0, 0.1, 0), new THREE.Vector3(0, 3.0, 0), 0.07, metal));
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.11, 16, 48, Math.PI), black); band.position.y = 2.15; band.castShadow = true; phones.add(band);
+  for (const x of [-1, 1]) {
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.38, 40), black); cup.rotation.z = Math.PI / 2; cup.position.set(x * 1.0, 1.75, 0); cup.castShadow = true; phones.add(cup);
+    const pad = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.13, 12, 32), new THREE.MeshStandardMaterial({ color: 0x2a2b33, roughness: 0.9 })); pad.rotation.y = Math.PI / 2; pad.position.set(x * 0.8, 1.75, 0); phones.add(pad);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.025, 8, 48), new THREE.MeshBasicMaterial({ color: accentCol })); ring.rotation.y = Math.PI / 2; ring.position.set(x * 1.2, 1.75, 0); phones.add(ring); accentBits.push(ring);
+  }
+
+  // coffee mug and cassettes next to the deck
+  const mug = new THREE.Group(); mug.position.set(-3.7, TOP, 1.6); root.add(mug);
+  const ceramic = new THREE.MeshStandardMaterial({ color: 0xece6dc, roughness: 0.35 });
+  const cupM = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.38, 0.95, 40, 1, true), ceramic); cupM.position.y = 0.48; cupM.castShadow = true; mug.add(cupM);
+  const coffee = new THREE.Mesh(new THREE.CircleGeometry(0.4, 32), new THREE.MeshStandardMaterial({ color: 0x2a1609, roughness: 0.15 })); coffee.rotation.x = -Math.PI / 2; coffee.position.y = 0.82; mug.add(coffee);
+  const mugBase = new THREE.Mesh(new THREE.CircleGeometry(0.38, 32), ceramic); mugBase.rotation.x = -Math.PI / 2; mugBase.position.y = 0.01; mug.add(mugBase);
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.05, 10, 24, Math.PI * 1.3), ceramic); handle.position.set(0.44, 0.5, 0); handle.rotation.z = -Math.PI * 0.65; mug.add(handle);
+  const steam = [];
+  for (let i = 0; i < 3; i++) {
+    const st = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 1.2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.05, depthWrite: false, side: THREE.DoubleSide }));
+    st.position.set((i - 1) * 0.12, 1.5, 0); mug.add(st); steam.push(st);
+  }
+  const tapes = new THREE.Group(); tapes.position.set(-4.2, TOP, -1.6); tapes.rotation.y = 0.5; root.add(tapes);
+  for (let i = 0; i < 4; i++) {
+    const shell = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rnd(), 0.35, 0.3 + rnd() * 0.3), roughness: 0.4 });
+    const lbl = new THREE.MeshStandardMaterial({ color: 0xf1ead8, roughness: 0.8 });
+    const tp = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.16, 0.84), [shell, shell, lbl, shell, shell, shell]);
+    tp.position.set((rnd() - 0.5) * 0.1, 0.08 + i * 0.165, 0); tp.rotation.y = (rnd() - 0.5) * 0.3; tp.castShadow = true; tapes.add(tp);
+  }
+
+  // record ledge on the wall with three sleeves
+  const ledge = new THREE.Mesh(new THREE.BoxGeometry(12, 0.18, 0.7), oakMat); ledge.position.set(10.8, 3.8, WALL + 0.35); ledge.castShadow = true; root.add(ledge);
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(12, 0.3, 0.06), oakMat); lip.position.set(10.8, 3.95, WALL + 0.68); root.add(lip);
+  for (let i = 0; i < 3; i++) {
+    const f = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.4, 0.05), [sleeveSide, sleeveSide, sleeveSide, sleeveSide, new THREE.MeshStandardMaterial({ map: coverTex[(i * 2 + 1) % tracks.length], roughness: 0.7 }), sleeveSide]);
+    f.position.set(7.0 + i * 3.8, 3.89 + 1.7, WALL + 0.32); f.rotation.x = -0.1; f.castShadow = true; root.add(f);
+  }
+
+  // neon sign in the accent colour
+  const neonTex = canvasTex(1024, 320, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.font = 'italic 600 210px Fraunces, Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.shadowColor = '#fff'; g.shadowBlur = 24; g.fillStyle = '#fff'; g.fillText('musik', w / 2, h / 2);
+  });
+  const neon = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.0), new THREE.MeshBasicMaterial({ map: neonTex, color: accentCol, transparent: true, depthWrite: false }));
+  neon.position.set(-11, 8.2, WALL + 0.12); root.add(neon); accentBits.push(neon);
+  const neonGlow = new THREE.PointLight(accentCol, 14, 10, 2); neonGlow.position.set(-11, 8.2, WALL + 1.6); root.add(neonGlow);
+
+  // round rug
+  const rugTex = canvasTex(512, 512, (g, w, h) => {
+    g.fillStyle = '#1d1a24'; g.beginPath(); g.arc(w / 2, h / 2, w / 2, 0, Math.PI * 2); g.fill();
+    for (let r = 40; r < w / 2; r += 34) { g.strokeStyle = `rgba(255,255,255,${0.03 + (r % 68 ? 0.03 : 0)})`; g.lineWidth = 10; g.beginPath(); g.arc(w / 2, h / 2, r, 0, Math.PI * 2); g.stroke(); }
+    for (let i = 0; i < 20000; i++) { g.fillStyle = `rgba(0,0,0,${rnd() * 0.15})`; g.fillRect(rnd() * w, rnd() * h, 1, 1); }
+  });
+  const rug = new THREE.Mesh(new THREE.CircleGeometry(9, 64), new THREE.MeshStandardMaterial({ map: rugTex, transparent: true, roughness: 1 }));
+  rug.rotation.x = -Math.PI / 2; rug.position.set(2, FLOOR + 0.02, 8); rug.receiveShadow = true; root.add(rug);
+
+  // dust floating in the light
+  const DUST = 260, dustPos = new Float32Array(DUST * 3), dustSeed = [];
+  for (let i = 0; i < DUST; i++) { dustSeed.push([-14 + rnd() * 30, FLOOR + rnd() * 16, -3 + rnd() * 10, rnd() * 6]); }
+  const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xffe6c4, size: 0.05, transparent: true, opacity: 0.55, depthWrite: false }));
+  root.add(dust);
 
   // framed print on the wall
   const pframe = new THREE.Mesh(new THREE.BoxGeometry(5.2, 5.2, 0.15), new THREE.MeshStandardMaterial({ color: 0x0b0c10, roughness: 0.5 }));
@@ -425,50 +505,79 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     return [bez(REC_P, REC_P.clone().add(new THREE.Vector3(0, 2.6, 0)), SIDE_P.clone().add(new THREE.Vector3(-0.6, 0.8, 0.3)), SIDE_P, e), qFlat(a).slerp(UP_Q, sine((k - 0.15) / 0.7))];
   }
 
-  // ── camera shots: [azimuth, elevation, distance, target]
-  const SH = {
-    room: [-0.42, 0.3, 30, [1.5, -1.5, -1]],
-    wide: [-0.55, 0.62, 12.9, [0.5, -0.35, 0]],
-    deck: [-0.32, 0.36, 17.5, [3.4, 1.0, 0]],
-    sleeve: [-0.5, 0.18, 10.5, [3.2, 2.9, 1.2]],
-    needle: [-0.15, 0.2, 3.1, [1.35, 0.1, 0.7]],
-    label: [-0.6, 1.05, 4.4, [0, 0.1, 0]],
-    low: [0.75, 0.07, 8.2, [0.5, 0.05, 0]],
-    top: [-0.3, 1.47, 11, [0.4, 0, 0]],
-    arm: [-1.15, 0.33, 3.6, [2.0, 0.35, -1.0]],
-    crate: [-0.15, 0.32, 8.5, [7.4, 1.4, 0.4]],
-    plant: [-0.9, 0.12, 13, [14.6, 0.5, -1.4]],
-    cds: [0.5, 0.35, 6.5, [-9.0, 0.2, 0.6]],
-    speaker: [0.7, 0.2, 10, [-6.4, 1.6, -1.0]],
-    wall: [-0.2, 0.05, 15, [-1.0, 5.2, -4.0]],
+  // ── camera moves. Each move travels from pose a to pose b while it is on screen.
+  // pose: [azimuth, elevation, distance, target, roll, fov]
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const MV = {
+    room: { a: [-0.42, 0.3, 30, [1.5, -1.5, -1], 0, 30] },
+    wide: { a: [-0.55, 0.62, 12.9, [0.5, -0.35, 0], 0, 30] },
+    deck: { a: [-0.55, 0.42, 19, [3.4, 1.0, 0], -0.02, 30], b: [-0.25, 0.32, 16.5, [3.6, 1.2, 0], 0.01, 30] },
+    deck2: { a: [-0.1, 0.3, 16, [2.4, 0.6, 0], 0.02, 30], b: [-0.45, 0.4, 14, [1.2, 0.2, 0], -0.02, 30] },
+    sleeve: { a: [-0.8, 0.26, 12, [3.6, 3.0, 1.0], 0.03, 30], b: [-0.25, 0.12, 9.5, [2.6, 2.6, 1.0], -0.02, 32] },
+    needle: { a: [-0.6, 0.38, 3.9, [1.35, 0.1, 0.7], -0.04, 30], b: [0.15, 0.14, 2.7, [1.3, 0.05, 0.7], 0.05, 30] },
+    label: { a: [-1.2, 0.62, 5.6, [0, 0.1, 0], 0.12, 30], b: [-0.1, 1.35, 3.6, [0, 0.1, 0], -0.08, 30] },
+    low: { a: [1.25, 0.05, 9, [0.5, 0.05, 0], 0.04, 30], b: [0.2, 0.13, 7, [0.5, 0.1, 0], -0.03, 30] },
+    top: { a: [-1.0, 1.46, 13, [0.4, 0, 0], 0, 30], b: [0.6, 1.49, 9, [0.4, 0, 0], 0, 30] },
+    arm: { a: [-1.6, 0.26, 4.6, [2.0, 0.35, -1.0], 0.05, 30], b: [-0.7, 0.5, 3.1, [1.6, 0.3, -0.6], -0.05, 30] },
+    crate: { a: [-0.6, 0.45, 11, [7.4, 1.4, 0.4], 0.03, 30], b: [0.15, 0.22, 7, [7.6, 1.7, 0.4], -0.02, 30] },
+    shelf: { a: [-0.9, 0.12, 23, [17, -1.5, -2.4], -0.03, 30], b: [-0.3, 0.28, 17, [16.6, 0, -2.4], 0.03, 30] },
+    amp: { a: [-0.6, 0.3, 13, [16.4, 2.2, -2.0], 0.04, 30], b: [0.05, 0.1, 9, [16.8, 2.3, -2.0], -0.03, 30] },
+    phones: { a: [-1.0, 0.35, 10, [11.0, 1.1, -0.2], 0.05, 30], b: [0.3, 0.2, 7.5, [11.0, 1.2, -0.2], -0.04, 30] },
+    cds: { a: [1.1, 0.45, 8, [-9.0, 0.2, 0.6], -0.04, 30], b: [0.25, 0.22, 5.4, [-9.0, 0.3, 0.6], 0.04, 30] },
+    mug: { a: [0.6, 0.32, 9, [-3.8, 0.4, 1.0], 0.04, 30], b: [-0.3, 0.2, 6.8, [-3.9, 0.3, 0.6], -0.03, 30] },
+    // dolly zoom: the camera pulls back while the lens zooms in
+    speaker: { a: [0.55, 0.2, 7, [-6.4, 1.6, -1.0], 0, 44], b: [0.75, 0.22, 15, [-6.4, 1.6, -1.0], 0, 21] },
+    wall: { a: [-0.5, 0.02, 17, [-1.0, 5.2, -4.0], 0.02, 30], b: [0.3, 0.12, 13, [1.0, 5.4, -4.0], -0.02, 30] },
+    neon: { a: [0.6, 0.0, 10, [-10.5, 7.2, -4.2], -0.05, 30], b: [-0.15, -0.08, 7, [-11, 7.8, -4.2], 0.04, 30] },
+    ledge: { a: [-0.5, 0.05, 12, [9.0, 5.4, -4.0], 0.04, 30], b: [0.4, -0.05, 9, [12.0, 5.6, -4.0], -0.03, 30] },
+    // fly along the sideboard from the neon sign to the record shelf
+    fly: { path: [V(-20, 10, 13), V(-13, 4.2, 11), V(-7, 2.4, 10.5), V(-1, 3.4, 10.5), V(5, 4.2, 11), V(10.5, 2.8, 10), V(15, 1.6, 13), V(22, 4.0, 17)],
+      look: [V(-11, 7.5, -4), V(-9.0, 0.4, 0.6), V(-6.4, 1.8, -1), V(0.5, 0.2, 0), V(7.4, 1.6, 0.4), V(11, 1.2, -0.2), V(17, 1.0, -2.4), V(17, 2.4, -2.4)], roll: [0.06, -0.06] },
+    // high sweep over the whole board
+    sweep: { path: [V(-14, 13, 14), V(-4, 9, 12), V(6, 8, 11), V(15, 11, 12)], look: [V(-6, -0.5, -1), V(-1, -0.2, 0), V(4, 0.2, 0), V(10, 0, -1)], roll: [-0.03, 0.04] },
   };
-  const REST = [['needle', 'plant', 'label'], ['crate', 'low', 'cds'], ['speaker', 'top', 'wall'], ['arm', 'room', 'needle'], ['label', 'crate', 'plant']];
+  for (const k in MV) if (MV[k].path) { MV[k].pc = new THREE.CatmullRomCurve3(MV[k].path, false, 'centripetal'); MV[k].lc = new THREE.CatmullRomCurve3(MV[k].look, false, 'centripetal'); }
+  const REST = [['needle', 'fly'], ['label', 'shelf', 'amp'], ['speaker', 'sweep'], ['phones', 'ledge', 'mug'], ['arm', 'neon', 'crate'], ['low', 'cds', 'top'], ['wall', 'fly']];
   const T0 = 24, C = 46, CH = 24; // first change, cycle length, change duration
+  // returns [move, start, end]
   function shotAt(t) {
-    if (t < 9) return 'intro';
-    if (t < 16.5) return 'needle';
-    if (t < T0) return 'label';
-    const k = Math.floor((t - T0) / C), u = t - T0 - k * C;
-    if (u < 7) return 'deck';
-    if (u < 17.5) return 'sleeve';
-    if (u < CH) return 'deck';
-    const rest = REST[k % REST.length];
-    return rest[Math.min(2, Math.floor((u - CH) / ((C - CH) / 3)))];
+    if (t < 9) return ['intro', 0, 9];
+    if (t < 16.5) return ['needle', 9, 16.5];
+    if (t < T0) return ['label', 16.5, T0];
+    const k = Math.floor((t - T0) / C), base = T0 + k * C, u = t - base;
+    if (u < 7) return ['deck', base, base + 7];
+    if (u < 17.5) return ['sleeve', base + 7, base + 17.5];
+    if (u < CH) return ['deck2', base + 17.5, base + CH];
+    const rest = REST[k % REST.length], len = (C - CH) / rest.length, j = Math.min(rest.length - 1, Math.floor((u - CH) / len));
+    return [rest[j], base + CH + j * len, base + CH + (j + 1) * len];
   }
   const lerp = (a, b, k) => a + (b - a) * k;
-  function shotParams(name, t) {
+  const smooth = (k) => k * k * (3 - 2 * k);
+  // pose → { p: position, l: look-at, r: roll, f: fov }
+  function orbit(P, narrow) {
+    const [az, el, d0, T, r = 0, f = 30] = P;
+    const d = narrow ? d0 * 0.82 : d0;
+    return { p: V(T[0] + Math.sin(az) * Math.cos(el) * d, T[1] + Math.sin(el) * d, T[2] + Math.cos(az) * Math.cos(el) * d), l: V(...T), r, f };
+  }
+  function poseAt(name, t, s, e) {
+    const k = Math.min(1, Math.max(0, (t - s) / (e - s)));
     if (name === 'intro') {
-      const r = SH.room, w = SH.wide, i = sine(t / 8.5);
-      return [lerp(r[0], w[0], i), lerp(r[1], w[1], i), lerp(r[2], wide ? w[2] : w[2] - 3, i), r[3].map((v, j) => lerp(v, w[3][j], i))];
+      const r = MV.room.a, w = MV.wide.a, i = sine(t / 8.5);
+      const P = [lerp(r[0], w[0], i) + Math.sin(i * Math.PI) * 0.35, lerp(r[1], w[1], i), lerp(r[2], wide ? w[2] : w[2] - 3, i), r[3].map((v, j) => lerp(v, w[3][j], i)), Math.sin(i * Math.PI) * -0.05, 30];
+      return orbit(P, false);
     }
-    const s = SH[name];
-    const drift = Math.sin(t * 0.05) * 0.06;
-    let d = s[2];
-    if (!wide) d *= name === 'room' || name === 'deck' ? 0.85 : 0.8;
-    if (name === 'wide' && !wide) d = 9.9;
-    return [s[0] + drift, s[1] + drift * 0.3, d * (1 - Math.abs(drift) * 0.4), s[3]];
+    const m = MV[name];
+    if (m.path) {
+      const q = smooth(k) * 0.7 + k * 0.3;
+      return { p: m.pc.getPoint(q), l: m.lc.getPoint(q), r: lerp(m.roll[0], m.roll[1], smooth(k)), f: wide ? 30 : 38 };
+    }
+    if (!m.b) return orbit(m.a, !wide && name !== 'wide');
+    const q = smooth(k), A = m.a, B = m.b;
+    const P = [lerp(A[0], B[0], q), lerp(A[1], B[1], q), lerp(A[2], B[2], q), A[3].map((v, j) => lerp(v, B[3][j], q)), lerp(A[4], B[4], q), lerp(A[5], B[5], q)];
+    return orbit(P, !wide);
   }
   let shot = 'intro', from = null, switchT = 0, lastP = null;
+  const _up = V(0, 1, 0), _f = V(), _rt = V();
 
   // ── animation timeline (seconds)
   const T_SWING = [1.2, 5.2], T_DROP = [5.2, 7.2], T_SPIN = [6.2, 9.4];
@@ -544,23 +653,32 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     vinyl.visible = recVis;
     vinyl.position.copy(recP);
     if (recQ) vinyl.quaternion.copy(recQ); else vinyl.quaternion.copy(qFlat(-angle));
-    for (const l of sway) l.rotation.z = Math.sin(t * 0.6 + l.userData.sway) * 0.04;
+    for (let i = 0; i < DUST; i++) { const d = dustSeed[i]; dustPos[i * 3] = d[0] + Math.sin(t * 0.07 + d[3]) * 0.8; dustPos[i * 3 + 1] = d[1] + Math.sin(t * 0.05 + d[3] * 2) * 0.6; dustPos[i * 3 + 2] = d[2] + Math.cos(t * 0.06 + d[3]) * 0.5; }
+    dustGeo.attributes.position.needsUpdate = true;
+    steam.forEach((st, i) => { const k = ((t * 0.25 + i / 3) % 1); st.position.y = 1.1 + k * 1.4; st.material.opacity = Math.sin(k * Math.PI) * 0.07; st.rotation.y = t * 0.3 + i; st.scale.x = 1 + k; });
+    needles.forEach((n, i) => { n.rotation.z = -0.8 + Math.min(1.5, energy * 2.4 + 0.15 + Math.sin(t * (7 + i * 3)) * 0.06 * (spin > 0.5 ? 1 : 0)) * spin; });
+    neon.material.opacity = 0.92 + Math.sin(t * 31) * 0.03 + (Math.sin(t * 1.7) > 0.995 ? -0.5 : 0);
     woofer.position.z = 1.0 + energy * 0.08;
 
     // camera
-    const want = scrollT > 0.05 ? 'wide' : shotAt(t);
-    if (want !== shot) { from = lastP; shot = want; switchT = t; }
-    let P = shotParams(shot, t);
-    const blend = from ? sine((t - switchT) / 3.6) : 1;
+    let cur3 = scrollT > 0.05 ? ['wide', t, t + 1] : shotAt(t);
+    if (cur3[0] !== shot) { from = lastP; shot = cur3[0]; switchT = t; }
+    let P = poseAt(cur3[0], t, cur3[1], cur3[2]);
+    if (shot === 'wide') { const o = orbit([MV.wide.a[0] + scrollT * 0.3, MV.wide.a[1] - scrollT * 0.1, wide ? MV.wide.a[2] : 9.9, MV.wide.a[3]], false); P = o; }
+    const blend = from ? sine((t - switchT) / 4.2) : 1;
     if (from && blend < 1) {
-      P = [lerp(from[0], P[0], blend), lerp(from[1], P[1], blend), lerp(from[2], P[2], blend), P[3].map((v, i) => lerp(from[3][i], v, blend))];
+      // travel on an arc between the two moves instead of a straight line
+      const dist = from.p.distanceTo(P.p);
+      const p = from.p.clone().lerp(P.p, blend); p.y += Math.sin(blend * Math.PI) * Math.min(6, dist * 0.18);
+      P = { p, l: from.l.clone().lerp(P.l, blend), r: lerp(from.r, P.r, blend), f: lerp(from.f, P.f, blend) };
     }
     lastP = P;
     mx += (tx - mx) * 0.02; my += (ty - my) * 0.02;
-    const az = P[0] + mx * 0.08 + scrollT * 0.3, el = Math.min(1.5, P[1] - my * 0.03 - scrollT * 0.1), d = P[2];
-    const T = P[3];
-    camera.position.set(T[0] + Math.sin(az) * Math.cos(el) * d, T[1] + Math.sin(el) * d, T[2] + Math.cos(az) * Math.cos(el) * d);
-    camera.lookAt(T[0], T[1], T[2]);
+    _f.copy(P.l).sub(P.p).normalize(); _rt.crossVectors(_f, _up).normalize();
+    camera.position.copy(P.p).addScaledVector(_rt, mx * 0.35).addScaledVector(_up, -my * 0.2);
+    camera.up.set(0, 1, 0).applyAxisAngle(_f, P.r);
+    camera.lookAt(P.l);
+    if (Math.abs(camera.fov - P.f) > 0.01) { camera.fov = P.f; camera.updateProjectionMatrix(); }
     rim.intensity = 40 + energy * 160;
     fill.intensity = 12 + energy * 50;
     renderer.render(scene, camera);
@@ -575,7 +693,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   return {
     setAccent(hex) {
       accentCol.set(hex);
-      rim.color.set(hex); fill.color.set(hex); cart.material.color.set(hex); strip.material.color.set(hex); under.color.set(hex);
+      rim.color.set(hex); fill.color.set(hex); cart.material.color.set(hex); strip.material.color.set(hex); under.color.set(hex); neonGlow.color.set(hex); accentBits.forEach((m) => m.material.color.set(hex));
     },
     setEnergy(v) { energy = v; }
   };
