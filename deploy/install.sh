@@ -4,6 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash
 #   options: --music <dir>  --port <port>  --version <tag, e.g. v1.0.0>
 #            --tailscale            also set up Tailscale so the apps work away from home
+#            --no-tailscale         do not ask about Tailscale
 #            --ts-authkey <key>     log in to Tailscale without opening a link (tskey-auth-...)
 set -euo pipefail
 
@@ -25,6 +26,7 @@ while [ $# -gt 0 ]; do
     --branch) shift 2 ;;
     --update) shift ;;
     --tailscale) TAILSCALE=1; shift ;;
+    --no-tailscale) TAILSCALE=0; shift ;;
     --ts-authkey) TAILSCALE=1; TS_AUTHKEY="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -37,6 +39,24 @@ cat <<'BANNER'
  | |  | | |_| \__ \ |   <
  |_|  |_|\__,_|___/_|_|\_\   server installer
 BANNER
+
+# ask once, unless a flag decided it or Tailscale is already set up
+if [ -z "$TAILSCALE" ] && ! grep -q '^REMOTE_URL=' "$ENV_FILE" 2>/dev/null && [ -r /dev/tty ]; then
+    echo
+    echo "─────────────────────────────────────────────────────────────"
+    echo " Use Musik away from home?"
+    echo
+    echo " 1) Without Tailscale: the apps work at home (same Wi-Fi)."
+    echo " 2) With Tailscale:    the apps also work on mobile data and"
+    echo "                       other Wi-Fi. Free, no port forwarding,"
+    echo "                       nothing is opened to the internet."
+    echo "                       You log in once with a Tailscale account"
+    echo "                       and install the Tailscale app on your phone."
+    echo "─────────────────────────────────────────────────────────────"
+    read -rp "Choose 1 or 2 [1]: " a </dev/tty || a=""
+    case "$a" in 2|[yYjJ]*) TAILSCALE=1 ;; *) TAILSCALE=0 ;; esac
+  echo
+fi
 
 [ "$(id -u)" -eq 0 ] || { echo "Please run as root (sudo)." >&2; exit 1; }
 command -v apt-get >/dev/null || { echo "This installer needs Debian or Ubuntu." >&2; exit 1; }
@@ -118,7 +138,7 @@ setenv() { # key value
   if grep -q "^$1=" "$ENV_FILE"; then sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"; else printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"; fi
 }
 REMOTE=""
-if [ -n "$TAILSCALE" ]; then
+if [ "$TAILSCALE" = "1" ]; then
   step "Setting up Tailscale"
   if [ ! -c /dev/net/tun ]; then
     echo "No /dev/net/tun here. In a Proxmox container run the Proxmox script with Tailscale, it adds the device." >&2

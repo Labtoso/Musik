@@ -38,9 +38,18 @@ done
 ask_tailscale() {
   if [ -z "${TAILSCALE+x}" ] && [ -r /dev/tty ]; then
     echo
-    echo "Optional: Tailscale lets the apps reach Musik away from home (free, no port forwarding)."
-    read -rp "Set up Tailscale? [y/N] " a </dev/tty || a=""
-    case "$a" in [yYjJ]*) TAILSCALE=1 ;; *) TAILSCALE=0 ;; esac
+    echo "─────────────────────────────────────────────────────────────"
+    echo " Use Musik away from home?"
+    echo
+    echo " 1) Without Tailscale: the apps work at home (same Wi-Fi)."
+    echo " 2) With Tailscale:    the apps also work on mobile data and"
+    echo "                       other Wi-Fi. Free, no port forwarding,"
+    echo "                       nothing is opened to the internet."
+    echo "                       You log in once with a Tailscale account"
+    echo "                       and install the Tailscale app on your phone."
+    echo "─────────────────────────────────────────────────────────────"
+    read -rp "Choose 1 or 2 [1]: " a </dev/tty || a=""
+    case "$a" in 2|[yYjJ]*) TAILSCALE=1 ;; *) TAILSCALE=0 ;; esac
   fi
   TAILSCALE="${TAILSCALE:-0}"
 }
@@ -54,7 +63,7 @@ add_tun() {
 }
 
 ts_args() {
-  [ "$TAILSCALE" = "1" ] || return 0
+  [ "$TAILSCALE" = "1" ] || { printf ' --no-tailscale'; return 0; }
   printf ' --tailscale'
   [ -n "${TS_AUTHKEY:-}" ] && printf ' --ts-authkey %q' "$TS_AUTHKEY"
   return 0
