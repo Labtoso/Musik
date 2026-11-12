@@ -63,6 +63,14 @@ class HtmlEngine extends EventTarget {
     ad.addEventListener('playing', mine((d) => this.#emit('playing', d)));
     ad.addEventListener('buffering', mine((d) => this.#emit('buffering', d)));
     ad.addEventListener('error', mine((d) => {
+      // the label switched off playing outside YouTube: quietly take the next best video for the same song
+      const cur = this.items[this.index];
+      const blockedId = this.ytVid || (cur?.ext?.source === 'ytmusic' ? cur.ext.id : '');
+      if (d.message === 'youtube_blocked' && cur?.ext && blockedId && (cur.ext.player === 'ytfind' || cur.ext.source === 'deezer' || cur.ext.source === 'ytmusic')) {
+        cur._ytSkip = [...new Set([...(cur._ytSkip || []), blockedId])];
+        this.ytVid = '';
+        if (cur._ytSkip.length <= 5) return this.#load(this.index, 0, true, 'retry');
+      }
       this.#emit('error', { message: d.message || 'playback' });
       // a missing device would fail the same way for every song: stop instead of skipping the whole list
       if (d.message === 'spotify_no_device') return this.#emit('playing', { playing: false });
@@ -140,11 +148,12 @@ class HtmlEngine extends EventTarget {
     if (!it) return;
     this.index = i;
     // songs from Spotify and the Deezer catalog: names and covers from there, the whole song from YouTube
-    const viaYt = it.ext && (it.ext.player === 'ytfind' || it.ext.source === 'deezer');
+    const viaYt = it.ext && (it.ext.player === 'ytfind' || it.ext.source === 'deezer' || !!it._ytSkip?.length);
     const kind = viaYt ? 'youtube' : it.ext?.player;
     const ad = it.ext ? this.#adapter(kind) : null;
     if (this.active && this.active !== ad) this.active.stop();
     if (it.ext) {
+      this.ytVid = '';
       this.audio.pause();
       this.active = ad;
       if (!ad) {
@@ -155,10 +164,12 @@ class HtmlEngine extends EventTarget {
       if (viaYt) {
         // name and artist from Spotify, the sound from YouTube
         const mine = () => this.items[this.index] === it;
-        findOnYouTube(it.ext.source + ':' + it.ext.id, it)
+        this.ytVid = '';
+        findOnYouTube(it.ext.source + ':' + it.ext.id, it, it._ytSkip || [])
           .then((vid) => {
             if (!mine()) return;
             if (!vid) throw Object.assign(new Error('notfound'), { code: 'notfound' });
+            this.ytVid = vid;
             return ad.load(vid, pos, autoplay, '');
           })
           .catch(async (e) => {

@@ -229,11 +229,27 @@ fn words(s: &str) -> Vec<String> {
 /// The best video for a song: title and artist words in the title or channel, length close
 /// to the song, official uploads ("- Topic", VEVO, "official audio") preferred, covers, live
 /// versions, remixes and "type beats" pushed down.
+#[allow(dead_code)]
 pub fn best(videos: &[Value], title: &str, artist: &str, duration: f64) -> Option<String> {
+    rank(videos, title, artist, duration).into_iter().next()
+}
+
+/// Whether YouTube lets other sites play the video (labels often switch that off). oEmbed answers
+/// 401/403 for those; anything unclear counts as playable, the app then asks for the next one.
+pub fn embeddable(id: &str) -> bool {
+    let url = format!("https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D{id}");
+    !matches!(
+        ureq::get(&url).timeout(Duration::from_secs(5)).call(),
+        Err(ureq::Error::Status(401 | 403 | 404, _))
+    )
+}
+
+/// All good matches for a song, best first (same scoring as `best`).
+pub fn rank(videos: &[Value], title: &str, artist: &str, duration: f64) -> Vec<String> {
     let tw = words(title);
     let aw = words(artist);
     let want_extra = |w: &str| crate::ext::norm(title).contains(w);
-    let mut best: Option<(f64, String)> = None;
+    let mut all: Vec<(f64, String)> = Vec::new();
     for (i, v) in videos.iter().take(10).enumerate() {
         let vt = v["title"].as_str().unwrap_or("").to_lowercase();
         let ch = v["channel"].as_str().unwrap_or("").to_lowercase();
@@ -262,11 +278,13 @@ pub fn best(videos: &[Value], title: &str, artist: &str, duration: f64) -> Optio
             }
         }
         s -= i as f64 * 0.15; // YouTube's own order counts a little
-        if best.as_ref().map(|b| s > b.0).unwrap_or(true) {
-            best = Some((s, v["id"].as_str().unwrap_or("").to_string()));
+        let id = v["id"].as_str().unwrap_or("").to_string();
+        if s > 3.0 && !id.is_empty() {
+            all.push((s, id));
         }
     }
-    best.filter(|b| b.0 > 3.0 && !b.1.is_empty()).map(|b| b.1)
+    all.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    all.into_iter().map(|x| x.1).collect()
 }
 
 #[cfg(test)]

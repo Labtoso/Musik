@@ -723,8 +723,10 @@ async fn yt_find(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap
     if term.is_empty() {
         return Err(ApiError::new(400, "bad_query"));
     }
-    // "m:" = found through YouTube Music songs (older entries were plain videos)
-    let ck = format!("m:{}", norm(&term));
+    // "e:" = checked to be playable outside YouTube (older entries were not)
+    let ck = format!("e:{}", norm(&term));
+    // ids the app could not play (embedding switched off): find another one
+    let skip: Vec<String> = g("skip").split(',').map(|x| x.trim().to_string()).filter(|x| x.len() == 11).collect();
     let cached: Option<(String, i64)> = {
         let db = st.db.lock().unwrap();
         db.query_row("SELECT vid, found FROM yt_find WHERE q = ?", [&ck], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -733,33 +735,39 @@ async fn yt_find(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap
     };
     // misses are tried again after a day
     if let Some((vid, found)) = cached {
-        if !vid.is_empty() || now_ms() / 1000 - found < 86400 {
+        if (!vid.is_empty() && !skip.contains(&vid)) || (vid.is_empty() && skip.is_empty() && now_ms() / 1000 - found < 86400) {
             return Ok(Json(json!({ "id": vid, "cached": true })));
         }
     }
     let key = yt_key(&st, u.id);
     let (t2, a2) = (if title.is_empty() { term.clone() } else { title.clone() }, artist.clone());
     let term2 = term.clone();
+    let skip2 = skip.clone();
     let vid = tokio::task::spawn_blocking(move || -> Result<String, ApiError> {
-        // the song itself on YouTube Music first (the plain audio track, no video)
+        // like the Msik bot: "<artist> - <title>" on YouTube, no key needed. The song itself on
+        // YouTube Music first (plain audio track), then normal YouTube; every match is checked
+        // for being playable outside YouTube, because labels often switch that off.
+        let mut cands: Vec<String> = Vec::new();
+        let mut reached = false;
         if let Ok(songs) = crate::yt::music_search(&term2) {
-            if let Some(id) = crate::yt::best(&crate::yt::as_candidates(&songs), &t2, &a2, duration) {
-                return Ok(id);
+            reached = true;
+            cands.extend(crate::yt::rank(&crate::yt::as_candidates(&songs), &t2, &a2, duration));
+        }
+        for q in [format!("{term2} audio"), term2.clone()] {
+            if let Ok(v) = crate::yt::search(&q) {
+                reached = true;
+                cands.extend(crate::yt::rank(&v, &t2, &a2, duration));
             }
         }
-        // like the Msik bot: YouTube's own search next, no key needed
-        if let Ok(v) = crate::yt::search(&format!("{term2} audio")) {
-            if let Some(id) = crate::yt::best(&v, &t2, &a2, duration) {
-                return Ok(id);
+        let mut seen = std::collections::HashSet::new();
+        cands.retain(|c| !skip2.contains(c) && seen.insert(c.clone()));
+        for c in cands.iter().take(8) {
+            if crate::yt::embeddable(c) {
+                return Ok(c.clone());
             }
-            if let Ok(v) = crate::yt::search(&term2) {
-                if let Some(id) = crate::yt::best(&v, &t2, &a2, duration) {
-                    return Ok(id);
-                }
-            }
-            if key.is_empty() {
-                return Ok(String::new());
-            }
+        }
+        if reached && key.is_empty() {
+            return Ok(String::new());
         }
         if key.is_empty() {
             return Err(ApiError::new(502, "youtube_unreachable"));

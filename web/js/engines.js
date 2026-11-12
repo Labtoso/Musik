@@ -62,7 +62,7 @@ export class YouTubeAdapter extends Adapter {
           events: {
             onReady: () => res(this.p),
             onStateChange: (e) => this.#state(e.data),
-            onError: () => this.emit('error', { message: 'youtube_blocked' })
+            onError: (e) => this.emit('error', { message: 'youtube_blocked', code: e?.data })
           }
         });
       });

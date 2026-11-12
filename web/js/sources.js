@@ -465,14 +465,15 @@ export async function spotifyLiked(onProgress) {
 }
 /** YouTube video for a song (Spotify name + artist). The server looks it up with the YouTube key
  *  and remembers it for every device; this device keeps its own copy too. */
-const YT_MAP = 'musik.ytmap';
-export async function findOnYouTube(key, it) {
+const YT_MAP = 'musik.ytmap2';
+export async function findOnYouTube(key, it, skip = []) {
   let map = {};
   try {
     map = JSON.parse(localStorage.getItem(YT_MAP)) || {};
   } catch {}
-  if (map[key]) return map[key];
-  const r = await get(`/api/ytfind?title=${encodeURIComponent(it.title || '')}&artist=${encodeURIComponent(it.artist || '')}&duration=${Math.round(it.duration || 0)}`);
+  if (map[key] && !skip.includes(map[key])) return map[key];
+  // skip: videos that turned out not to play outside YouTube, the server finds the next best one
+  const r = await get(`/api/ytfind?title=${encodeURIComponent(it.title || '')}&artist=${encodeURIComponent(it.artist || '')}&duration=${Math.round(it.duration || 0)}${skip.length ? '&skip=' + skip.join(',') : ''}`);
   const id = r?.id || '';
   if (id) {
     map[key] = id;
