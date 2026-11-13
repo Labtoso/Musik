@@ -1,0 +1,68 @@
+# Musik for ZimaOS and CasaOS.
+# Install:  curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash
+# or paste this file into the app store under "Install a customized app" → Import.
+# The container fetches the newest server on every start, so restarting the app updates it.
+name: musik
+services:
+  musik:
+    image: buildpack-deps:bookworm-curl
+    container_name: musik
+    restart: unless-stopped
+    environment:
+      PORT: "8484"
+      DATA_DIR: /data
+      MUSIC_DIRS: /music
+      MUSIK_DOCKER: "1"
+      # REMOTE_URL: http://100.x.y.z:8484   # Tailscale address for on the go
+    ports:
+      - target: 8484
+        published: "8484"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: /DATA/AppData/musik/data
+        target: /data
+      - type: bind
+        source: /DATA/Media/Music
+        target: /music
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        case "$$(uname -m)" in aarch64|arm64) A=arm64 ;; *) A=x64 ;; esac
+        mkdir -p /data/app
+        B=/data/app/musik-server
+        if curl -fsSL --retry 3 --max-time 300 -o "$$B.new" "https://github.com/Labtoso/Musik/releases/latest/download/musik-server-linux-$$A" && [ -s "$$B.new" ]; then
+          chmod +x "$$B.new" && mv -f "$$B.new" "$$B"
+        else
+          echo "Could not fetch the newest server, starting the one that is already here."
+        fi
+        if [ ! -x "$$B" ]; then
+          echo "No server yet and no internet. Trying again in 30 seconds."
+          sleep 30
+          exit 1
+        fi
+        exec "$$B"
+x-casaos:
+  id: de.labtoso.musik
+  main: musik
+  index: /
+  port_map: "8484"
+  scheme: http
+  icon: https://musik.labtoso.de/icon.svg
+  title:
+    en_US: Musik
+  tagline:
+    en_US: Your own music server with apps for Android, Windows and Linux
+    de_DE: Dein eigener Musik-Server mit Apps für Android, Windows und Linux
+  description:
+    en_US: Plays your own music files, imports playlists from other platforms and builds a mix that learns what you like. Put your songs into the Music folder under Media.
+    de_DE: Spielt deine eigenen Musikdateien, importiert Playlists von anderen Plattformen und baut einen Mix, der lernt, was du magst. Lege deine Songs in den Ordner Music unter Media.
+  author: Labtoso
+  developer: Labtoso
+  category: Media
+  architectures:
+    - amd64
+    - arm64
+  website: https://musik.labtoso.de
+  repo: https://github.com/Labtoso/Musik

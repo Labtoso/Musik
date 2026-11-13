@@ -235,6 +235,7 @@ struct Ids {
 #[serde(default)]
 struct PlaylistBody {
     name: Option<String>,
+    description: Option<String>,
     #[serde(rename = "trackIds")]
     track_ids: Option<Vec<Value>>,
 }
@@ -810,6 +811,21 @@ fn own_playlist(db: &Connection, u: &User, id: i64) -> Result<(i64, String), Api
         _ => Err(nf()),
     }
 }
+/// A playlist the user may listen to and add songs to: their own, or one they were invited to.
+/// Returns id, name, and whether they own it.
+fn open_playlist(db: &Connection, u: &User, id: i64) -> Result<(i64, String, bool), ApiError> {
+    if let Ok((id, name)) = own_playlist(db, u, id) {
+        return Ok((id, name, true));
+    }
+    db.query_row(
+        "SELECT p.id, p.name FROM playlists p JOIN playlist_members m ON m.playlist_id = p.id WHERE p.id = ? AND m.user_id = ?",
+        params![id, u.id],
+        |r| Ok((r.get(0)?, r.get(1)?, false)),
+    )
+    .optional()
+    .unwrap_or(None)
+    .ok_or_else(nf)
+}
 fn playlist_ids(db: &Connection, id: i64) -> Vec<i64> {
     let mut s = db
         .prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id = ? ORDER BY pos")
@@ -850,15 +866,20 @@ async fn playlists(State(st): State<St>, Auth(u, _): Auth) -> R {
     let mut s = db
         .prepare(
             "SELECT p.id, p.name, p.updated, COUNT(pt.track_id), MIN(pt.track_id),
-                    (SELECT updated FROM art WHERE kind = 'playlist' AND ref_id = p.id)
+                    (SELECT updated FROM art WHERE kind = 'playlist' AND ref_id = p.id),
+                    p.description, p.user_id = ?1, (SELECT name FROM users WHERE id = p.user_id),
+                    (SELECT COUNT(*) FROM playlist_members WHERE playlist_id = p.id)
              FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
-             WHERE p.user_id = ? GROUP BY p.id ORDER BY p.updated DESC",
+             WHERE p.user_id = ?1 OR p.id IN (SELECT playlist_id FROM playlist_members WHERE user_id = ?1)
+             GROUP BY p.id ORDER BY p.updated DESC",
         )
         .unwrap();
     let rows: Vec<Value> = s
         .query_map([u.id], |r| {
             Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "updated": r.get::<_, i64>(2)?,
-                "tracks": r.get::<_, i64>(3)?, "cover_id": r.get::<_, Option<i64>>(4)?, "art": r.get::<_, Option<i64>>(5)?.unwrap_or(0) }))
+                "tracks": r.get::<_, i64>(3)?, "cover_id": r.get::<_, Option<i64>>(4)?, "art": r.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                "description": r.get::<_, String>(6)?, "mine": r.get::<_, bool>(7)?, "owner": r.get::<_, Option<String>>(8)?.unwrap_or_default(),
+                "members": r.get::<_, i64>(9)? }))
         })
         .unwrap()
         .filter_map(Result::ok)
@@ -874,8 +895,8 @@ async fn create_playlist(State(st): State<St>, Auth(u, _): Auth, req: Request) -
     let mut db = st.db.lock().unwrap();
     let now = now_ms();
     db.execute(
-        "INSERT INTO playlists (user_id, name, created, updated) VALUES (?,?,?,?)",
-        params![u.id, name, now, now],
+        "INSERT INTO playlists (user_id, name, description, created, updated) VALUES (?,?,?,?,?)",
+        params![u.id, name, b.description.as_deref().unwrap_or("").trim().chars().take(300).collect::<String>(), now, now],
     )
     .ok();
     let id = db.last_insert_rowid();
@@ -887,11 +908,37 @@ async fn create_playlist(State(st): State<St>, Auth(u, _): Auth, req: Request) -
 }
 async fn get_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
     let db = st.db.lock().unwrap();
-    let (id, name) = own_playlist(&db, &u, id)?;
+    let (id, name, mine) = open_playlist(&db, &u, id)?;
     let ids = playlist_ids(&db, id);
+    let (description, owner): (String, String) = db
+        .query_row(
+            "SELECT p.description, COALESCE((SELECT name FROM users WHERE id = p.user_id), '') FROM playlists p WHERE p.id = ?",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap_or_default();
+    let mut s = db
+        .prepare("SELECT u.id, u.name FROM playlist_members m JOIN users u ON u.id = m.user_id WHERE m.playlist_id = ? ORDER BY m.added")
+        .unwrap();
+    let members: Vec<Value> = s
+        .query_map([id], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)? })))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
     Ok(Json(
-        json!({ "id": id, "name": name, "art": crate::ext::art_version(&db, "playlist", id), "tracks": with_likes(&db, &u, tracks_by_ids(&db, &ids)) }),
+        json!({ "id": id, "name": name, "description": description, "mine": mine, "owner": owner, "members": members,
+            "art": crate::ext::art_version(&db, "playlist", id), "tracks": with_likes(&db, &u, tracks_by_ids(&db, &ids)) }),
     ))
+}
+/// The owner removes a collaborator, or a collaborator leaves.
+async fn remove_member(State(st): State<St>, Auth(u, _): Auth, Path((id, uid)): Path<(i64, i64)>) -> R {
+    let db = st.db.lock().unwrap();
+    let (id, _, mine) = open_playlist(&db, &u, id)?;
+    if !mine && uid != u.id {
+        return Err(nf());
+    }
+    db.execute("DELETE FROM playlist_members WHERE playlist_id = ? AND user_id = ?", params![id, uid]).ok();
+    Ok(Json(json!({ "ok": true })))
 }
 async fn update_playlist(
     State(st): State<St>,
@@ -901,14 +948,16 @@ async fn update_playlist(
 ) -> R {
     let b: PlaylistBody = body_json(req).await?;
     let mut db = st.db.lock().unwrap();
-    let (id, _) = own_playlist(&db, &u, id)?;
-    if let Some(n) = b.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
-        let n: String = n.chars().take(80).collect();
-        db.execute(
-            "UPDATE playlists SET name = ?, updated = ? WHERE id = ?",
-            params![n, now_ms(), id],
-        )
-        .ok();
+    let (id, _, mine) = open_playlist(&db, &u, id)?;
+    if mine {
+        if let Some(n) = b.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            let n: String = n.chars().take(80).collect();
+            db.execute("UPDATE playlists SET name = ?, updated = ? WHERE id = ?", params![n, now_ms(), id]).ok();
+        }
+        if let Some(d) = b.description.as_deref() {
+            let d: String = d.trim().chars().take(300).collect();
+            db.execute("UPDATE playlists SET description = ?, updated = ? WHERE id = ?", params![d, now_ms(), id]).ok();
+        }
     }
     if let Some(ids) = b.track_ids {
         let ids = valid_ids(&db, &to_ids(&ids));
@@ -924,7 +973,7 @@ async fn add_to_playlist(
 ) -> R {
     let b: PlaylistBody = body_json(req).await?;
     let mut db = st.db.lock().unwrap();
-    let (id, _) = own_playlist(&db, &u, id)?;
+    let (id, _, _) = open_playlist(&db, &u, id)?;
     let mut ids = playlist_ids(&db, id);
     ids.extend(valid_ids(&db, &to_ids(&b.track_ids.unwrap_or_default())));
     set_playlist_tracks(&mut db, id, &ids);
@@ -1166,6 +1215,7 @@ pub fn router(st: St) -> Router {
                 .delete(delete_playlist),
         )
         .route("/playlists/{id}/tracks", post(add_to_playlist))
+        .route("/playlists/{id}/members/{uid}", delete(remove_member))
         .route("/events", post(events))
         .route("/history", get(history))
         .route("/recommend/mix", get(rec_mix))

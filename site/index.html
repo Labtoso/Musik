@@ -473,7 +473,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 <section class="track" id="b2">
   <div class="th rv"><div class="no"><b>B2</b>9:44 – 10:40</div><div><h2 data-h="b2h"></h2><p data-t="b2p"></p></div></div>
   <div class="body rv">
-    <div class="tabs"><button data-tab="px" class="on">Proxmox</button><button data-tab="deb">Debian</button><button data-tab="dock">Docker</button><button data-tab="win">Windows</button></div>
+    <div class="tabs"><button data-tab="px" class="on">Proxmox</button><button data-tab="deb">Debian</button><button data-tab="zima">ZimaOS</button><button data-tab="dock">Docker</button><button data-tab="win">Windows</button></div>
     <div class="pane on" data-pane="px">
       <div class="term"><div class="term-h">root@pve<button data-copy="px" data-t="copy"></button></div>
 <pre><span class="p">#</span> <span data-cmd="px">bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</span>
@@ -488,6 +488,11 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
       <div class="term"><div class="term-h">bash<button data-copy="deb" data-t="copy"></button></div>
 <pre><span class="p">$</span> <span data-cmd="deb">curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash</span></pre></div>
       <ol class="steps"><li data-h="deb1"></li><li data-h="deb2"></li><li data-h="deb3"></li></ol>
+    </div>
+    <div class="pane" data-pane="zima">
+      <div class="term"><div class="term-h">ZimaOS<button data-copy="zima" data-t="copy"></button></div>
+<pre><span class="p">$</span> <span data-cmd="zima">curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash</span></pre></div>
+      <ol class="steps"><li data-h="zima1"></li><li data-h="zima2"></li><li data-h="zima3"></li></ol>
     </div>
     <div class="pane" data-pane="dock">
       <div class="term"><div class="term-h">bash<button data-copy="dock" data-t="copy"></button></div>
@@ -557,6 +562,9 @@ const T = {
     deb1: 'Installiert den Server nach <code>/opt/musik</code> und startet ihn als Dienst.',
     deb2: 'Musik nach <code>/srv/musik</code> legen oder <code>MUSIC_DIRS</code> in <code>/etc/musik.env</code> ändern.',
     deb3: 'Update später mit <code>sudo musik-update</code>.',
+    zima1: 'In ZimaOS oder CasaOS das <b>Terminal</b> öffnen (oder per SSH verbinden), Befehl einfügen, Enter. Musik erscheint danach als App im Dashboard.',
+    zima2: 'Songs in den Ordner <code>Media/Music</code> legen. Ohne Terminal geht es auch: im App Store <b>Eigene App installieren</b> → <b>Import</b> und die Datei <code>deploy/zimaos.yml</code> einfügen.',
+    zima3: 'Aktualisieren: die App im Dashboard neu starten, sie holt beim Start die neueste Version.',
     dock1: 'Musik in den Ordner <code>music/</code> neben der <code>docker-compose.yml</code> legen.',
     dock2: 'Der Server läuft dann auf Port <code>8484</code>.',
     win1: '<code>musik-server-windows-x64.exe</code> laden und starten. Er nimmt deinen Musik-Ordner.',
@@ -570,7 +578,7 @@ const T = {
     q6: 'Und Updates?', a6: 'Installationsbefehl erneut ausführen. Deine Daten, Playlists und Likes bleiben. Neue Apps gibt es immer hier.',
     q7: 'Geht auch Spotify oder YouTube?', a7: 'Ja, wenn du willst. Beim ersten Start wählst du, woher Songs kommen dürfen: lokal, YouTube, YouTube Music, Spotify, SoundCloud. Playlists holst du per Link oder Datei rein, Deezer und Exportify-CSV gehen auch. Was du selbst hast, spielt immer lokal. Der Rest läuft über die offiziellen Player der Plattform.',
     q8: 'Teilen, Equalizer, Songtexte?', a8: 'Alles drin. Songs, Alben und Playlists teilst du per Link, auch an Leute ohne Konto. Wer die App hat, speichert sie mit einem Tipp. Dazu ein 10-Band-Equalizer und Songtexte, die beim Hören mitlaufen.',
-    catA: 'Entdecken', catB: 'Loslegen', navd1: 'Wie Server und Apps zusammenspielen', navdP: 'So sieht die App aus', navd2: 'Wie der Mix deinen Geschmack lernt', navd3: 'In Proxmox, Debian, Docker oder Windows', navd4: 'Apps für Android, Windows, Linux', navdD: 'Die ganze Anleitung zum Nachlesen',
+    catA: 'Entdecken', catB: 'Loslegen', navd1: 'Wie Server und Apps zusammenspielen', navdP: 'So sieht die App aus', navd2: 'Wie der Mix deinen Geschmack lernt', navd3: 'In Proxmox, ZimaOS, Debian, Docker oder Windows', navd4: 'Apps für Android, Windows, Linux', navdD: 'Die ganze Anleitung zum Nachlesen',
     wp: 'Webplayer', wpH: 'Webplayer öffnen', wpP: 'Der Webplayer läuft auf deinem eigenen Server. Gib einmal seine Adresse ein, beim nächsten Mal geht es mit einem Klick.', wpL: 'Adresse deines Servers', wpGo: 'Öffnen', wpS: 'Noch kein Server? <a href="#b2">So richtest du ihn ein</a>. Unterwegs geht die Tailscale-Adresse.', wpBad: 'Diese Adresse passt nicht.',
     all: 'Alle Versionen'
   },
@@ -608,6 +616,9 @@ const T = {
     deb1: 'Installs the server to <code>/opt/musik</code> and starts it as a service.',
     deb2: 'Put music in <code>/srv/musik</code> or change <code>MUSIC_DIRS</code> in <code>/etc/musik.env</code>.',
     deb3: 'Update later with <code>sudo musik-update</code>.',
+    zima1: 'Open the <b>terminal</b> in ZimaOS or CasaOS (or connect over SSH), paste the command, hit Enter. Musik then shows up as an app on the dashboard.',
+    zima2: 'Put your songs into <code>Media/Music</code>. It works without a terminal too: in the app store pick <b>Install a customized app</b> → <b>Import</b> and paste the file <code>deploy/zimaos.yml</code>.',
+    zima3: 'Updating: restart the app on the dashboard, it fetches the newest version on start.',
     dock1: 'Put your music into <code>music/</code> next to <code>docker-compose.yml</code>.',
     dock2: 'The server then runs on port <code>8484</code>.',
     win1: 'Download <code>musik-server-windows-x64.exe</code> and run it. It uses your Music folder.',

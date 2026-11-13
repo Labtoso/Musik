@@ -17,6 +17,8 @@ Run it again to update. Optional: `MUSIC_HOST_DIR=/mnt/pve/nas/music` mounts a h
 **Debian / Ubuntu:** `curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash`
 (settings in `/etc/musik.env`, update with `musik-update`)
 
+**ZimaOS / CasaOS:** `curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash` (shows up as an app on the dashboard, songs in `Media/Music`)
+
 **Docker:** `docker compose up -d --build` (music in `./music`, data in `./data`)
 
 **Windows:** download `musik-server-windows-x64.exe` from the release and start it. It uses your Music folder (or set `MUSIC_DIRS` in a `.env` next to the exe).

@@ -82,6 +82,14 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
     conn.execute_batch(crate::ext::SCHEMA)?;
     // columns added later (fails harmlessly when they exist)
     let _ = conn.execute("ALTER TABLE imports ADD COLUMN meta TEXT NOT NULL DEFAULT '{}'", []);
+    let _ = conn.execute("ALTER TABLE playlists ADD COLUMN description TEXT NOT NULL DEFAULT ''", []);
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS playlist_members (
+           playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           added INTEGER NOT NULL,
+           PRIMARY KEY (playlist_id, user_id));",
+    )?;
     // after every update the remembered YouTube matches are looked up again (better matching each time)
     conn.execute_batch("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);")?;
     let seen: Option<String> = conn.query_row("SELECT v FROM kv WHERE k = 'version'", [], |r| r.get(0)).ok();

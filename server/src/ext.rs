@@ -120,6 +120,7 @@ pub fn routes() -> Router<St> {
         .route("/shares", post(create_share))
         .route("/public/{token}", get(public_share))
         .route("/public/{token}/save", post(save_share))
+        .route("/public/{token}/join", post(join_share))
         .route("/public/{token}/stream/{i}", get(public_stream))
         .route("/public/{token}/cover/{i}", get(public_cover))
 }
@@ -732,7 +733,11 @@ pub fn art_version(db: &Connection, kind: &str, id: i64) -> i64 {
 async fn get_art(State(st): State<St>, a: crate::api::AuthQ, Path((kind, id)): Path<(String, i64)>) -> Result<Response, ApiError> {
     let kind = art_kind(&kind)?;
     let db = st.db.lock().unwrap();
-    own_ref(&db, a.0.id, kind, id)?;
+    let member = kind == "playlist"
+        && db.query_row("SELECT 1 FROM playlist_members WHERE playlist_id = ? AND user_id = ?", params![id, a.0.id], |r| r.get::<_, i64>(0)).is_ok();
+    if !member {
+        own_ref(&db, a.0.id, kind, id)?;
+    }
     let data: Vec<u8> = db
         .query_row("SELECT data FROM art WHERE kind = ? AND ref_id = ?", params![kind, id], |r| r.get(0))
         .optional()
@@ -1429,7 +1434,7 @@ async fn create_share(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R
             .ok()
             .map(|id| !tracks_by_ids(&db, &[id]).is_empty())
             .unwrap_or(false),
-        "playlist" => reference
+        "playlist" | "collab" => reference
             .parse::<i64>()
             .ok()
             .and_then(|id| {
@@ -1513,6 +1518,8 @@ fn resolve_share(
             .collect();
         v
     };
+    // an invitation shows the same playlist as a listening link
+    let kind = if kind == "collab" { "playlist".to_string() } else { kind };
     match kind.as_str() {
         "track" => {
             let id: i64 = reference.parse().map_err(|_| nf())?;
@@ -1605,8 +1612,29 @@ async fn public_share(State(st): State<St>, Path(token): Path<String>) -> R {
         .collect();
     let ext: Vec<Value> = ext.iter().map(|e| json!({ "title": e["title"], "artist": e["artist"], "source": e["source"], "url": e["url"], "cover": e["cover"], "ext_id": e["ext_id"], "duration": e["duration"] })).collect();
     Ok(Json(
-        json!({ "title": title, "sub": sub, "kind": kind, "tracks": list, "external": ext, "server": st.name }),
+        json!({ "title": title, "sub": sub, "kind": kind, "tracks": list, "external": ext, "server": st.name, "collab": share_is_collab(&db, &token) }),
     ))
+}
+fn share_is_collab(db: &Connection, token: &str) -> bool {
+    db.query_row("SELECT kind = 'collab' FROM shares WHERE token = ?", [token], |r| r.get(0)).unwrap_or(false)
+}
+/// Accept an invitation: the signed-in user becomes a collaborator of the playlist.
+async fn join_share(State(st): State<St>, Auth(u, _): Auth, Path(token): Path<String>) -> R {
+    let db = st.db.lock().unwrap();
+    let (owner, pid): (i64, i64) = db
+        .query_row("SELECT user_id, CAST(ref AS INTEGER) FROM shares WHERE token = ? AND kind = 'collab'", [&token], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()
+        .unwrap_or(None)
+        .ok_or_else(nf)?;
+    let name: String = db
+        .query_row("SELECT name FROM playlists WHERE id = ? AND user_id = ?", params![pid, owner], |r| r.get(0))
+        .optional()
+        .unwrap_or(None)
+        .ok_or_else(nf)?;
+    if owner != u.id {
+        db.execute("INSERT OR IGNORE INTO playlist_members (playlist_id, user_id, added) VALUES (?,?,?)", params![pid, u.id, now_ms()]).ok();
+    }
+    Ok(Json(json!({ "kind": "playlist", "id": pid, "name": name })))
 }
 
 /// Save a shared playlist / album / song into the own library: as a playlist when every song

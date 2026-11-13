@@ -26,6 +26,8 @@
   .play svg { width:26px; height:26px; }
   .btn { height:38px; padding:0 16px; border-radius:20px; border:1px solid var(--line); font-weight:600; display:inline-flex; align-items:center; gap:8px; text-decoration:none; }
   .btn:hover { border-color:var(--muted); }
+  .btn.join { background:#fff; color:#111; border-color:#fff; }
+  .invite { margin:0 0 14px; padding:10px 14px; border-radius:12px; background:rgba(255,255,255,.07); font-size:14px; }
   .row { display:grid; grid-template-columns:28px 44px 1fr auto; gap:12px; align-items:center; padding:7px 8px; border-radius:6px; }
   .row:hover { background:var(--surface); }
   .row.on .t { color:var(--accent); }
@@ -74,8 +76,8 @@
   try { pl = JSON.parse(localStorage.getItem('musik.prefs') || '{}').lang || ''; } catch {}
   const de = pl === 'de';
   const T = de
-    ? { play: 'Abspielen', save: 'In meiner Bibliothek speichern', saved: 'Gespeichert', open: 'In der App öffnen', notFound: 'Dieser Link ist nicht (mehr) gültig.', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'Auf anderen Plattformen', login: 'Melde dich in der App an, um zu speichern.', songs: 'Songs', on: 'Geteilt von' }
-    : { play: 'Play', save: 'Save to my library', saved: 'Saved', open: 'Open in the app', notFound: 'This link is not valid (anymore).', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'On other platforms', login: 'Sign in in the app to save.', songs: 'songs', on: 'Shared from' };
+    ? { play: 'Abspielen', save: 'In meiner Bibliothek speichern', saved: 'Gespeichert', open: 'In der App öffnen', notFound: 'Dieser Link ist nicht (mehr) gültig.', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'Auf anderen Plattformen', login: 'Melde dich in der App an, um zu speichern.', songs: 'Songs', on: 'Geteilt von', join: 'Mitwirken', joinHint: 'Du wurdest eingeladen, an dieser Playlist mitzuwirken.', joinLogin: 'Melde dich zuerst in der App an, dann öffne den Link noch einmal.' }
+    : { play: 'Play', save: 'Save to my library', saved: 'Saved', open: 'Open in the app', notFound: 'This link is not valid (anymore).', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'On other platforms', login: 'Sign in in the app to save.', songs: 'songs', on: 'Shared from', join: 'Join as collaborator', joinHint: 'You were invited to add songs to this playlist.', joinLogin: 'Sign in in the app first, then open this link again.' };
   document.documentElement.lang = de ? 'de' : 'en';
   const SRC = { spotify: 'Spotify', youtube: 'YouTube', ytmusic: 'YT Music', soundcloud: 'SoundCloud', deezer: 'Deezer', apple: 'Apple Music', tidal: 'Tidal' };
   const PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
@@ -116,7 +118,8 @@
       <div class="kind">${T[d.kind] || ''}</div><h1>${esc(d.title)}</h1>
       <div class="sub">${esc(d.sub)}${d.kind !== 'track' ? ` · ${total} ${T.songs}` : ''}</div></div></div>
       <div class="actions">${d.tracks.length ? `<button class="play" id="playall" aria-label="${T.play}">${PLAY}</button>` : ''}
-      <button class="btn" id="save">${T.save}</button><a class="btn" href="/#/home">${T.open}</a></div>`;
+      ${d.collab ? `<button class="btn join" id="join">${T.join}</button>` : ''}<button class="btn" id="save">${T.save}</button><a class="btn" href="/#/home">${T.open}</a></div>`;
+    if (d.collab) h += `<p class="invite">${T.joinHint}</p>`;
     h += d.tracks.map((t) => `<div class="row" data-i="${t.i}"><span class="n">${t.i + 1}</span><span class="c" style="${t.cover ? `background-image:url('${base}/cover/${t.i}')` : ''}"></span>
       <div style="min-width:0"><div class="t">${esc(t.title)}</div><div class="a">${esc(t.artist)}</div></div><span class="d">${fmt(t.duration)}</span></div>`).join('');
     if (d.external.length) {
@@ -129,6 +132,7 @@
     if (firstCover) tint(firstCover);
     $('playall')?.addEventListener('click', () => (cur >= 0 ? toggle() : play(0)));
     $('save').addEventListener('click', save);
+    $('join')?.addEventListener('click', join);
     document.querySelectorAll('.row[data-i]').forEach((r) => r.addEventListener('click', () => play(+r.dataset.i)));
   }
 
@@ -163,11 +167,21 @@
     if (!conn.token || (conn.server && conn.server !== location.origin)) return toast(T.login);
     const r = await fetch(base + '/save', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
     if (r.status === 401) return toast(T.login);
-    if (!r.ok) return toast('Fehler ' + r.status);
+    if (!r.ok) return toast('Error ' + r.status);
     const j = await r.json();
     $('save').textContent = T.saved + ' ✓';
     $('save').disabled = true;
     toast(T.saved + ': ' + j.name);
+  }
+
+  async function join() {
+    const app = '/#/join/' + encodeURIComponent(token);
+    if (!conn.token || (conn.server && conn.server !== location.origin)) return (location.href = app);
+    const r = await fetch(base + '/join', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
+    if (r.status === 401) return (location.href = app);
+    if (!r.ok) return toast('Error ' + r.status);
+    const j = await r.json();
+    location.href = '/#/playlist/' + j.id;
   }
 
   fetch(base)

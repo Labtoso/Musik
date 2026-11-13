@@ -253,7 +253,7 @@ const navBlob = (() => {
     blob = nav?.querySelector('.navblob');
     if (!blob || !nav.offsetWidth) return;
     const list = items();
-    const nw = Math.min(list[0].offsetWidth - 10, 132);
+    const nw = list[0].offsetWidth; // the marker fills its tab, so the gap to the bar is the same on every side
     if (nw !== w) {
       w = nw;
       blob.style.width = w + 'px';
@@ -1406,9 +1406,8 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-playlib]') && state.libTracks) player.playList(state.libTracks, 0);
   if (e.target.closest('[data-shufflelib]') && state.libTracks) player.playList(state.libTracks, 0, { shuffle: true });
   if (e.target.closest('[data-newpl]')) {
-    const r = await dialog({ title: t('newPlaylist'), fields: [{ name: 'name', label: t('playlistName') }], ok: t('create') });
-    if (r?.name?.trim()) {
-      const p = await post('/api/playlists', { name: r.name.trim() });
+    const p = await playlistDialog();
+    if (p) {
       renderSidebarPlaylists();
       go('#/playlist/' + p.id);
     }
@@ -1493,16 +1492,47 @@ views.likes = async () => {
 views.playlist = async (params, id) => {
   const pl = await get(`/api/playlists/${id}`);
   state.detail = { pl: pl.tracks };
+  const who = pl.mine === false ? `${esc(t('sharedBy', { name: pl.owner }))} · ` : '';
+  const members = pl.members?.length
+    ? `<div class="pl-members">${icon('user')}<span>${esc(t('collaborators'))}:</span>${pl.members.map((m) => `<span class="pill">${esc(m.name)}${pl.mine !== false ? `<button class="x" data-rmmember="${pl.id}:${m.id}" title="${t('remove')}">×</button>` : ''}</span>`).join('')}</div>`
+    : '';
   return (
     detailHeader({
       coverId: artKey('playlist', pl.id, pl.art) || pl.tracks[0]?.id,
       kind: t('playlist'),
       title: pl.name,
-      sub: `${songCount(pl.tracks.length)} · ${fmtTime(pl.tracks.reduce((s, x) => s + x.duration, 0))}`,
-      actions: listActions('pl') + shareBtn('playlist', pl.id, pl.name) + `<button class="icon-btn" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
-    }) + trackList(pl.tracks, { playlistId: pl.id })
+      sub: `${pl.description ? `<span class="pl-desc">${esc(pl.description)}</span>` : ''}${who}${songCount(pl.tracks.length)} · ${fmtTime(pl.tracks.reduce((s, x) => s + x.duration, 0))}`,
+      actions: listActions('pl') + `<button class="btn" data-plshare="${pl.id}" title="${t('share')}">${icon('share')}${t('share')}</button>` + `<button class="icon-btn" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
+    }) + members + trackList(pl.tracks, { playlistId: pl.id })
   );
 };
+// an invitation link lands here once the user is signed in
+views.join = async (params, token) => {
+  state.joined = true; // the invitation wins over the first-start assistant
+  const j = await post(`/api/public/${encodeURIComponent(token)}/join`, {});
+  toast(t('joinedPlaylist', { name: j.name }));
+  renderSidebarPlaylists();
+  setTimeout(() => go(`#/playlist/${j.id}`), 0);
+  return '';
+};
+// share a playlist: a link to listen without signing in, or an invitation to add songs
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-plshare]');
+  if (b) {
+    const id = Number(b.dataset.plshare);
+    const pl = await get(`/api/playlists/${id}`).catch(() => null);
+    if (!pl) return;
+    const items = [{ label: t('shareListen'), icon: 'share', run: () => shareThing('playlist', id, pl.name) }];
+    if (pl.mine !== false) items.push({ label: t('shareCollab'), icon: 'user', run: () => shareThing('collab', id, pl.name) });
+    return menu(b, items);
+  }
+  const rm = e.target.closest('[data-rmmember]');
+  if (rm) {
+    const [pid, uid] = rm.dataset.rmmember.split(':');
+    await del(`/api/playlists/${pid}/members/${uid}`).catch(() => {});
+    render();
+  }
+});
 // ---------- sources (first start + settings) ----------
 function sourcesForm(welcome) {
   const on = settings.sources || {};
@@ -2370,6 +2400,133 @@ function cropImage(file) {
     img.src = url;
   });
 }
+/** Second way to a cover: make one from a colour and a symbol or a few letters. Resolves with a JPEG blob or null. */
+function makeCover(name = '') {
+  return new Promise((res) => {
+    const GRADS = [['#7a5cff', '#2ec5c0'], ['#ff6fb1', '#ff9a3d'], ['#4c8dff', '#9b7bff'], ['#1ed760', '#0b6b3a'], ['#ff5d5d', '#7a1f4f'], ['#f5d547', '#ff7a3d'], ['#20232b', '#5b6072'], ['#0fa3b1', '#1b2a6b']];
+    const SYMS = ['abc', 'note', 'heartFill', 'mix', 'radio', 'viz', 'queue', 'lyrics'];
+    const initials = (name.trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('') || '♪').toUpperCase();
+    let g = 0, sym = 'abc';
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-wrap';
+    wrap.innerHTML = `<div class="modal crop"><div class="modal-head"><h2>${t('makeCover')}</h2><button class="icon-btn" data-x>${icon('close')}</button></div>
+      <div class="crop-box"><canvas width="640" height="640"></canvas></div>
+      <div class="mk-row">${GRADS.map((c, i) => `<button type="button" class="mk-col ${i === 0 ? 'on' : ''}" data-g="${i}" style="background:linear-gradient(135deg,${c[0]},${c[1]})"></button>`).join('')}</div>
+      <div class="mk-row">${SYMS.map((k) => `<button type="button" class="mk-sym ${k === 'abc' ? 'on' : ''}" data-sym="${k}">${k === 'abc' ? `<b>${esc(initials)}</b>` : icon(k)}</button>`).join('')}</div>
+      <div class="modal-actions"><button class="btn" data-x>${t('cancel')}</button><button class="btn primary" data-ok>${t('save')}</button></div></div>`;
+    document.body.appendChild(wrap);
+    const cv = wrap.querySelector('canvas');
+    const ctx = cv.getContext('2d');
+    const draw = () => {
+      const gr = ctx.createLinearGradient(0, 0, 640, 640);
+      gr.addColorStop(0, GRADS[g][0]);
+      gr.addColorStop(1, GRADS[g][1]);
+      ctx.fillStyle = gr;
+      ctx.fillRect(0, 0, 640, 640);
+      const sh = ctx.createRadialGradient(180, 140, 0, 180, 140, 520);
+      sh.addColorStop(0, 'rgba(255,255,255,.28)');
+      sh.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = sh;
+      ctx.fillRect(0, 0, 640, 640);
+      ctx.fillStyle = 'rgba(255,255,255,.96)';
+      if (sym === 'abc') {
+        ctx.font = `800 ${initials.length > 1 ? 250 : 320}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(initials, 320, 338);
+      } else {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${wrap.querySelector(`[data-sym="${sym}"] svg`).innerHTML}</svg>`;
+        const im = new Image();
+        im.onload = () => ctx.drawImage(im, 170, 170, 300, 300);
+        im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      }
+    };
+    wrap.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-g]'), y = e.target.closest('[data-sym]');
+      if (c) g = Number(c.dataset.g);
+      if (y) sym = y.dataset.sym;
+      if (!c && !y) return;
+      wrap.querySelectorAll('.mk-col').forEach((b) => b.classList.toggle('on', Number(b.dataset.g) === g));
+      wrap.querySelectorAll('.mk-sym').forEach((b) => b.classList.toggle('on', b.dataset.sym === sym));
+      draw();
+    });
+    const close = (v) => (wrap.remove(), res(v));
+    wrap.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => close(null)));
+    wrap.addEventListener('mousedown', (e) => e.target === wrap && close(null));
+    wrap.querySelector('[data-ok]').onclick = () => cv.toBlob((b) => close(b), 'image/jpeg', 0.9);
+    draw();
+  });
+}
+/** Playlist details like on Spotify: picture on the left (upload and place it, or make one), name and description on the right. */
+function playlistDialog(pl = null) {
+  return new Promise((res) => {
+    let blob = null, removeArt = false, preview = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-wrap';
+    const cur = pl ? coverUrl(artKey('playlist', pl.id, pl.art) || pl.tracks?.[0]?.id || pl.cover_id || '') : '';
+    wrap.innerHTML = `<form class="modal pld" novalidate><div class="modal-head"><h2>${t(pl ? 'editDetails' : 'newPlaylist')}</h2><button type="button" class="icon-btn" data-x>${icon('close')}</button></div>
+      <div class="pld-grid">
+        <button type="button" class="pld-cover" data-up title="${t('uploadPicture')}">${cur ? `<img alt="" src="${esc(cur)}">` : icon('note')}<span class="pld-over">${icon('image')}${t('uploadPicture')}</span></button>
+        <div class="pld-fields">
+          <label class="field"><span>${t('playlistName')}</span><input name="name" maxlength="80" value="${esc(pl?.name || '')}" autocomplete="off"></label>
+          <label class="field"><span>${t('description')}</span><textarea name="description" maxlength="300" rows="4" placeholder="${t('descriptionHint')}">${esc(pl?.description || '')}</textarea></label>
+        </div>
+      </div>
+      <div class="pld-art"><button type="button" class="btn" data-up>${icon('image')}${t('uploadPicture')}</button><button type="button" class="btn ghost" data-make>${icon('edit')}${t('makeCover')}</button><button type="button" class="btn ghost ${pl?.art ? '' : 'hide'}" data-rm>${t('resetCover')}</button></div>
+      <div class="modal-actions"><button type="button" class="btn ghost" data-x>${t('cancel')}</button><button class="btn primary">${t(pl ? 'save' : 'create')}</button></div></form>`;
+    document.body.appendChild(wrap);
+    const form = wrap.querySelector('form');
+    const cover = wrap.querySelector('.pld-cover');
+    const show = (b) => {
+      blob = b;
+      removeArt = false;
+      if (preview) URL.revokeObjectURL(preview);
+      preview = URL.createObjectURL(b);
+      cover.querySelector('img, svg')?.remove();
+      cover.insertAdjacentHTML('afterbegin', `<img alt="" src="${preview}">`);
+      wrap.querySelector('[data-rm]').classList.remove('hide');
+    };
+    wrap.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-up]')) {
+        const f = await pickImage();
+        const b = f && (await cropImage(f));
+        if (b) show(b);
+      } else if (e.target.closest('[data-make]')) {
+        const b = await makeCover(form.elements.name.value);
+        if (b) show(b);
+      } else if (e.target.closest('[data-rm]')) {
+        blob = null;
+        removeArt = true;
+        cover.querySelector('img')?.remove();
+        cover.insertAdjacentHTML('afterbegin', icon('note'));
+        wrap.querySelector('[data-rm]').classList.add('hide');
+      }
+    });
+    const close = (v) => (wrap.remove(), preview && URL.revokeObjectURL(preview), res(v));
+    wrap.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => close(null)));
+    wrap.addEventListener('mousedown', (e) => e.target === wrap && close(null));
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const name = form.elements.name.value.trim();
+      const description = form.elements.description.value.trim();
+      if (!name) return form.elements.name.focus();
+      const btn = form.querySelector('.btn.primary');
+      btn.disabled = true;
+      try {
+        let id = pl?.id;
+        if (id) await put(`/api/playlists/${id}`, { name, description });
+        else id = (await post('/api/playlists', { name, description })).id;
+        if (blob) await fetch(`${conn.server}/api/art/playlist/${id}`, { method: 'PUT', headers: { Authorization: 'Bearer ' + conn.token, 'Content-Type': 'image/jpeg' }, body: blob });
+        else if (removeArt) await del(`/api/art/playlist/${id}`).catch(() => {});
+        close({ id, name });
+      } catch (err) {
+        btn.disabled = false;
+        toast(errorText(err));
+      }
+    };
+    setTimeout(() => !pl && form.elements.name.focus(), 30);
+  });
+}
 async function changeCover(kind, id) {
   const f = await pickImage();
   if (!f) return;
@@ -2427,7 +2584,17 @@ async function collectionMenu(anchor, ref) {
     items = [
       ...common,
       '-',
-      {
+      kind === 'playlist' && info.mine !== false && {
+        label: t('editDetails'),
+        icon: 'edit',
+        run: async () => {
+          if (await playlistDialog(info)) {
+            renderSidebarPlaylists();
+            render();
+          }
+        }
+      },
+      kind === 'import' && {
         label: t('rename'),
         icon: 'edit',
         run: async () => {
@@ -2438,8 +2605,8 @@ async function collectionMenu(anchor, ref) {
           render();
         }
       },
-      { label: t('changeCover'), icon: 'image', run: () => changeCover(kind, id) },
-      info.art && {
+      kind === 'import' && { label: t('changeCover'), icon: 'image', run: () => changeCover(kind, id) },
+      kind === 'import' && info.art && {
         label: t('resetCover'),
         icon: 'refresh',
         run: async () => {
@@ -2449,7 +2616,17 @@ async function collectionMenu(anchor, ref) {
         }
       },
       { label: t(pinned ? 'unpin' : 'pin'), icon: 'pin', run: () => togglePin(ref) },
-      { label: t('share'), icon: 'share', run: () => shareThing(kind, Number(id), name) }
+      { label: t(kind === 'playlist' ? 'shareListen' : 'share'), icon: 'share', run: () => shareThing(kind, Number(id), name) },
+      kind === 'playlist' && info.mine !== false && { label: t('shareCollab'), icon: 'user', run: () => shareThing('collab', Number(id), name) },
+      kind === 'playlist' && info.mine === false && {
+        label: t('leavePlaylist'),
+        icon: 'close',
+        run: async () => {
+          await del(`/api/playlists/${id}/members/${conn.user.id}`);
+          renderSidebarPlaylists();
+          go('#/library?tab=playlists');
+        }
+      }
     ];
     if (kind === 'import') {
       items.push(
@@ -2490,7 +2667,7 @@ async function collectionMenu(anchor, ref) {
         }
       );
     }
-    items.push('-', {
+    if (!(kind === 'playlist' && info.mine === false)) items.push('-', {
       label: t('delete'),
       icon: 'trash',
       danger: true,
@@ -3151,7 +3328,7 @@ function startApp() {
       } else if (!settings.langChosen && prefs.langChosen) saveSettings({ lang: prefs.lang, langChosen: true }).catch(() => {});
       await spotify.finishLogin().catch(() => false);
       setTimeout(() => autoUpdateCheck(), 4000);
-      if (!settings.setupDone && state.route !== 'welcome') go('#/welcome');
+      if (!settings.setupDone && !state.joined && !['welcome', 'join'].includes(state.route)) go('#/welcome');
       else render();
     })
     .catch(() => render());

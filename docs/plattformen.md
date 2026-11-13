@@ -28,6 +28,8 @@ Ohne Schlüssel liest die App Playlists über den eingebetteten Player. Mit Schl
 ## Teilen
 Bei Songs, Alben und Playlists auf **Teilen** tippen. Der Link `/s/<code>` öffnet eine Seite, auf der jeder reinhören kann, auch ohne Konto. Wer im selben Browser angemeldet ist, speichert die Playlist mit **In meiner Bibliothek speichern**. Damit Freunde den Link unterwegs öffnen können, muss der Server für sie erreichbar sein (z. B. Tailscale Funnel oder eigene Domain).
 
+Playlists lassen sich auf zwei Arten teilen: **Link zum Anhören** (jeder kann im Browser reinhören, ohne Konto) und **Mitwirkende einladen** (wer ein Konto auf deinem Server hat und den Link öffnet, darf Songs hinzufügen und entfernen). Name, Beschreibung und Cover ändert nur der Besitzer.
+
 ## Equalizer
 **Einstellungen → Equalizer**: 10 Bänder von 31 Hz bis 16 kHz, Vorverstärkung und Presets. Im Browser und am PC über WebAudio, auf Android über den System-Equalizer. Songs von YouTube, SoundCloud und Spotify lassen sich nicht verändern.
 
