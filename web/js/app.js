@@ -1,4 +1,4 @@
-import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
+import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
 import { LOGOS } from './logos.js';
 import { Player, EQ_FREQS, warmSongs } from './player.js';
 import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyAlbum, extTrack } from './sources.js';
@@ -54,6 +54,7 @@ if (window.MusikAndroid) {
   document.documentElement.style.setProperty('--safe-t', '0px');
   document.documentElement.style.setProperty('--safe-b', '0px');
 }
+if (prefs.sink) audioOut.id = prefs.sink;
 function applyPrefs() {
   setLang(prefs.lang);
   document.documentElement.dataset.accent = prefs.accent;
@@ -2869,7 +2870,8 @@ async function collectionMenu(anchor, ref) {
           render();
         }
       },
-      { label: t(pinned ? 'unpin' : 'pin'), icon: 'pin', run: () => togglePin(ref) },
+      // the phone has no sidebar to pin to
+      innerWidth >= 900 && { label: t(pinned ? 'unpin' : 'pin'), icon: 'pin', run: () => togglePin(ref) },
       { label: t(kind === 'playlist' ? 'shareListen' : 'share'), icon: 'share', run: () => shareThing(kind, Number(id), name) },
       kind === 'playlist' && info.mine !== false && { label: t('shareCollab'), icon: 'user', run: () => shareThing('collab', Number(id), name) },
       kind === 'playlist' && info.mine === false && {
@@ -3076,6 +3078,64 @@ function closeSettings() {
 function setRow(label, control, { hint = '', keys = '', wide = false } = {}) {
   return `<div class="set-row ${wide ? 'wide' : ''}" data-k="${esc((label + ' ' + hint + ' ' + keys).toLowerCase())}"><div class="sr-text"><div class="sr-label">${label}</div>${hint ? `<div class="sr-hint">${hint}</div>` : ''}</div><div class="sr-ctl">${control}</div></div>`;
 }
+// ---------- devices: where the sound goes, headphones and Bluetooth ----------
+const DEV_ICON = { bluetooth: 'bluetooth', wired: 'headphones', usb: 'headphones', hdmi: 'speaker', phone: 'phone', out: 'speaker' };
+let outDevices = null; // desktop and browser: the audio outputs the system offers
+async function loadOutputs(ask) {
+  if (!navigator.mediaDevices?.enumerateDevices || !('setSinkId' in HTMLMediaElement.prototype)) return (outDevices = []);
+  let list = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === 'audiooutput');
+  // browsers only name the outputs after the microphone question was answered once
+  if (ask && list.length && !list.some((d) => d.label)) {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
+    s?.getTracks().forEach((x) => x.stop());
+    list = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === 'audiooutput');
+  }
+  return (outDevices = list);
+}
+function devicesHtml() {
+  const A = window.MusikAndroid;
+  const line = (ic, name, on, attr = '') => `<${attr ? 'button' : 'div'} class="dev ${on ? 'on' : ''}" ${attr}>${icon(ic)}<span>${esc(name)}</span>${on ? `<small>${t('devPlaying')}</small>` : ''}</${attr ? 'button' : 'div'}>`;
+  if (A?.audioDevices) {
+    let list = [];
+    try { list = JSON.parse(A.audioDevices()); } catch {}
+    return (
+      setRow(t('devOutput'), `<div class="devlist">${list.map((d) => line(DEV_ICON[d.kind] || 'speaker', d.name || t('dev_' + d.kind), d.active)).join('') || line('phone', t('dev_phone'), true)}</div>`, { hint: t('devOutputHint'), wide: true, keys: 'bluetooth kopfhörer headphones lautsprecher speaker ausgabe output gerät device' }) +
+      setRow(t('devSwitch'), `<div class="stack"><button class="btn" data-devout>${icon('speaker')}${t('devSwitchBtn')}</button><button class="btn" data-devbt>${icon('bluetooth')}${t('devBtSettings')}</button></div>`, { hint: t('devSwitchHint'), keys: 'bluetooth verbinden connect koppeln pair' }) +
+      setRow(t('devPause'), sw('devpause', A.getPlayPref('pauseOnDisconnect')), { hint: t('devPauseHint'), keys: 'bluetooth pause trennen disconnect' }) +
+      setRow(t('devResume'), sw('devresume', A.getPlayPref('resumeOnConnect')), { hint: t('devResumeHint'), keys: 'bluetooth weiter resume verbinden auto' })
+    );
+  }
+  if (outDevices === null) {
+    loadOutputs(false).then(() => $('#set-devices') && ($('#set-devices').outerHTML = setCard('devices', 'bluetooth', t('devices'), devicesHtml())));
+    return setRow(t('devOutput'), `<span class="muted small">…</span>`, { hint: t('devOutputHint') });
+  }
+  if (!outDevices.length) return setRow(t('devOutput'), `<span class="muted small">${t('devSystem')}</span>`, { hint: t('devNoPick'), keys: 'bluetooth ausgabe output' });
+  const named = outDevices.some((d) => d.label);
+  const cur = prefs.sink && outDevices.some((d) => d.deviceId === prefs.sink) ? prefs.sink : 'default';
+  const kind = (l) => (/bluetooth|airpods|buds|wh-|wf-/i.test(l) ? 'bluetooth' : /head|kopf/i.test(l) ? 'wired' : 'out');
+  return (
+    setRow(t('devOutput'), named ? `<div class="devlist">${outDevices.map((d, i) => line(DEV_ICON[kind(d.label)], d.deviceId === 'default' ? t('devSystem') : d.label || t('devOutput') + ' ' + (i + 1), d.deviceId === cur || (cur === 'default' && i === 0 && !outDevices.some((x) => x.deviceId === 'default')), `data-sink="${esc(d.deviceId)}"`)).join('')}</div>` : `<button class="btn" data-devask>${icon('speaker')}${t('devShow')}</button>`, { hint: named ? t('devPickHint') : t('devAskHint'), wide: named, keys: 'bluetooth kopfhörer headphones lautsprecher speaker ausgabe output gerät device' })
+  );
+}
+const redrawDevices = () => $('#set-devices') && ($('#set-devices').outerHTML = setCard('devices', 'bluetooth', t('devices'), devicesHtml()));
+window.musikDevices = () => setTimeout(redrawDevices, 400);
+navigator.mediaDevices?.addEventListener?.('devicechange', () => loadOutputs(false).then(redrawDevices));
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-devout]')) return window.MusikAndroid?.openOutput?.();
+  if (e.target.closest('[data-devbt]')) return window.MusikAndroid?.openBluetooth?.();
+  if (e.target.closest('[data-devask]')) return loadOutputs(true).then(redrawDevices);
+  const s = e.target.closest('[data-sink]');
+  if (s) {
+    prefs.sink = s.dataset.sink === 'default' ? '' : s.dataset.sink;
+    savePrefs();
+    await audioOut.set(prefs.sink);
+    redrawDevices();
+  }
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'devpause') window.MusikAndroid?.setPlayPref?.('pauseOnDisconnect', e.target.checked);
+  if (e.target.id === 'devresume') window.MusikAndroid?.setPlayPref?.('resumeOnConnect', e.target.checked);
+});
 function setCard(id, ic, title, rows) {
   return `<section class="set-card" id="set-${id}" data-k="${esc(title.toLowerCase())}"><h3>${icon(ic)}<span>${title}</span></h3>${rows}</section>`;
 }
@@ -3100,6 +3160,7 @@ async function renderSettings() {
     setCard('playback', 'play', t('playback'),
       setRow(t('autoplayShort'), sw('autoplay', prefs.autoplay), { hint: t('autoplay'), keys: 'autoplay radio' }) +
       setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' })),
+    setCard('devices', 'bluetooth', t('devices'), devicesHtml()) +
     setCard('sound', 'eq', t('equalizer'), setRow(t('equalizer'), eqHtml(), { wide: true, keys: 'eq bass treble klang sound preset' })),
     setCard('sources', 'link', t('sources'),
       setRow(t('sourcesOn'), `<a class="btn" href="#/sources" data-closesettings>${t('manageSources')}</a>`, { hint: SOURCES.filter((x) => enabled(x)).map((x) => t('src_' + x)).join(', '), keys: 'youtube spotify soundcloud deezer quellen' }) +

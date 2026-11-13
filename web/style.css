@@ -1156,3 +1156,16 @@ html[data-theme='glass'][data-mode='light'] { background: #eef0f6; }
   .fs-queue, .fs-lyrics, .fs input { touch-action: pan-y; }
   .fs .seek { touch-action: none; }
 }
+
+/* 1.8: devices */
+.devlist { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.dev { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--bg); border: 1px solid var(--line); text-align: left; width: 100%; color: var(--muted); }
+.dev .ic { width: 20px; height: 20px; flex: none; }
+.dev span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.dev small { color: var(--accent); font-size: 12px; flex: none; }
+.dev.on { color: var(--text); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.dev.on .ic { color: var(--accent); }
+button.dev:hover { background: var(--surface2); }
+[data-theme='glass'] .dev { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.12); }
+[data-mode='light'] .dev { background: #fff; }
+[data-theme='glass'][data-mode='light'] .dev { background: rgba(255, 255, 255, 0.7); border-color: rgba(20, 22, 40, 0.12); }

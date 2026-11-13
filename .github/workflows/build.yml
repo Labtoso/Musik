@@ -113,18 +113,22 @@ jobs:
           mkdir -p ~/.android
           [ -f ~/.android/debug.keystore ] || keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 20000 -dname "CN=Musik, O=Labtoso"
           keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -i fingerprint
+          # the build signs with exactly this file unless a release key came from the secrets
+          [ -n "$ANDROID_KEYSTORE_FILE" ] || echo "ANDROID_KEYSTORE_FILE=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
       - name: Build
         working-directory: android
         env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'android' }}
           VERSION_CODE: ${{ github.run_number }}
           VERSION_NAME: ${{ needs.version.outputs.version }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk ../Musik.apk
+          # the fingerprint of the finished app, to compare between versions
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs ../Musik.apk 2>/dev/null | grep -i "SHA-256" | tail -1 || true
       - uses: actions/upload-artifact@v4
         with:
           name: android

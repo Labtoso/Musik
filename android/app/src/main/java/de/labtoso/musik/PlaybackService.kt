@@ -25,7 +25,23 @@ class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var eq: Equalizer? = null
     private val prefs by lazy { getSharedPreferences("musik", Context.MODE_PRIVATE) }
-    private val eqListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key -> if (key == "eq") applyEq() }
+    private val eqListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "eq") applyEq()
+        if (key == "play_pauseOnDisconnect") (session?.player as? ExoPlayer)?.setHandleAudioBecomingNoisy(prefs.getBoolean(key, true))
+    }
+    /** When headphones or a Bluetooth device went away while music was playing (0 = not the case). */
+    private var lostAt = 0L
+    private val deviceCallback = object : android.media.AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>) {
+            val p = session?.player ?: return
+            val mine = added.any { it.isSink && it.type != android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER && it.type != android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE && it.type != android.media.AudioDeviceInfo.TYPE_TELEPHONY }
+            // the device is back within ten minutes: carry on where the music stopped
+            if (mine && lostAt > 0 && System.currentTimeMillis() - lostAt < 600_000 && prefs.getBoolean("play_resumeOnConnect", false) && !p.isPlaying && p.mediaItemCount > 0) {
+                lostAt = 0
+                p.play()
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -37,7 +53,7 @@ class PlaybackService : MediaSessionService() {
                     .build(),
                 true
             )
-            .setHandleAudioBecomingNoisy(true)
+            .setHandleAudioBecomingNoisy(prefs.getBoolean("play_pauseOnDisconnect", true))
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         // own audio session so the system equalizer can be attached to it
@@ -49,6 +65,9 @@ class PlaybackService : MediaSessionService() {
         }
         // some devices only allow the equalizer once sound is playing: try again then
         player.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                lostAt = if (!playWhenReady && reason == androidx.media3.common.Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) System.currentTimeMillis() else 0
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) return
                 if (eq == null && audioSession > 0) eq = runCatching { Equalizer(1000, audioSession) }.getOrNull()
@@ -56,6 +75,7 @@ class PlaybackService : MediaSessionService() {
             }
         })
         prefs.registerOnSharedPreferenceChangeListener(eqListener)
+        (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceCallback, android.os.Handler(android.os.Looper.getMainLooper()))
         applyEq()
         val open = PendingIntent.getActivity(
             this,
@@ -134,6 +154,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         audioSession = 0
         prefs.unregisterOnSharedPreferenceChangeListener(eqListener)
+        runCatching { (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceCallback) }
         eq?.release()
         eq = null
         session?.run {

@@ -2,7 +2,7 @@
 // Every adapter: load(id, pos, autoplay), play(), pause(), seek(sec), stop(), position, duration, playing
 // and emits 'time' {position, duration}, 'playing' {playing}, 'buffering' {buffering}, 'ended', 'error'.
 import { ytApi, scApi, spotify } from './sources.js';
-import { get } from './api.js';
+import { get, audioOut } from './api.js';
 
 /** The visible box the YouTube / SoundCloud players live in (their rules want the player on screen). */
 export const stage = (() => {
@@ -338,6 +338,7 @@ export class DeezerAdapter extends Adapter {
   constructor() {
     super();
     this.a = new Audio();
+    audioOut.add(this.a);
     this.a.preload = 'auto';
     this.a.addEventListener('timeupdate', () => this.emit('time', { position: this.a.currentTime, duration: this.a.duration || 30 }));
     this.a.addEventListener('playing', () => this.emit('playing', { playing: true }));

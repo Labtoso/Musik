@@ -1,7 +1,7 @@
 // Queue + playback. Two engines with the same interface:
 //  - HtmlEngine: <audio> element (browser, desktop)
 //  - NativeEngine: Android bridge (ExoPlayer service, keeps playing in background)
-import { streamUrl, coverUrl, post, get, ytSongUrl, ytAudioUrl } from './api.js';
+import { streamUrl, coverUrl, post, get, ytSongUrl, ytAudioUrl, audioOut } from './api.js';
 import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showStage } from './engines.js';
 import { toBands } from './viz.js';
 import { findOnYouTube, spotify } from './sources.js';
@@ -19,6 +19,7 @@ class HtmlEngine extends EventTarget {
   constructor() {
     super();
     this.audio = new Audio();
+    audioOut.add(this.audio);
     this.audio.preload = 'auto';
     this.audio.crossOrigin = 'anonymous';
     this.adapters = {};
@@ -133,6 +134,7 @@ class HtmlEngine extends EventTarget {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
+      audioOut.add(this.ctx);
       const src = this.ctx.createMediaElementSource(this.audio);
       this.pre = this.ctx.createGain();
       this.filters = EQ_FREQS.map((f, i) => {

@@ -93,6 +93,7 @@ class MainActivity : ComponentActivity() {
             allowFileAccess = true
         }
         web.addJavascriptInterface(Bridge(), "MusikAndroid")
+        audio.registerAudioDeviceCallback(deviceCallback, main)
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url.toString()
@@ -496,6 +497,29 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun setAccent(name: String) {
             prefs.edit().putString("accent", name).apply()
         }
+        /** Where the sound goes right now and what else is connected (headphones, Bluetooth, USB). */
+        @JavascriptInterface fun audioDevices(): String = runCatching { outputs().toString() }.getOrDefault("[]")
+        /** The system's output picker (Android 12 and newer), otherwise the Bluetooth settings. */
+        @JavascriptInterface fun openOutput() = main.post {
+            val ok = runCatching {
+                if (Build.VERSION.SDK_INT >= 34) {
+                    android.media.MediaRouter2.getInstance(this@MainActivity).showSystemOutputSwitcher()
+                } else if (Build.VERSION.SDK_INT >= 31) {
+                    sendBroadcast(
+                        Intent("com.android.systemui.action.LAUNCH_MEDIA_OUTPUT_DIALOG")
+                            .setPackage("com.android.systemui")
+                            .putExtra("package_name", packageName)
+                    )
+                    true
+                } else false
+            }.getOrDefault(false)
+            if (!ok) runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+        }
+        @JavascriptInterface fun openBluetooth() = main.post { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }
+        @JavascriptInterface fun getPlayPref(key: String): Boolean = prefs.getBoolean("play_$key", key == "pauseOnDisconnect")
+        @JavascriptInterface fun setPlayPref(key: String, on: Boolean) {
+            if (key == "pauseOnDisconnect" || key == "resumeOnConnect") prefs.edit().putBoolean("play_$key", on).apply()
+        }
         @JavascriptInterface fun getServer(): String = prefs.getString("server", "") ?: ""
         @JavascriptInterface fun changeServer() = main.post { showConnect("") }
         @JavascriptInterface fun connect(input: String) {
@@ -514,6 +538,36 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private val audio by lazy { getSystemService(AUDIO_SERVICE) as android.media.AudioManager }
+
+    private fun kindOf(type: Int): String? = when (type) {
+        android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, 26 /* BLE headset */, 27 /* BLE speaker */, 30 /* BLE broadcast */ -> "bluetooth"
+        android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES, android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired"
+        android.media.AudioDeviceInfo.TYPE_USB_DEVICE, android.media.AudioDeviceInfo.TYPE_USB_HEADSET, android.media.AudioDeviceInfo.TYPE_USB_ACCESSORY -> "usb"
+        android.media.AudioDeviceInfo.TYPE_HDMI, android.media.AudioDeviceInfo.TYPE_HDMI_ARC -> "hdmi"
+        android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "phone"
+        else -> null
+    }
+
+    /** Outputs for music, the one that plays first. Android sends music to the device connected last, the phone's own speaker comes last. */
+    private fun outputs(): JSONArray {
+        val list = audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).mapNotNull { d -> kindOf(d.type)?.let { it to d } }
+        val seen = HashSet<String>()
+        val rank = mapOf("bluetooth" to 0, "usb" to 1, "wired" to 2, "hdmi" to 3, "phone" to 4)
+        val sorted = list.sortedBy { rank[it.first] ?: 9 }.filter { seen.add(it.first + ":" + it.second.productName) }
+        val arr = JSONArray()
+        sorted.forEachIndexed { i, (kind, d) ->
+            arr.put(JSONObject().put("kind", kind).put("name", if (kind == "phone") "" else d.productName?.toString() ?: "").put("active", i == 0))
+        }
+        return arr
+    }
+
+    private val deviceCallback = object : android.media.AudioDeviceCallback() {
+        private fun tell() { web.evaluateJavascript("window.musikDevices && window.musikDevices()", null) }
+        override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>) = tell()
+        override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>) = tell()
     }
 
     private var viz: Visualizer? = null
@@ -544,6 +598,7 @@ class MainActivity : ComponentActivity() {
     private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) attachViz() }
 
     override fun onDestroy() {
+        runCatching { audio.unregisterAudioDeviceCallback(deviceCallback) }
         releaseViz()
         main.removeCallbacks(ticker)
         controller?.removeListener(playerListener)

@@ -128,3 +128,17 @@ export function upload(file, onProgress) {
     xhr.send(file);
   });
 }
+
+/** Where the sound goes (desktop and browser): every audio element and audio graph registers here. */
+export const audioOut = {
+  id: '',
+  targets: new Set(),
+  add(x) {
+    this.targets.add(x);
+    if (this.id) x.setSinkId?.(this.id).catch(() => {});
+  },
+  async set(id) {
+    this.id = id || '';
+    for (const x of this.targets) await x.setSinkId?.(this.id).catch(() => {});
+  }
+};
