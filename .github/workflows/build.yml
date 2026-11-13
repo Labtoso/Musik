@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths-ignore: ['site/**', '**.md']
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -102,6 +101,18 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/musik.jks"
             echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/musik.jks" >> "$GITHUB_ENV"
           fi
+      # Without a release key in the secrets the app is signed with a key that is kept between builds,
+      # so every new APK installs over the last one.
+      - name: Signing key kept between builds
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-signing-v1
+      - name: Create the signing key once
+        run: |
+          mkdir -p ~/.android
+          [ -f ~/.android/debug.keystore ] || keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 20000 -dname "CN=Musik, O=Labtoso"
+          keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -i fingerprint
       - name: Build
         working-directory: android
         env:

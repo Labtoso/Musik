@@ -712,10 +712,15 @@ fn art_kind(k: &str) -> Result<&'static str, ApiError> {
     match k {
         "playlist" => Ok("playlist"),
         "import" => Ok("import"),
+        "user" => Ok("user"),
         _ => Err(nf()),
     }
 }
 fn own_ref(db: &Connection, uid: i64, kind: &str, id: i64) -> Result<(), ApiError> {
+    // a profile picture belongs to the user with that id
+    if kind == "user" {
+        return if id == uid { Ok(()) } else { Err(nf()) };
+    }
     let table = if kind == "playlist" { "playlists" } else { "imports" };
     db.query_row(&format!("SELECT id FROM {table} WHERE id = ? AND user_id = ?"), params![id, uid], |r| r.get::<_, i64>(0))
         .optional()
@@ -735,7 +740,8 @@ async fn get_art(State(st): State<St>, a: crate::api::AuthQ, Path((kind, id)): P
     let db = st.db.lock().unwrap();
     let member = kind == "playlist"
         && db.query_row("SELECT 1 FROM playlist_members WHERE playlist_id = ? AND user_id = ?", params![id, a.0.id], |r| r.get::<_, i64>(0)).is_ok();
-    if !member {
+    // profile pictures are visible to everyone on the server
+    if !member && kind != "user" {
         own_ref(&db, a.0.id, kind, id)?;
     }
     let data: Vec<u8> = db

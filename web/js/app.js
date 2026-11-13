@@ -725,16 +725,92 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ---------- profile panel (tap the picture, like Spotify on the phone) ----------
+// ---------- profile panel (tap the picture) ----------
+/** The own picture, or the first letter of the name when there is none. */
+function avatarInner() {
+  const u = conn.user || {};
+  return u.avatar ? `<img alt="" src="${esc(conn.server)}/api/art/user/${u.id}?t=${conn.token}&v=${u.avatar}">` : esc((u.name || '?').trim().charAt(0).toUpperCase() || '?');
+}
+function paintAvatars() {
+  document.querySelectorAll('[data-profile], .pf-head .avatar').forEach((el) => (el.innerHTML = avatarInner()));
+}
+/** Change the own name and picture. The name is also the one for signing in. */
+function profileDialog() {
+  return new Promise((res) => {
+    let blob = null, removeArt = false, preview = '';
+    const u = conn.user || {};
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-wrap';
+    wrap.innerHTML = `<form class="modal pld pfd" novalidate><div class="modal-head"><h2>${t('editProfile')}</h2><button type="button" class="icon-btn" data-x>${icon('close')}</button></div>
+      <div class="pld-grid">
+        <button type="button" class="pld-cover round" data-up title="${t('uploadPicture')}"><span class="pfd-pic">${avatarInner()}</span><span class="pld-over">${icon('image')}${t('uploadPicture')}</span></button>
+        <div class="pld-fields">
+          <label class="field"><span>${t('name')}</span><input name="name" maxlength="32" value="${esc(u.name || '')}" autocomplete="off"></label>
+          <p class="muted small">${t('profileNameHint')}</p>
+        </div>
+      </div>
+      <div class="pld-art"><button type="button" class="btn" data-up>${icon('image')}${t('uploadPicture')}</button><button type="button" class="btn ghost ${u.avatar ? '' : 'hide'}" data-rm>${t('removePicture')}</button></div>
+      <div class="modal-actions"><button type="button" class="btn ghost" data-x>${t('cancel')}</button><button class="btn primary">${t('save')}</button></div></form>`;
+    document.body.appendChild(wrap);
+    const form = wrap.querySelector('form');
+    const pic = wrap.querySelector('.pfd-pic');
+    wrap.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-up]')) {
+        const f = await pickImage();
+        const b = f && (await cropImage(f));
+        if (!b) return;
+        blob = b;
+        removeArt = false;
+        if (preview) URL.revokeObjectURL(preview);
+        preview = URL.createObjectURL(b);
+        pic.innerHTML = `<img alt="" src="${preview}">`;
+        wrap.querySelector('[data-rm]').classList.remove('hide');
+      } else if (e.target.closest('[data-rm]')) {
+        blob = null;
+        removeArt = true;
+        pic.textContent = (form.elements.name.value || '?').trim().charAt(0).toUpperCase() || '?';
+        wrap.querySelector('[data-rm]').classList.add('hide');
+      }
+    });
+    const close = (v) => (wrap.remove(), preview && URL.revokeObjectURL(preview), res(v));
+    wrap.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => close(null)));
+    wrap.addEventListener('mousedown', (e) => e.target === wrap && close(null));
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const name = form.elements.name.value.trim();
+      if (!name) return form.elements.name.focus();
+      const btn = form.querySelector('.btn.primary');
+      btn.disabled = true;
+      try {
+        if (name !== u.name) await put('/api/me', { name });
+        if (blob) {
+          const r = await fetch(`${conn.server}/api/art/user/${u.id}`, { method: 'PUT', headers: { Authorization: 'Bearer ' + conn.token, 'Content-Type': 'image/jpeg' }, body: blob });
+          if (!r.ok) throw new Error('error');
+        } else if (removeArt) await del(`/api/art/user/${u.id}`).catch(() => {});
+        conn.user = await get('/api/me');
+        saveConn();
+        paintAvatars();
+        toast(t('profileSaved'));
+        close(true);
+      } catch (err) {
+        btn.disabled = false;
+        toast(errorText(err));
+      }
+    };
+  });
+}
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-editprofile]') && (await profileDialog())) renderSettings();
+});
 function openProfile() {
   closeProfile();
   const name = (conn.user && conn.user.name) || '';
-  const initial = esc(name.trim().charAt(0).toUpperCase() || '?');
+  const initial = avatarInner();
   const wrap = document.createElement('div');
   wrap.className = 'profile-wrap';
   const item = (attr, ic, label) => `<button ${attr}>${icon(ic)}<span>${label}</span></button>`;
   wrap.innerHTML = `<aside class="profile" role="dialog" aria-label="${t('profile')}">
-    <div class="pf-head"><span class="avatar big">${initial}</span><div><b>${esc(name)}</b><a class="muted small" href="#/library">${t('library')}</a></div></div>
+    <div class="pf-head"><span class="avatar big">${initial}</span><div><b>${esc(name)}</b><button class="pf-edit muted small" data-pfedit>${t('editProfile')}</button></div></div>
     <nav class="pf-nav">
       ${item('data-pfgo="#/add"', 'plus', t('importAdd'))}
       ${item('data-pfgo="#/sources"', 'link', t('manageSources'))}
@@ -754,6 +830,7 @@ function openProfile() {
     if (b.dataset.pfgo) go(b.dataset.pfgo);
     else if (b.hasAttribute('data-pfset')) openSettingsPage();
     else if (b.hasAttribute('data-pfupd')) openSettingsPage('updates');
+    else if (b.hasAttribute('data-pfedit')) profileDialog();
   });
 }
 function closeProfile() {
@@ -767,7 +844,7 @@ document.addEventListener('click', (e) => {
 });
 
 function pageHead(title, extra = '') {
-  const initial = esc(((conn.user && conn.user.name) || '?').trim().charAt(0).toUpperCase() || '?');
+  const initial = avatarInner();
   return `<div class="mhead"><button class="avatar" data-profile title="${t('profile')}">${initial}</button><h1>${title}</h1>${extra}</div>`;
 }
 function greeting() {
@@ -873,6 +950,75 @@ async function forYouSections(h) {
 // A fresh copy is fetched quietly in the background when the kept one is older than a few minutes.
 let homeKept = null;
 const HOME_FRESH = 4 * 60 * 1000;
+const homeReloadBtn = () => `<button class="icon-btn desktop-only" data-homereload title="${t('reload')}">${icon('refresh')}</button>`;
+async function reloadHome() {
+  dropHome();
+  laterDone.clear();
+  await render();
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-homereload]');
+  if (!b) return;
+  b.classList.add('spin');
+  await Promise.all([reloadHome(), new Promise((r) => setTimeout(r, 600))]);
+  document.querySelector('[data-homereload]')?.classList.remove('spin');
+});
+// phone: pull the start page down to load it again
+(() => {
+  let y0 = null, pull = 0, busy = false, ind = null;
+  const NEED = 64;
+  const show = () => {
+    if (!ind) {
+      ind = document.createElement('div');
+      ind.className = 'ptr';
+      ind.innerHTML = icon('refresh');
+      document.body.appendChild(ind);
+    }
+    return ind;
+  };
+  const set = (px, anim) => {
+    const i = show();
+    i.style.transition = anim ? 'transform .28s cubic-bezier(.2,.9,.3,1), opacity .2s' : 'none';
+    i.style.transform = `translate(-50%, ${px}px) rotate(${px * 3.2}deg)`;
+    i.style.opacity = String(Math.min(1, px / 40));
+    i.classList.toggle('ready', px >= NEED);
+  };
+  document.addEventListener('touchstart', (e) => {
+    y0 = null;
+    if (busy || state.route !== 'home' || e.touches.length !== 1) return;
+    const c = $('#content');
+    if (!c || c.scrollTop > 0 || !e.target.closest?.('#content') || document.querySelector('.modal-wrap, .menu, .profile-wrap.open, .fs.open')) return;
+    y0 = e.touches[0].clientY;
+    pull = 0;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (y0 == null) return;
+    const d = e.touches[0].clientY - y0;
+    if (d <= 0 || $('#content').scrollTop > 0) {
+      if (pull) set(0, true);
+      pull = 0;
+      return;
+    }
+    pull = Math.min(96, d * 0.5);
+    set(pull, false);
+  }, { passive: true });
+  const end = async () => {
+    if (y0 == null) return;
+    y0 = null;
+    if (pull < NEED) return pull && set(0, true);
+    busy = true;
+    pull = 0;
+    set(NEED, true);
+    ind.classList.add('spin');
+    navigator.vibrate?.(8);
+    await Promise.all([reloadHome().catch(() => {}), new Promise((r) => setTimeout(r, 700))]);
+    ind.classList.remove('spin');
+    set(0, true);
+    busy = false;
+  };
+  document.addEventListener('touchend', end);
+  document.addEventListener('touchcancel', end);
+})();
 function dropHome() {
   homeKept = null;
 }
@@ -915,7 +1061,7 @@ async function buildHome() {
   const recentExt = extHistory().slice(0, 12).map(histTrack);
   if (!lib.tracks) {
     // no own files yet: suggestions from Spotify / YouTube listening instead of an empty page
-    let html = pageHead(greeting());
+    let html = pageHead(greeting(), homeReloadBtn());
     if (recentExt.length) html += section(t('recent'), trackCards(recentExt, 'recentext'));
     if (fol.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
     const fy = await forYouSections(null);
@@ -932,7 +1078,7 @@ async function buildHome() {
     seenAlb.add(k);
     quick.push(x);
   }
-  let html = pageHead(greeting());
+  let html = pageHead(greeting(), homeReloadBtn());
   html += `<div class="quick"><button class="qt" data-playmix><div class="cover accent">${icon('mix')}</div><span>${t('mixForYou')}</span></button>${quick
     .slice(0, 7)
     .map((a) => `<a class="qt" href="${albumHref(a.album, a.artist)}">${coverImg(a.cover_id)}<span>${esc(a.album)}</span></a>`)
@@ -2860,6 +3006,7 @@ async function renderSettings() {
       (user.admin && lib ? setRow(t('folders'), '', { hint: lib.dirs.map(esc).join(', '), keys: 'ordner folder' }) : '')),
     setCard('account', 'user', t('account'),
       setRow(esc(user.name || ''), `<button class="btn" data-logout>${t('logout')}</button>`, { hint: user.admin ? t('admin') : t('account'), keys: 'name abmelden logout' }) +
+      setRow(t('editProfile'), `<button class="btn" data-editprofile>${t('change')}</button>`, { hint: t('profileNameHint'), keys: 'profil profile name bild picture avatar' }) +
       setRow(t('changePassword'), `<button class="btn" data-chpw>${t('change')}</button>`, { keys: 'passwort password' }) +
       setRow(t('server'), sameOrigin && !window.musikDesktop && !window.MusikAndroid ? '' : `<button class="btn" data-chserver>${t('changeServer')}</button>`, { hint: esc(conn.server), keys: 'adresse address' })),
     setCard('remote', 'radio', t('onTheGo'),
@@ -3232,7 +3379,7 @@ function buildShell() {
   ${frameless ? `<div class="titlebar" data-drag>
     <div class="tb-left"><span class="tb-logo">${icon('note')}</span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
     <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><button class="tb-search" data-tbsearch>${icon('search')}<span>${t('searchPlaceholder_' + searchMode())}</span></button></div>
-    <div class="tb-right"><button class="tb-avatar" data-profile title="${t('profile')}">${esc(((conn.user && conn.user.name) || '?').trim().charAt(0).toUpperCase() || '?')}</button>
+    <div class="tb-right"><button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
       <button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
       <button class="tb-win" data-win="max" title="${t('maximize')}"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button>
       <button class="tb-win close" data-win="close" title="${t('close')}"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button></div>
@@ -3336,6 +3483,7 @@ function startApp() {
     .then((u) => {
       conn.user = u;
       saveConn();
+      paintAvatars();
     })
     .catch(() => {});
 }

@@ -1,0 +1,19 @@
+name: Keep signing key
+
+# The key that signs the Android app lives in the build cache, which forgets entries nobody reads for a week.
+on:
+  schedule:
+    - cron: '17 4 */3 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  touch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-signing-v1

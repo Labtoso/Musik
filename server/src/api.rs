@@ -334,8 +334,24 @@ async fn logout(State(st): State<St>, Auth(_, token): Auth) -> R {
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn me(Auth(u, _): Auth) -> R<User> {
-    Ok(Json(u))
+async fn me(State(st): State<St>, Auth(u, _): Auth) -> R {
+    let avatar = crate::ext::art_version(&st.db.lock().unwrap(), "user", u.id);
+    let mut v = json!(u);
+    v["avatar"] = json!(avatar);
+    Ok(Json(v))
+}
+
+#[derive(Deserialize, Default)]
+struct MeBody {
+    name: String,
+}
+async fn update_me(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    let b: MeBody = body_json(req).await?;
+    let db = st.db.lock().unwrap();
+    let nu = auth::rename_user(&db, u.id, &b.name)?;
+    let mut v = json!(nu);
+    v["avatar"] = json!(crate::ext::art_version(&db, "user", u.id));
+    Ok(Json(v))
 }
 
 async fn change_password(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
@@ -1189,7 +1205,7 @@ pub fn router(st: St) -> Router {
         .route("/setup", post(setup))
         .route("/login", post(login))
         .route("/logout", post(logout))
-        .route("/me", get(me))
+        .route("/me", get(me).put(update_me))
         .route("/me/password", put(change_password))
         .route("/users", get(list_users).post(add_user))
         .route("/users/{id}", delete(del_user))

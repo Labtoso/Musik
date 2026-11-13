@@ -78,6 +78,23 @@ pub fn create_user(db: &Connection, name: &str, password: &str, admin: bool) -> 
     Ok(user(db, db.last_insert_rowid()).unwrap())
 }
 
+/// Change the login name. The new name counts for the next sign-in.
+pub fn rename_user(db: &Connection, user_id: i64, name: &str) -> Result<User, AuthError> {
+    let name = name.trim();
+    if !valid_name(name) {
+        return Err(AuthError(400, "invalid_name"));
+    }
+    let other: Option<i64> = db
+        .query_row("SELECT id FROM users WHERE name = ? COLLATE NOCASE AND id != ?", params![name, user_id], |r| r.get(0))
+        .optional()
+        .unwrap_or(None);
+    if other.is_some() {
+        return Err(AuthError(409, "name_taken"));
+    }
+    db.execute("UPDATE users SET name = ? WHERE id = ?", params![name, user_id]).map_err(|_| AuthError(500, "error"))?;
+    user(db, user_id).ok_or(AuthError(404, "not_found"))
+}
+
 pub fn set_password(db: &Connection, user_id: i64, password: &str) -> Result<(), AuthError> {
     if password.chars().count() < 4 {
         return Err(AuthError(400, "password_short"));
