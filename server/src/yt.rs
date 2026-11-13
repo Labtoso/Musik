@@ -272,6 +272,13 @@ pub fn msik_order(videos: &[Value], title: &str, artist: &str, duration: f64) ->
 /// only when the song is one, and of what is left the closest length wins (same recording),
 /// YouTube Music's own order breaking ties.
 pub fn pick_song(songs: &[Value], title: &str, artist: &str, duration: f64) -> Vec<String> {
+    pick_song_within(songs, title, artist, duration, 0.12, 15.0)
+}
+/// The same rules with more room for the length (other editions of the same recording).
+pub fn pick_song_loose(songs: &[Value], title: &str, artist: &str, duration: f64) -> Vec<String> {
+    pick_song_within(songs, title, artist, duration, 0.3, 45.0)
+}
+fn pick_song_within(songs: &[Value], title: &str, artist: &str, duration: f64, part: f64, secs: f64) -> Vec<String> {
     let tn = plain(&crate::ext::norm(title));
     let tfull = plain(title);
     let first = plain(artist.split(',').next().unwrap_or(""));
@@ -294,7 +301,7 @@ pub fn pick_song(songs: &[Value], title: &str, artist: &str, duration: f64) -> V
         }
         let d = s["duration"].as_f64().unwrap_or(0.0);
         let off = if duration > 0.0 && d > 0.0 { (d - duration).abs() } else { 0.0 };
-        if duration > 0.0 && d > 0.0 && off > (duration * 0.12).max(15.0) {
+        if duration > 0.0 && d > 0.0 && off > (duration * part).max(secs) {
             continue;
         }
         // whole seconds count, small differences (rounding, 1-2 s) are the same recording
@@ -436,6 +443,15 @@ mod tests {
         // a live song stays live
         let l = vec![json!({"id":"l","title":"Green Day - Basket Case (Live)","channel":"Green Day","duration":200.0})];
         assert_eq!(msik_order(&l, "Basket Case - Live", "Green Day", 200.0), vec!["l".to_string()]);
+    }
+
+    #[test]
+    fn another_edition_counts_when_nothing_closer_exists() {
+        let songs = vec![json!({ "id": "aaaaaaaaaaa", "title": "Mayonaise (Remastered 2011)", "artist": "The Smashing Pumpkins", "duration": 349.0 })];
+        assert!(pick_song(&songs, "Mayonaise (2011 Remaster)", "The Smashing Pumpkins", 310.0).is_empty());
+        assert_eq!(pick_song_loose(&songs, "Mayonaise (2011 Remaster)", "The Smashing Pumpkins", 310.0), vec!["aaaaaaaaaaa"]);
+        let live = vec![json!({ "id": "bbbbbbbbbbb", "title": "Mayonaise (Live)", "artist": "The Smashing Pumpkins", "duration": 349.0 })];
+        assert!(pick_song_loose(&live, "Mayonaise (2011 Remaster)", "The Smashing Pumpkins", 349.0).is_empty());
     }
 
     #[test]

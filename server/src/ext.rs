@@ -103,6 +103,7 @@ pub fn routes() -> Router<St> {
         .route("/fetch/deezer", get(fetch_deezer))
         .route("/catalog/search", get(catalog_search))
         .route("/catalog/artist/{id}", get(catalog_artist))
+        .route("/catalog/related", get(catalog_related))
         .route("/catalog/foryou", get(catalog_foryou))
         .route("/catalog/preview/{id}", get(catalog_preview))
         .route("/fetch/oembed", get(fetch_oembed))
@@ -817,9 +818,9 @@ fn find_video(st: &St, uid: i64, title: &str, artist: &str, duration: f64, q: &s
             .optional()
             .unwrap_or(None)
     };
-    // misses are tried again after a day
+    // misses are tried again after a quarter of an hour (YouTube sometimes answers with nothing for a moment)
     if let Some((vid, found)) = cached {
-        if (!vid.is_empty() && !skip.contains(&vid)) || (vid.is_empty() && skip.is_empty() && now_ms() / 1000 - found < 86400) {
+        if (!vid.is_empty() && !skip.contains(&vid)) || (vid.is_empty() && skip.is_empty() && now_ms() / 1000 - found < 900) {
             return Ok(vid);
         }
     }
@@ -827,14 +828,27 @@ fn find_video(st: &St, uid: i64, title: &str, artist: &str, duration: f64, q: &s
     // only YouTube Music songs (the album tracks, the same recordings as on Spotify), no videos
     let mut reached = false;
     let mut cands: Vec<String> = Vec::new();
-    for q in [format!("{first} {t2}"), format!("{t2} {artist}")] {
+    // the last try asks without additions like "(2011 Remaster)" or " - Remastered", which catalogs add to the name
+    let bare = norm(&t2);
+    let mut asked = std::collections::HashSet::new();
+    let mut heard: Vec<Value> = Vec::new();
+    for q in [format!("{first} {t2}"), format!("{t2} {artist}"), format!("{first} {bare}")] {
+        if !asked.insert(crate::yt::plain(&q)) {
+            continue;
+        }
         if let Ok(sg) = crate::yt::music_search(&q) {
             reached = true;
             cands = crate::yt::pick_song(&sg, &t2, artist, duration);
+            heard.extend(sg);
             if !cands.is_empty() {
                 break;
             }
         }
+    }
+    // a remaster or another edition can be a little longer or shorter than the catalog says:
+    // the same song of the same artist still counts, the closest length first
+    if cands.is_empty() && !heard.is_empty() {
+        cands = crate::yt::pick_song_loose(&heard, &t2, artist, duration);
     }
     // not on YouTube Music as a song: the artist's own upload on YouTube ("<artist> - Topic" or
     // the artist's channel), never somebody else's version
@@ -1125,7 +1139,46 @@ async fn catalog_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String
     Ok(Json(res))
 }
 
-/// An artist with top songs and albums
+/// Every release of an artist, newest first: albums, singles, EPs, compilations and the
+/// records of others the artist is on ("kind": album | single | ep | compilation | appears).
+fn dz_releases(id: &str, name: &Value) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut url = format!("https://api.deezer.com/artist/{id}/albums?limit=100");
+    for _ in 0..5 {
+        let Ok(page) = http_get(&url) else { break };
+        for x in page["data"].as_array().map(|l| l.as_slice()).unwrap_or(&[]) {
+            let mut v = dz_album(x);
+            if !seen.insert(v["id"].to_string()) {
+                continue;
+            }
+            // Deezer leaves the artist out of its own list; other names show up on features
+            let other = x["artist"]["name"].as_str().filter(|n| !n.is_empty());
+            let kind = match x["record_type"].as_str().unwrap_or("album") {
+                "single" => "single",
+                "ep" => "ep",
+                "compile" | "compilation" => "compilation",
+                _ => "album",
+            };
+            v["kind"] = json!(if other.is_some() && other != name.as_str() { "appears" } else { kind });
+            if other.is_none() {
+                v["artist"] = name.clone();
+            }
+            v["year"] = json!(x["release_date"].as_str().unwrap_or("").get(..4).unwrap_or(""));
+            v["date"] = json!(x["release_date"].as_str().unwrap_or(""));
+            v["fans"] = json!(x["fans"].as_i64().unwrap_or(0));
+            out.push(v);
+        }
+        match page["next"].as_str() {
+            Some(n) if n.starts_with("https://api.deezer.com/") => url = n.to_string(),
+            _ => break,
+        }
+    }
+    out.sort_by(|a, b| b["date"].as_str().unwrap_or("").cmp(a["date"].as_str().unwrap_or("")));
+    out
+}
+
+/// An artist like on a streaming page: popular songs, every release, similar artists
 async fn catalog_artist(Auth(_, _): Auth, Path(id): Path<String>) -> R {
     let id: String = id.chars().filter(|c| c.is_ascii_digit()).collect();
     if id.is_empty() {
@@ -1137,19 +1190,35 @@ async fn catalog_artist(Auth(_, _): Auth, Path(id): Path<String>) -> R {
             return Err(ApiError::new(404, "not_found"));
         }
         let top = http_get(&format!("https://api.deezer.com/artist/{id}/top?limit=20")).unwrap_or(Value::Null);
-        let albums = http_get(&format!("https://api.deezer.com/artist/{id}/albums?limit=24")).unwrap_or(Value::Null);
+        let related = http_get(&format!("https://api.deezer.com/artist/{id}/related?limit=12")).unwrap_or(Value::Null);
         let mut artist = dz_artist(&a);
         artist["picture"] = json!(a["picture_xl"].as_str().unwrap_or(""));
-        let name = artist["name"].clone();
-        let albums: Vec<Value> = albums["data"].as_array().map(|l| l.iter().map(|x| {
-            let mut v = dz_album(x);
-            v["artist"] = name.clone();
-            v
-        }).collect()).unwrap_or_default();
-        Ok(json!({ "artist": artist, "tracks": dz_list(&top, dz_track), "albums": albums }))
+        let albums = dz_releases(&id, &artist["name"]);
+        Ok(json!({ "artist": artist, "tracks": dz_list(&top, dz_track), "albums": albums, "related": dz_list(&related, dz_artist) }))
     })
     .await
     .map_err(|_| ApiError::new(500, "internal"))??;
+    Ok(Json(res))
+}
+
+/// ?name=… → artists that fans of this one also listen to (for artist pages of other platforms)
+async fn catalog_related(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let name = clip(q.get("name").map(|s| s.trim()).unwrap_or(""), 200);
+    if name.is_empty() {
+        return Ok(Json(json!({ "artists": [] })));
+    }
+    let res = tokio::task::spawn_blocking(move || -> Value {
+        let found = http_get(&format!("https://api.deezer.com/search/artist?limit=5&q={}", urlencode(&name))).unwrap_or(Value::Null);
+        let list = found["data"].as_array().cloned().unwrap_or_default();
+        let want = norm(&name);
+        let Some(hit) = list.iter().find(|a| norm(a["name"].as_str().unwrap_or("")) == want) else {
+            return json!({ "artists": [] });
+        };
+        let related = http_get(&format!("https://api.deezer.com/artist/{}/related?limit=12", hit["id"])).unwrap_or(Value::Null);
+        json!({ "artists": dz_list(&related, dz_artist), "fans": hit["nb_fan"].as_i64().unwrap_or(0) })
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?;
     Ok(Json(res))
 }
 

@@ -275,11 +275,11 @@ pub fn parse_embed(html: &str) -> Option<Value> {
     Some(json!({ "name": name, "cover": cover, "description": e["description"].as_str().unwrap_or(""), "owner": e["subtitle"].as_str().unwrap_or(""), "tracks": tracks }))
 }
 
-/// ?kind=playlist|album|track&id= → { name, cover, description, owner, tracks:[{id,title,artist,duration}] }
+/// ?kind=playlist|album|track|artist&id= (an artist gives the songs Spotify lists as popular) → { name, cover, description, owner, tracks:[{id,title,artist,duration}] }
 async fn embed(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
     let kind = q.get("kind").map(String::as_str).unwrap_or("playlist").to_string();
     let id: String = q.get("id").map(|s| s.chars().filter(|c| c.is_ascii_alphanumeric()).take(40).collect()).unwrap_or_default();
-    if !["playlist", "album", "track"].contains(&kind.as_str()) || id.is_empty() {
+    if !["playlist", "album", "track", "artist"].contains(&kind.as_str()) || id.is_empty() {
         return Err(ApiError::new(400, "bad_query"));
     }
     let html = tokio::task::spawn_blocking(move || {

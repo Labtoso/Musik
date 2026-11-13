@@ -1,7 +1,7 @@
 import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
 import { LOGOS } from './logos.js';
 import { Player, EQ_FREQS, warmSongs } from './player.js';
-import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyAlbum, extTrack } from './sources.js';
+import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong } from './sources.js';
 import { placeStage } from './engines.js';
 import { Visualizer, VIZ_MODES } from './viz.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -370,6 +370,27 @@ function fmtTime(sec) {
   const s = String(sec % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
 }
+// every artist name leads straight to that artist's page
+const findArtistHref = (name, src = '') => `#/findartist?name=${encodeURIComponent(name)}${src ? '&src=' + encodeURIComponent(src) : ''}`;
+function artistRefs(tr) {
+  if (!tr) return [];
+  if (!tr.ext) {
+    const n = tr.artist || tr.album_artist;
+    return n ? [{ name: n, href: `#/artist?name=${encodeURIComponent(n)}` }] : [];
+  }
+  const src = tr.ext.source;
+  if (tr.artists?.length) return tr.artists.map((a) => ({ name: a.name, href: src === 'spotify' && a.id ? `#/spartist?id=${encodeURIComponent(a.id)}` : findArtistHref(a.name, src) }));
+  return String(tr.artist || '').split(/,\s+/).filter(Boolean).map((n) => ({ name: n, href: findArtistHref(n, src) }));
+}
+function artistLinks(tr) {
+  const refs = artistRefs(tr);
+  return refs.length ? refs.map((a) => `<a class="alink" href="${a.href}">${esc(a.name)}</a>`).join(', ') : esc(artistName(tr));
+}
+function albumLink(tr) {
+  if (!tr.album) return '';
+  const href = !tr.ext ? albumHref(tr.album, tr.album_artist || tr.artist) : tr.ext.source === 'spotify' && tr.album_id ? `#/spalbum?id=${encodeURIComponent(tr.album_id)}` : '';
+  return href ? `<a class="alink" href="${href}">${esc(tr.album)}</a>` : esc(tr.album);
+}
 function artistName(tr) {
   return tr.artist || tr.album_artist || t('unknownArtist');
 }
@@ -530,13 +551,13 @@ function trackMenu(anchor, tr, ctx = {}) {
     !tr.ext && { label: t('share'), icon: 'share', run: () => shareThing('track', tr.id, tr.title) },
     tr.ext?.url && { label: t('openOn', { src: t('src_' + tr.ext.source) }), icon: 'link', run: () => window.open(tr.ext.url, '_blank', 'noopener') },
     '-',
-    tr.artist && !tr.ext && { label: t('goArtist'), icon: 'user', run: () => go(`#/artist?name=${encodeURIComponent(tr.artist)}`) },
-    tr.artist && tr.ext && { label: t('goArtist'), icon: 'user', run: () => go(`#/search?q=${encodeURIComponent(tr.artist.split(',')[0].trim())}`) },
+    ...artistRefs(tr).slice(0, 4).map((a, i, l) => ({ label: l.length > 1 ? `${t('goArtist')}: ${a.name}` : t('goArtist'), icon: 'user', run: () => go(a.href) })),
     tr.album && !tr.ext && {
       label: t('goAlbum'),
       icon: 'album',
       run: () => go(`#/album?album=${encodeURIComponent(tr.album)}&artist=${encodeURIComponent(tr.album_artist || tr.artist)}`)
     },
+    tr.album && tr.album_id && tr.ext?.source === 'spotify' && { label: t('goAlbum'), icon: 'album', run: () => go(`#/spalbum?id=${encodeURIComponent(tr.album_id)}`) },
     ctx.queueIndex != null && { label: t('removeQueue'), icon: 'close', run: () => player.removeAt(ctx.queueIndex) },
     ctx.playlistId && {
       label: t('removePlaylist'),
@@ -615,12 +636,12 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
         ? `<span class="like-slot">${c.has('source') ? srcBadge(src) : ''}</span>`
         : `<button class="icon-btn like ${tr.liked ? 'on' : ''}" data-like="${tr.id}" title="${tr.liked ? t('unlike') : t('like')}">${icon(tr.liked ? 'heartFill' : 'heart')}</button>`;
       const lead = numbers || !c.has('cover') ? `<span class="num">${(numbers && tr.track_no) || i + 1}</span>` : coverImg(tr.id, 'sm');
-      const sub = [c.has('artist') ? esc(artistName(tr)) : '', reason].filter(Boolean).join(' · ');
+      const sub = [c.has('artist') ? artistLinks(tr) : '', reason].filter(Boolean).join(' · ');
       const xc = { year: tr.year || '', genre: esc(tr.genre || ''), added: tr.added ? fmtDate(tr.added) : '' };
       return `<div class="row ${tr.id === cur ? 'current' : ''} ${tr._off ? 'off' : ''}" data-i="${i}" data-id="${esc(String(tr.id))}">
         <div class="lead">${lead}<button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
         <div class="main"><div class="title">${esc(tr.title)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>
-        ${showAlb ? `<div class="alb">${esc(tr.album || '')}</div>` : ''}
+        ${showAlb ? `<div class="alb">${albumLink(tr)}</div>` : ''}
         ${extra.map((k) => `<div class="alb xcol">${xc[k]}</div>`).join('')}
         ${side}
         ${c.has('duration') ? `<div class="dur">${fmtTime(tr.duration)}</div>` : ''}
@@ -632,7 +653,7 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
 
 document.addEventListener('click', (e) => {
   const row = e.target.closest('.tracks .row');
-  if (!row) return;
+  if (!row || e.target.closest('a.alink')) return;
   const listEl = row.closest('.tracks');
   const tracks = state.lists?.[listEl.dataset.list];
   if (!tracks) return;
@@ -1439,25 +1460,110 @@ function uniqSongs(list) {
     return true;
   });
 }
-const uniqAlbums = (list) => {
-  const seen = new Set();
-  return (list || []).filter((a) => {
-    const k = String(a.title || a.album || '').toLowerCase().replace(/[([{].*?[)\]}]/g, '').replace(/\s+-\s+.*$/, '').trim();
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
+// ---------- artist pages, laid out like Spotify: popular songs, discography with filters, appears on, similar artists ----------
+const REL_FILTERS = ['all', 'album', 'single', 'compilation'];
+const relMatch = (r, f) => f === 'all' || (f === 'single' ? r.kind === 'single' || r.kind === 'ep' : r.kind === f);
+function relList(list, f) {
+  const out = list.filter((r) => relMatch(r, f));
+  // "popular releases" where the platform says how many fans a record has, else the newest first
+  return f === 'all' && out.some((r) => r.fans) ? out.slice().sort((a, b) => (b.fans || 0) - (a.fans || 0)) : out;
+}
+function releaseCards(list, grid = false) {
+  return `<div class="cards ${grid ? 'libgrid relgrid' : 'srow'}">${list
+    .map((a) => `<a class="card" href="${a.href}">${coverImg(a.cover, 'lg')}<div class="c-title">${esc(a.title)}</div><div class="c-sub">${esc([a.latest ? t('latestRelease') : a.year, a.kind === 'appears' ? a.artist : t('rel_' + a.kind)].filter(Boolean).join(' · '))}</div></a>`)
+    .join('')}</div>`;
+}
+function relChips(list, f) {
+  const pop = list.some((r) => r.fans);
+  return `<div class="chips relchips">${REL_FILTERS.filter((k) => k === 'all' || list.some((r) => relMatch(r, k)))
+    .map((k) => `<button class="chip ${k === f ? 'on' : ''}" data-relf="${k}">${t(k === 'all' ? (pop ? 'rel_popular' : 'rel_latest') : 'relf_' + k)}</button>`)
+    .join('')}</div>`;
+}
+/** p: { base, name, header, tracks, releases, appears, related, tail } */
+function artistPage(p, params) {
+  const show = params.get('show');
+  const f = REL_FILTERS.includes(params.get('f')) ? params.get('f') : 'all';
+  if (p.releases[0]?.date) p.releases[0].latest = true;
+  state.artistPage = { ...p, f, grid: show === 'discography' };
+  const sub = (title) => `<button class="mback" data-back title="${t('back')}">${icon('back')}</button><div class="subhead"><a class="muted" href="${p.base}">${esc(p.name)}</a><h1>${esc(title)}</h1></div>`;
+  if (show === 'discography') return sub(t('discography')) + relChips(p.releases, f) + `<div id="disco-cards">${releaseCards(relList(p.releases, f), true)}</div>`;
+  if (show === 'appears') return sub(t('appearsOn')) + releaseCards(p.appears, true);
+  if (show === 'related') return sub(t('fansAlsoLike')) + artistCards(p.related).replace('class="cards"', 'class="cards libgrid"');
+  let html = p.header;
+  // the same song from several records (album, deluxe, remaster) shows once
+  const heard = new Set();
+  const pop = p.tracks.filter((x) => { const k = sameSong(x.title); return !heard.has(k) && heard.add(k); }).slice(0, 10);
+  if (pop.length) html += `<section class="sec"><div class="sec-head"><h2>${t('popular')}</h2></div><div class="pop${pop.length > 5 ? ' short' : ''}">${trackList(pop)}${pop.length > 5 ? `<button class="link morebtn" data-popmore>${t('seeMore')}</button>` : ''}</div></section>`;
+  const all = (what, n) => (n > 6 ? `<a class="link" data-showall href="${p.base}&show=${what}">${t('showAll')}</a>` : '');
+  if (p.releases.length) html += `<section class="sec"><div class="sec-head"><h2>${t('discography')}</h2>${all('discography', p.releases.length)}</div>${relChips(p.releases, f)}<div id="disco-cards">${releaseCards(relList(p.releases, f).slice(0, 14))}</div></section>`;
+  if (p.related?.length) html += section(t('fansAlsoLike'), artistCards(p.related.slice(0, 12), true), all('related', p.related.length));
+  if (p.appears?.length) html += section(t('appearsOn'), releaseCards(p.appears.slice(0, 14)), all('appears', p.appears.length));
+  return html + (p.tail || '');
+}
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-relf]');
+  const ap = state.artistPage;
+  if (chip && ap) {
+    ap.f = chip.dataset.relf;
+    chip.parentElement.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === chip));
+    const list = relList(ap.releases, ap.f);
+    $('#disco-cards').innerHTML = releaseCards(ap.grid ? list : list.slice(0, 14), ap.grid);
+    const more = chip.closest('.sec')?.querySelector('[data-showall]');
+    if (more) more.href = `${ap.base}&show=discography&f=${ap.f}`;
+    if (ap.grid) history.replaceState(history.state, '', `${ap.base}&show=discography&f=${ap.f}`);
+    return;
+  }
+  const more = e.target.closest('[data-popmore]');
+  if (more) {
+    const short = more.parentElement.classList.toggle('short');
+    more.textContent = t(short ? 'seeMore' : 'seeLess');
+  }
+});
+// a name without a page of its own (imported songs, YouTube): find the artist and go there, without a stop at the search
+views.findartist = async (params) => {
+  const name = (params.get('name') || '').trim();
+  const same = (x) => String(x || '').trim().toLowerCase() === name.toLowerCase();
+  let to = '';
+  if (name) {
+    const sp = await spotifyFindArtist(name).catch(() => null);
+    if (sp) to = `#/spartist?id=${encodeURIComponent(sp.id)}`;
+    if (!to) {
+      const mine = await cached('artists', () => get('/api/artists')).catch(() => []);
+      const hit = mine.find((a) => same(a.name));
+      if (hit) to = `#/artist?name=${encodeURIComponent(hit.name)}`;
+    }
+    if (!to) {
+      const c = await get('/api/catalog/search?q=' + encodeURIComponent(name)).catch(() => null);
+      const hit = c?.artists?.find((a) => same(a.name)) || c?.artists?.[0];
+      if (hit) to = `#/cartist?id=${encodeURIComponent(hit.id)}`;
+    }
+  }
+  // the lookup takes the place of this stop in the history, so "back" returns to where the name was clicked
+  location.replace(to || `#/search?q=${encodeURIComponent(name)}`);
+  return '<div class="loading"></div>';
 };
+const relatedCards = (list) => (list || []).map((a) => {
+  const id = 'dzartist:' + a.id;
+  if (a.picture) extCovers.set(id, a.picture);
+  return { name: a.name, cover: id, sub: t('artist') };
+});
 views.cartist = async (params) => {
-  const r = await get('/api/catalog/artist/' + encodeURIComponent(params.get('id') || ''));
+  const id = params.get('id') || '';
+  const r = await cached('cartist:' + id, () => get('/api/catalog/artist/' + encodeURIComponent(id)));
   const a = catArtist(r.artist);
   await loadFollows();
   const tracks = uniqSongs((r.tracks || []).map(extTrack));
   state.detail = { cartist: tracks };
-  let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : '', actions: (tracks.length ? listActions('cartist') : '') + followBtn('deezer', params.get('id') || '', a.name, r.artist.picture) });
-  if (tracks.length) html += section(t('top'), trackList(tracks), `<span class="muted small">${t('catalogHint')}</span>`);
-  if (r.albums?.length) html += section(t('albums'), plainAlbumCards(uniqAlbums(r.albums).map(catAlbum)));
-  return html;
+  const rel = (r.albums || []).map((x) => ({ ...catAlbum(x), year: x.year || '', date: x.date || '', fans: x.fans || 0, kind: x.kind || 'album' }));
+  return artistPage({
+    base: `#/cartist?id=${encodeURIComponent(id)}`,
+    name: a.name,
+    header: detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : '', actions: (tracks.length ? listActions('cartist') : '') + followBtn('deezer', id, a.name, r.artist.picture) }),
+    tracks,
+    releases: rel.filter((x) => x.kind !== 'appears'),
+    appears: rel.filter((x) => x.kind === 'appears'),
+    related: relatedCards(r.related).map((c, i) => ({ ...c, href: `#/cartist?id=${encodeURIComponent(r.related[i].id)}` }))
+  }, params);
 };
 views.calbum = async (params) => {
   const r = await get('/api/fetch/deezer?type=album&id=' + encodeURIComponent(params.get('id') || ''));
@@ -1470,16 +1576,24 @@ views.calbum = async (params) => {
   return html;
 };
 views.spartist = async (params) => {
-  const r = await spotifyArtist(params.get('id') || '');
+  const id = params.get('id') || '';
+  const r = await spotifyArtist(id);
   const a = spArtist(r.artist);
   await loadFollows();
   const tracks = uniqSongs(r.tracks.map(extTrack));
   state.detail = { spartist: tracks };
-  const sub = [r.artist.followers ? t('followersN', { n: r.artist.followers.toLocaleString() }) : '', r.artist.genres.slice(0, 3).join(', ')].filter(Boolean).join(' · ');
-  let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: `${srcBadge('spotify')} ${esc(sub)}`, actions: (tracks.length ? listActions('spartist') : '') + followBtn('spotify', params.get('id') || '', a.name, r.artist.picture) });
-  if (tracks.length) html += section(t('top'), trackList(tracks));
-  if (r.albums.length) html += section(t('albums'), plainAlbumCards(uniqAlbums(r.albums).map(spAlbum)));
-  return html;
+  const count = r.artist.followers ? t('followersN', { n: r.artist.followers.toLocaleString() }) : r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : '';
+  const sub = [count, r.artist.genres.slice(0, 3).join(', ')].filter(Boolean).join(' · ');
+  const rel = (x) => ({ ...spAlbum(x), artist: x.artist, year: x.year, date: x.date, kind: x.kind });
+  return artistPage({
+    base: `#/spartist?id=${encodeURIComponent(id)}`,
+    name: a.name,
+    header: detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, badge: srcBadge('spotify'), sub: esc(sub), actions: (tracks.length ? listActions('spartist') : '') + followBtn('spotify', id, a.name, r.artist.picture) }),
+    tracks,
+    releases: r.releases.map(rel),
+    appears: r.appears.map(rel),
+    related: relatedCards(r.related).map((c) => ({ ...c, href: findArtistHref(c.name, 'spotify') }))
+  }, params);
 };
 views.spalbum = async (params) => {
   const id = params.get('id') || '';
@@ -1602,8 +1716,9 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-function detailHeader({ coverId, kind, title, sub, round = false, actions = '' }) {
-  return `<button class="mback" data-back title="${t('back')}">${icon('back')}</button><div class="detail-head" ${coverId ? `data-tint="${coverUrl(coverId)}"` : ''}>${coverImg(coverId, 'xl' + (round ? ' round' : ''))}<div class="dh-text"><div class="muted kind">${esc(kind)}</div><h1>${esc(title)}</h1><div class="muted">${sub}</div>
+function detailHeader({ coverId, kind, title, sub, round = false, actions = '', edit = '', badge = '' }) {
+  const cover = coverImg(coverId, 'xl' + (round ? ' round' : ''));
+  return `<button class="mback" data-back title="${t('back')}">${icon('back')}</button><div class="detail-head" ${coverId ? `data-tint="${coverUrl(coverId)}"` : ''}>${edit ? `<button class="dh-cover" data-edit="${edit}" title="${t('editDetails')}">${cover}<span class="dh-over">${icon('edit')}${t('choosePhoto')}</span></button>` : cover}<div class="dh-text"><div class="muted kind">${esc(kind)}</div><h1${edit ? ` class="editable" data-edit="${edit}" title="${t('editDetails')}"` : ''}>${badge}${esc(title)}</h1><div class="muted">${sub}</div>
     <div class="toolbar">${actions}</div></div></div>`;
 }
 
@@ -1636,7 +1751,8 @@ views.album = async (params) => {
 };
 
 views.artist = async (params) => {
-  const r = await get(`/api/artist?name=${encodeURIComponent(params.get('name') || '')}`);
+  const name = params.get('name') || '';
+  const r = await get(`/api/artist?name=${encodeURIComponent(name)}`);
   r.top = uniqSongs(r.top);
   r.tracks = uniqSongs(r.tracks);
   await loadFollows();
@@ -1646,20 +1762,24 @@ views.artist = async (params) => {
   for (const x of r.tracks) {
     if (!x.album || seen.has(x.album.toLowerCase())) continue;
     seen.add(x.album.toLowerCase());
-    albums.push({ album: x.album, artist: x.album_artist || x.artist, year: x.year, cover_id: x.id });
+    albums.push({ title: x.album, year: x.year || '', date: '', kind: 'album', cover: x.id, href: albumHref(x.album, x.album_artist || x.artist) });
   }
-  let html = detailHeader({
-    coverId: r.tracks[0]?.id,
-    round: true,
-    kind: t('artist'),
-    title: r.name,
-    sub: songCount(r.tracks.length),
-    actions: listActions('artist') + `<button class="btn" data-radioartist>${icon('radio')}${t('startRadio')}</button>` + followBtn('local', r.name, r.name, r.tracks[0]?.id || '')
-  });
-  html += section(t('top'), trackList(r.top));
-  if (albums.length) html += section(t('albums'), albumCards(albums));
-  html += section(t('tracks'), trackList(r.tracks));
-  return html;
+  albums.sort((a, b) => (b.year || 0) - (a.year || 0));
+  return artistPage({
+    base: `#/artist?name=${encodeURIComponent(name)}`,
+    name: r.name,
+    header: detailHeader({
+      coverId: r.tracks[0]?.id,
+      round: true,
+      kind: t('artist'),
+      title: r.name,
+      sub: songCount(r.tracks.length),
+      actions: listActions('artist') + `<button class="btn" data-radioartist>${icon('radio')}${t('startRadio')}</button>` + followBtn('local', r.name, r.name, r.tracks[0]?.id || '')
+    }),
+    tracks: r.top,
+    releases: albums,
+    tail: section(t('tracks'), trackList(r.tracks))
+  }, params);
 };
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-radioartist]') && state.detail?.artist?.length) {
@@ -1692,6 +1812,7 @@ views.playlist = async (params, id) => {
       kind: t('playlist'),
       title: pl.name,
       sub: `${pl.description ? `<span class="pl-desc">${esc(pl.description)}</span>` : ''}${who}${songCount(pl.tracks.length)} · ${fmtTime(pl.tracks.reduce((s, x) => s + x.duration, 0))}`,
+      edit: pl.mine !== false ? `playlist:${pl.id}` : '',
       actions: listActions('pl') + `<button class="btn" data-plshare="${pl.id}" title="${t('share')}">${icon('share')}${t('share')}</button>` + `<button class="icon-btn" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
     }) + members + trackList(pl.tracks, { playlistId: pl.id })
   );
@@ -1937,6 +2058,7 @@ views.imported = async (params, id) => {
       kind: t('playlist'),
       title: r.name,
       sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge(r.source)} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(r.items.length)}${dur ? ', ' + fmtLong(dur) : ''} · ${t('importedOf', { local, total: r.items.length })}`,
+      edit: `import:${r.id}`,
       actions: listActions('imp') + (r.kept ? '' : `<button class="btn" data-saveimp="${r.id}" title="${t('saveAsPlaylist')}">${icon('plus')}${t('saveAsPlaylist')}</button>`) + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
     }) + trackList(tracks)
   );
@@ -2290,9 +2412,9 @@ function renderPlayer() {
       viz?.attach(big);
     }
     $('#np-title').textContent = tr.title;
-    $('#np-artist').textContent = artistName(tr);
+    $('#np-artist').innerHTML = artistLinks(tr);
     $('#fs-title').textContent = tr.title;
-    $('#fs-artist').textContent = artistName(tr);
+    $('#fs-artist').innerHTML = artistLinks(tr);
     document.title = `${tr.title} · ${artistName(tr)}`;
     applyDyn(tr);
   } else {
@@ -2339,11 +2461,10 @@ function renderState() {
     b.title = player.playing ? t('pause') : t('play');
     b.classList.toggle('busy', player.buffering && player.playing);
   });
-  const v = $('#vol');
-  if (v) {
+  document.querySelectorAll('input.vol').forEach((v) => {
     if (document.activeElement !== v) v.value = player.volume;
     v.style.setProperty('--p', Number(v.value) * 100 + '%');
-  }
+  });
   document.querySelectorAll('[data-act="mute"]').forEach((b) => (b.innerHTML = icon(player.volume === 0 ? 'mute' : 'volume')));
 }
 let seeking = false;
@@ -2411,7 +2532,7 @@ function bindPlayer() {
       s.style.setProperty('--p', (s.value / s.max) * 100 + '%');
       document.querySelectorAll('.t-pos').forEach((x) => (x.textContent = fmtTime(Number(s.value))));
     }
-    if (e.target.id === 'vol') {
+    if (e.target.classList.contains('vol')) {
       e.target.style.setProperty('--p', Number(e.target.value) * 100 + '%');
       player.setVolume(Number(e.target.value));
       prefs.volume = player.volume;
@@ -2426,9 +2547,18 @@ function bindPlayer() {
   });
   bindSwipe('#fs-cover', '.cover');
   bindSwipe('#mini', '.np-text');
+  // an artist name in the big player: put the player away and open the artist
+  document.addEventListener('click', (e) => {
+    const l = e.target.closest('#fs a.alink');
+    if (!l) return;
+    e.preventDefault();
+    openFs(false);
+    setTimeout(() => (location.hash = l.getAttribute('href')), 0);
+  });
   document.addEventListener('click', (e) => {
     const mini = e.target.closest('#mini');
     if (!mini || e.target.closest('button, [data-devsheet]') || mini.dataset.swiped) return;
+    if (e.target.closest('a.alink')) return;
     if (innerWidth < 900 && player.current) openFs(true);
   });
   player.addEventListener('change', renderPlayer);
@@ -2738,22 +2868,26 @@ function makeCover(name = '') {
   });
 }
 /** Playlist details like on Spotify: picture on the left (upload and place it, or make one), name and description on the right. */
-function playlistDialog(pl = null) {
+function playlistDialog(pl = null, kind = 'playlist') {
   return new Promise((res) => {
     let blob = null, removeArt = false, preview = '';
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
-    const cur = pl ? coverUrl(artKey('playlist', pl.id, pl.art) || pl.tracks?.[0]?.id || pl.cover_id || '') : '';
+    const imp = kind === 'import';
+    // without an own picture: what the page shows (first song, or the platform's cover)
+    const std = !pl ? '' : imp ? pl.cover || coverUrl(pl.items?.find((x) => x.local)?.local.id || '') || pl.items?.find((x) => x.cover)?.cover || '' : coverUrl(pl.tracks?.[0]?.id || pl.cover_id || '');
+    const cur = pl?.art ? coverUrl(artKey(kind, pl.id, pl.art)) : std;
+    let own = !!pl?.art;
+    const desc = imp ? pl?.meta?.description || '' : pl?.description || '';
     wrap.innerHTML = `<form class="modal pld" novalidate><div class="modal-head"><h2>${t(pl ? 'editDetails' : 'newPlaylist')}</h2><button type="button" class="icon-btn" data-x>${icon('close')}</button></div>
       <div class="pld-grid">
-        <button type="button" class="pld-cover" data-up title="${t('uploadPicture')}">${cur ? `<img alt="" src="${esc(cur)}">` : icon('note')}<span class="pld-over">${icon('image')}${t('uploadPicture')}</span></button>
+        <div class="pld-cover" data-photo tabindex="0" role="button" title="${t('choosePhoto')}">${cur ? `<img alt="" src="${esc(cur)}">` : icon('note')}<span class="pld-over">${icon('edit')}${t('choosePhoto')}</span><button type="button" class="pld-more" data-photo title="${t('changePhoto')}">${icon('more')}</button></div>
         <div class="pld-fields">
           <label class="field"><span>${t('playlistName')}</span><input name="name" maxlength="80" value="${esc(pl?.name || '')}" autocomplete="off"></label>
-          <label class="field"><span>${t('description')}</span><textarea name="description" maxlength="300" rows="4" placeholder="${t('descriptionHint')}">${esc(pl?.description || '')}</textarea></label>
+          <label class="field"><span>${t('description')}</span><textarea name="description" maxlength="300" rows="4" placeholder="${t('descriptionHint')}">${esc(desc)}</textarea></label>
         </div>
       </div>
-      <div class="pld-art"><button type="button" class="btn" data-up>${icon('image')}${t('uploadPicture')}</button><button type="button" class="btn ghost" data-make>${icon('edit')}${t('makeCover')}</button><button type="button" class="btn ghost ${pl?.art ? '' : 'hide'}" data-rm>${t('resetCover')}</button></div>
-      <div class="modal-actions"><button type="button" class="btn ghost" data-x>${t('cancel')}</button><button class="btn primary">${t(pl ? 'save' : 'create')}</button></div></form>`;
+      <div class="modal-actions pld-foot"><span class="muted small">${t('editHint')}</span><button class="btn primary">${t(pl ? 'save' : 'create')}</button></div></form>`;
     document.body.appendChild(wrap);
     const form = wrap.querySelector('form');
     const cover = wrap.querySelector('.pld-cover');
@@ -2762,27 +2896,30 @@ function playlistDialog(pl = null) {
       removeArt = false;
       if (preview) URL.revokeObjectURL(preview);
       preview = URL.createObjectURL(b);
-      cover.querySelector('img, svg')?.remove();
+      cover.querySelector(':scope > img, :scope > svg')?.remove();
       cover.insertAdjacentHTML('afterbegin', `<img alt="" src="${preview}">`);
-      wrap.querySelector('[data-rm]').classList.remove('hide');
+      own = true;
     };
-    wrap.addEventListener('click', async (e) => {
-      if (e.target.closest('[data-up]')) {
-        const f = await pickImage();
-        const b = f && (await cropImage(f));
-        if (b) show(b);
-      } else if (e.target.closest('[data-make]')) {
-        const b = await makeCover(form.elements.name.value);
-        if (b) show(b);
-      } else if (e.target.closest('[data-rm]')) {
-        blob = null;
-        removeArt = true;
-        cover.querySelector('img')?.remove();
-        cover.insertAdjacentHTML('afterbegin', icon('note'));
-        wrap.querySelector('[data-rm]').classList.add('hide');
-      }
-    });
-    const close = (v) => (wrap.remove(), preview && URL.revokeObjectURL(preview), res(v));
+    // the picture is the one place to change it, like on Spotify: choose a photo, make a cover, remove it
+    const photoMenu = (anchor) =>
+      menu(anchor, [
+        { label: t(own ? 'changePhoto' : 'choosePhoto'), icon: 'image', run: async () => { const f = await pickImage(); const b = f && (await cropImage(f)); if (b) show(b); } },
+        { label: t('makeCover'), icon: 'edit', run: async () => { const b = await makeCover(form.elements.name.value); if (b) show(b); } },
+        own && {
+          label: t('removePhoto'),
+          icon: 'trash',
+          run: () => {
+            blob = null;
+            removeArt = true;
+            own = false;
+            cover.querySelector(':scope > img, :scope > svg')?.remove();
+            cover.insertAdjacentHTML('afterbegin', std ? `<img alt="" src="${esc(std)}">` : icon('note'));
+          }
+        }
+      ]);
+    cover.addEventListener('click', (e) => (e.stopPropagation(), photoMenu(e.target.closest('.pld-more') || cover)));
+    cover.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && e.target === cover && (e.preventDefault(), photoMenu(cover)));
+    const close = (v) => (closeMenu(), wrap.remove(), preview && URL.revokeObjectURL(preview), res(v));
     wrap.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => close(null)));
     wrap.addEventListener('mousedown', (e) => e.target === wrap && close(null));
     form.onsubmit = async (e) => {
@@ -2794,10 +2931,13 @@ function playlistDialog(pl = null) {
       btn.disabled = true;
       try {
         let id = pl?.id;
-        if (id) await put(`/api/playlists/${id}`, { name, description });
+        if (imp) await put(`/api/imports/${id}`, { name, meta: { ...(pl.meta || {}), description } });
+        else if (id) await put(`/api/playlists/${id}`, { name, description });
         else id = (await post('/api/playlists', { name, description })).id;
-        if (blob) await fetch(`${conn.server}/api/art/playlist/${id}`, { method: 'PUT', headers: { Authorization: 'Bearer ' + conn.token, 'Content-Type': 'image/jpeg' }, body: blob });
-        else if (removeArt) await del(`/api/art/playlist/${id}`).catch(() => {});
+        if (blob) {
+          const r = await fetch(`${conn.server}/api/art/${kind}/${id}`, { method: 'PUT', headers: { Authorization: 'Bearer ' + conn.token, 'Content-Type': 'image/jpeg' }, body: blob });
+          if (!r.ok) throw new Error('error');
+        } else if (removeArt) await del(`/api/art/${kind}/${id}`).catch(() => {});
         close({ id, name });
       } catch (err) {
         btn.disabled = false;
@@ -2807,18 +2947,21 @@ function playlistDialog(pl = null) {
     setTimeout(() => !pl && form.elements.name.focus(), 30);
   });
 }
-async function changeCover(kind, id) {
-  const f = await pickImage();
-  if (!f) return;
-  const blob = await cropImage(f);
-  if (!blob) return;
-  const r = await fetch(`${conn.server}/api/art/${kind}/${id}`, { method: 'PUT', headers: { Authorization: 'Bearer ' + conn.token, 'Content-Type': 'image/jpeg' }, body: blob });
-  if (!r.ok) return toast(t('error'));
-  toast(t('coverSaved'));
-  renderSidebarPlaylists();
-  render();
+/** Picture, name and description of a playlist (own or imported) are changed in one dialog. */
+async function editDetails(kind, id, info) {
+  info = info || (await get(kind === 'playlist' ? `/api/playlists/${id}` : `/api/imports/${id}`).catch(() => null));
+  if (!info || info.mine === false) return;
+  if (await playlistDialog(info, kind)) {
+    renderSidebarPlaylists();
+    render();
+  }
 }
-
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-edit]');
+  if (!b) return;
+  const [kind, id] = b.dataset.edit.split(':');
+  editDetails(kind, id);
+});
 // ---------- one menu for playlists, imports, albums and artists: "…" button, right click, long press ----------
 async function togglePin(ref) {
   const set = new Set(settings.unpinned || []);
@@ -2864,36 +3007,10 @@ async function collectionMenu(anchor, ref) {
     items = [
       ...common,
       '-',
-      kind === 'playlist' && info.mine !== false && {
+      info.mine !== false && {
         label: t('editDetails'),
         icon: 'edit',
-        run: async () => {
-          if (await playlistDialog(info)) {
-            renderSidebarPlaylists();
-            render();
-          }
-        }
-      },
-      kind === 'import' && {
-        label: t('rename'),
-        icon: 'edit',
-        run: async () => {
-          const r = await dialog({ title: t('rename'), fields: [{ name: 'name', label: t('playlistName'), value: name }] });
-          if (!r?.name?.trim()) return;
-          await put(kind === 'playlist' ? `/api/playlists/${id}` : `/api/imports/${id}`, { name: r.name.trim() });
-          renderSidebarPlaylists();
-          render();
-        }
-      },
-      kind === 'import' && { label: t('changeCover'), icon: 'image', run: () => changeCover(kind, id) },
-      kind === 'import' && info.art && {
-        label: t('resetCover'),
-        icon: 'refresh',
-        run: async () => {
-          await del(`/api/art/${kind}/${id}`);
-          renderSidebarPlaylists();
-          render();
-        }
+        run: () => editDetails(kind, id, info)
       },
       // the phone has no sidebar to pin to
       innerWidth >= 900 && { label: t(pinned ? 'unpin' : 'pin'), icon: 'pin', run: () => togglePin(ref) },
@@ -3717,6 +3834,7 @@ function buildShell() {
       <button class="icon-btn lg" data-act="next">${icon('next')}</button>
       <button class="icon-btn" data-act="repeat">${icon('repeat')}</button>
     </div>
+    <div class="fs-vol"><button class="icon-btn" data-act="mute" title="${t('volume')}">${icon('volume')}</button><input class="vol" type="range" min="0" max="1" step="0.01" value="1" aria-label="${t('volume')}"></div>
     <button class="fs-dev" data-devsheet>${icon('devices')}<span></span></button>
     <div class="fs-bottom"><button class="btn ghost" data-act="viz">${icon('viz')}${t('viz')}</button><button class="btn ghost" data-act="lyrics">${icon('lyrics')}${t('lyrics')}</button><button class="btn ghost" data-act="queue">${icon('queue')}${t('queue')}</button></div>
     <div id="fs-queue" class="fs-queue"></div>

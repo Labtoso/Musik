@@ -233,7 +233,11 @@ class HtmlEngine extends EventTarget {
               this.active?.stop?.();
               this.active = dz;
               dz.setVolume?.(this.volume);
-              return dz.load(it.ext.id, pos, autoplay, it.ext.url).catch(() => this.#emit('error', { message: 'playback' }));
+              return dz.load(it.ext.id, pos, autoplay, it.ext.url).catch(() => {
+                if (!mine()) return;
+                this.#emit('error', { message: setup ? code : 'song_not_on_ytm' });
+                this.#emit('playing', { playing: false });
+              });
             }
             // no YouTube: play it on Spotify itself when that works (Spotify Premium, browser or Spotify app open)
             if (setup && it.ext.source === 'spotify' && spotifyReady()) {

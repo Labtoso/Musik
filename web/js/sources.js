@@ -62,7 +62,9 @@ export function extTrack(it) {
     ext: { source: src, player: playerOf(src), id: it.ext_id, url: it.url || '' },
     title: it.title,
     artist: it.artist || '',
+    artists: it.artists || undefined,
     album: it.album || '',
+    album_id: it.album_id || undefined,
     duration: it.duration || 0,
     has_cover: !!it.cover,
     liked: false
@@ -202,7 +204,9 @@ export const spotify = {
       ext_id: t.id,
       title: t.name,
       artist: (t.artists || []).map((a) => a.name).join(', '),
+      artists: (t.artists || []).filter((a) => a.id).map((a) => ({ id: a.id, name: a.name })),
       album: al.name || '',
+      album_id: al.id || '',
       duration: (t.duration_ms || 0) / 1000,
       cover: al.images?.[1]?.url || al.images?.[0]?.url || '',
       url: t.external_urls?.spotify || ''
@@ -422,7 +426,7 @@ export async function spotifyEmbedItems(kind, id, onProgress, pre) {
       try {
         const t = await spotify.api(`/tracks/${it.ext_id}`);
         const full = spotify.item(t);
-        if (full) Object.assign(it, { album: full.album, cover: full.cover || it.cover, duration: full.duration || it.duration });
+        if (full) Object.assign(it, { album: full.album, album_id: full.album_id, artists: full.artists, cover: full.cover || it.cover, duration: full.duration || it.duration });
       } catch (err) {
         if (err.message === 'spotify_login') i = out.length;
       }
@@ -574,19 +578,90 @@ export async function searchSpotifyAll(q) {
     playlists: (j.playlists?.items || []).filter(Boolean).map((p) => ({ id: p.id, title: p.name, owner: p.owner?.display_name || '', cover: spImg(p.images), total: p.tracks?.total || p.items?.total || 0 }))
   };
 }
-export async function spotifyArtist(id) {
-  const [a, top, al] = await Promise.all([
-    spotify.api(`/artists/${id}`),
-    // Spotify removed "top tracks" for apps like this one: the artist's best search hits instead
-    // two pages: the same song often appears several times (single, album, deluxe), the app keeps one of each
-    spotify.api(`/artists/${id}`).then((x) => Promise.all([0, 10].map((o) => spotify.api(`/search?type=track&limit=10&offset=${o}&market=from_token&q=${encodeURIComponent(`artist:"${x.name}"`)}`).catch(() => ({}))))).then((pages) => ({ tracks: pages.flatMap((j) => j.tracks?.items || []).filter((t) => (t.artists || []).some((a) => a.id === id)) })).catch(() => ({ tracks: [] })),
-    spotify.api(`/artists/${id}/albums?include_groups=album,single&limit=30`).catch(() => ({ items: [] }))
+/** One release as the artist page shows it. kind: album | single | ep | compilation | appears */
+function spRelease(x, group) {
+  const n = x.total_tracks || 0;
+  const type = x.album_type || 'album';
+  const kind = group === 'appears_on' ? 'appears' : type === 'compilation' ? 'compilation' : type === 'single' ? (n >= 4 ? 'ep' : 'single') : 'album';
+  return { id: x.id, title: x.name, artist: (x.artists || []).map((y) => y.name).join(', '), cover: spImg(x.images), year: (x.release_date || '').slice(0, 4), date: x.release_date || '', tracks: n, kind };
+}
+/** Every release of one group. Asks for big pages first and falls back to small ones where Spotify only allows those. */
+async function spReleases(id, group, maxPages) {
+  const out = [];
+  for (const limit of [50, 10]) {
+    try {
+      let next = `/artists/${id}/albums?include_groups=${group}&limit=${limit}`;
+      for (let n = 0; next && n < (limit === 50 ? Math.ceil(maxPages / 5) : maxPages); n++) {
+        const j = await spotify.api(next.replace('https://api.spotify.com/v1', ''));
+        out.push(...(j.items || []).filter(Boolean).map((x) => spRelease(x, group)));
+        next = j.next;
+      }
+      return out;
+    } catch (e) {
+      if (e.message === 'spotify_login') throw e;
+      if (out.length) return out;
+    }
+  }
+  return out;
+}
+export const sameSong = (s) => String(s || '').toLowerCase().replace(/\s*[-(\[].*$/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+/** The songs Spotify shows as popular for an artist (its public artist page), else the artist's best search hits. */
+async function spPopular(id, name) {
+  let list = (await spotifyEmbedItems('artist', id).catch(() => [])).filter((x) => x.title);
+  if (list.length < 5) {
+    // "top tracks" is gone for apps like this one, and search gives 10 hits a page
+    const pages = await Promise.all([0, 10].map((off) => spotify.api(`/search?type=track&limit=10&offset=${off}&market=from_token&q=${encodeURIComponent(`artist:"${name}"`)}`).catch(() => null)));
+    const hits = pages.flatMap((j) => j?.tracks?.items || []).filter((x) => (x.artists || []).some((a) => a.id === id));
+    list = [...list, ...hits.map((x) => spotify.item(x)).filter(Boolean)];
+  }
+  const seen = new Set();
+  return list.filter((x) => {
+    const k = sameSong(x.title);
+    return !seen.has(x.ext_id) && !seen.has(k) && seen.add(x.ext_id) && seen.add(k);
+  });
+}
+const spArtistCache = new Map();
+/** An artist page like on Spotify: popular songs, albums, singles and EPs, compilations, appears on, similar artists. */
+export function spotifyArtist(id) {
+  if (!spArtistCache.has(id)) {
+    const p = loadSpotifyArtist(id);
+    spArtistCache.set(id, p);
+    p.catch(() => spArtistCache.delete(id));
+    if (spArtistCache.size > 30) spArtistCache.delete(spArtistCache.keys().next().value);
+  }
+  return spArtistCache.get(id);
+}
+async function loadSpotifyArtist(id) {
+  const a = await spotify.api(`/artists/${id}`);
+  const [tracks, albums, singles, comps, appears, rel] = await Promise.all([
+    spPopular(id, a.name),
+    spReleases(id, 'album', 20),
+    spReleases(id, 'single', 30),
+    spReleases(id, 'compilation', 5),
+    spReleases(id, 'appears_on', 5),
+    // similar artists come from the open catalog; the page does not wait long for them
+    Promise.race([get('/api/catalog/related?name=' + encodeURIComponent(a.name)).catch(() => null), new Promise((r) => setTimeout(() => r(null), 4000))])
   ]);
+  // the same record often exists several times (clean and explicit, regions): one of each
+  const seen = new Set();
+  const uniq = (l) => l.filter((x) => { const k = `${x.kind === 'appears' ? 'a' : ''}|${x.title.toLowerCase()}|${x.year}`; return !seen.has(k) && seen.add(k); });
+  const byDate = (x, y) => y.date.localeCompare(x.date);
   return {
-    artist: { id: a.id, name: a.name, picture: spImg(a.images), followers: a.followers?.total || 0, genres: a.genres || [] },
-    tracks: (top.tracks || []).map((x) => spotify.item(x)).filter(Boolean),
-    albums: (al.items || []).map((x) => ({ id: x.id, title: x.name, artist: (x.artists || []).map((y) => y.name).join(', '), cover: spImg(x.images), year: (x.release_date || '').slice(0, 4) }))
+    artist: { id: a.id, name: a.name, picture: spImg(a.images), followers: a.followers?.total || 0, fans: rel?.fans || 0, genres: a.genres || [] },
+    tracks,
+    releases: uniq([...albums, ...singles, ...comps]).sort(byDate),
+    appears: uniq(appears).sort(byDate),
+    related: rel?.artists || []
   };
+}
+/** The artist with this name on Spotify: { id, name } or null. */
+export async function spotifyFindArtist(name) {
+  if (!spotify.connected() || !name) return null;
+  const j = await spotify.api(`/search?type=artist&limit=5&q=${encodeURIComponent(name)}`);
+  const list = (j.artists?.items || []).filter(Boolean);
+  const want = name.trim().toLowerCase();
+  const hit = list.find((a) => a.name.toLowerCase() === want) || list[0];
+  return hit ? { id: hit.id, name: hit.name } : null;
 }
 export async function spotifyAlbum(id) {
   const a = await spotify.api(`/albums/${id}`);
