@@ -463,6 +463,8 @@ mod tests {
                         }
                     }
                 }
+                // data centre addresses (like the test machines) get the robot check: says nothing about a home server
+                Err(e) if e.contains("not a bot") => println!("  DIRECT skipped here (robot check for this address): {e}"),
                 Err(e) => {
                     println!("  DIRECT failed: {e}");
                     bad += 1;

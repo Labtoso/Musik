@@ -56,8 +56,177 @@ if (window.MusikAndroid) {
 function applyPrefs() {
   setLang(prefs.lang);
   document.documentElement.dataset.accent = prefs.accent;
+  document.documentElement.dataset.theme = prefs.theme === 'glass' ? 'glass' : 'default';
   window.MusikAndroid?.setAccent?.(prefs.accent);
 }
+// ---------- themes ----------
+const THEMES = ['default', 'glass'];
+function themePicker() {
+  const cur = prefs.theme === 'glass' ? 'glass' : 'default';
+  return `<div class="themes">${THEMES.map(
+    (k) => `<button type="button" class="themeopt ${k === cur ? 'on' : ''}" data-theme-pick="${k}"><span class="themeprev ${k}"><i></i><i></i><i></i><b></b></span><span class="themename">${t('theme_' + k)}</span></button>`
+  ).join('')}</div>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-theme-pick]');
+  if (!b) return;
+  prefs.theme = b.dataset.themePick;
+  savePrefs();
+  applyPrefs();
+  document.querySelectorAll('.themeopt').forEach((x) => x.classList.toggle('on', x.dataset.themePick === prefs.theme));
+  requestAnimationFrame(() => navBlob.place(false));
+});
+
+// ---------- tab bar with a glass blob that can be dragged from tab to tab ----------
+const navBlob = (() => {
+  let nav = null, blob = null, x = 0, v = 0, target = 0, w = 0, raf = 0, last = 0, drag = null, hover = -1;
+  const items = () => [...nav.querySelectorAll('a[data-nav]')];
+  const slot = (i) => {
+    const a = items()[i];
+    return a ? a.offsetLeft + a.offsetWidth / 2 : 0;
+  };
+  const activeIndex = () => Math.max(0, items().findIndex((a) => a.classList.contains('on')));
+  const draw = () => {
+    // stretched in the direction of travel, flatter the faster it moves, like a drop of liquid
+    const sp = Math.min(Math.abs(v) / 2600, 0.42);
+    const lift = drag?.moved ? 1.14 : 1;
+    blob.style.transform = `translate3d(${x - w / 2}px, -50%, 0) scale(${(1 + sp) * lift}, ${(1 - sp * 0.42) * lift})`;
+  };
+  const tick = (now) => {
+    const dt = Math.min(0.032, (now - last) / 1000 || 0.016);
+    last = now;
+    const k = drag?.moved ? 420 : 260, c = drag?.moved ? 30 : 21;
+    v += (-k * (x - target) - c * v) * dt;
+    x += v * dt;
+    draw();
+    if (drag?.moved || Math.abs(v) > 4 || Math.abs(x - target) > 0.3) raf = requestAnimationFrame(tick);
+    else {
+      x = target; v = 0; raf = 0;
+      draw();
+    }
+  };
+  const run = () => {
+    if (raf) return;
+    last = performance.now();
+    raf = requestAnimationFrame(tick);
+  };
+  const lens = () => {
+    // refraction at the rim: an SVG displacement map made for the exact size of the blob (Chromium only)
+    const h = blob.offsetHeight;
+    if (!w || !h || !/Chrome\//.test(navigator.userAgent)) return document.documentElement.classList.remove('lg-refract');
+    const W = Math.round(w), H = Math.round(h), r = H / 2, bezel = Math.min(11, r * 0.45);
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(W, H);
+    for (let py = 0; py < H; py++)
+      for (let px = 0; px < W; px++) {
+        const cx = px + 0.5 - W / 2, cy = py + 0.5 - H / 2;
+        const qx = Math.abs(cx) - (W / 2 - r), qy = Math.abs(cy);
+        let d, nx, ny;
+        if (qx > 0) {
+          const len = Math.hypot(qx, qy) || 1;
+          d = r - len; nx = (qx / len) * Math.sign(cx); ny = (qy / len) * Math.sign(cy || 1);
+        } else {
+          d = r - qy; nx = 0; ny = Math.sign(cy || 1);
+        }
+        let m = 0;
+        if (d >= 0 && d < bezel) {
+          const tt = 1 - d / bezel;
+          m = tt * tt * (3 - 2 * tt) * tt; // steep at the very edge, flat towards the middle
+        }
+        const i = (py * W + px) * 4;
+        img.data[i] = 128 - nx * m * 127;
+        img.data[i + 1] = 128 - ny * m * 127;
+        img.data[i + 2] = 128;
+        img.data[i + 3] = 255;
+      }
+    ctx.putImageData(img, 0, 0);
+    let svg = document.getElementById('lg-defs');
+    if (!svg) {
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.id = 'lg-defs';
+      svg.setAttribute('width', '0');
+      svg.setAttribute('height', '0');
+      svg.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none';
+      document.body.appendChild(svg);
+    }
+    svg.innerHTML = `<filter id="lg-lens" x="0" y="0" width="${W}" height="${H}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feImage href="${cv.toDataURL()}" x="0" y="0" width="${W}" height="${H}" result="map"/><feDisplacementMap in="SourceGraphic" in2="map" scale="15" xChannelSelector="R" yChannelSelector="G" result="bent"/><feGaussianBlur in="bent" stdDeviation="0.4"/></filter>`;
+    document.documentElement.classList.add('lg-refract');
+  };
+  const place = (animate = true) => {
+    nav = document.querySelector('.bottomnav');
+    blob = nav?.querySelector('.navblob');
+    if (!blob || !nav.offsetWidth) return;
+    const list = items();
+    const nw = Math.min(list[0].offsetWidth - 10, 132);
+    if (nw !== w) {
+      w = nw;
+      blob.style.width = w + 'px';
+      lens();
+    }
+    target = slot(activeIndex());
+    if (!animate || !x) {
+      x = target; v = 0;
+      draw();
+    } else run();
+  };
+  const preview = (i) => {
+    if (i === hover) return;
+    hover = i;
+    items().forEach((a, n) => a.classList.toggle('peek', n === i));
+    if (i >= 0) navigator.vibrate?.(6);
+  };
+  document.addEventListener('pointerdown', (e) => {
+    const n = e.target.closest?.('.bottomnav');
+    if (!n || !n.querySelector('.navblob')) return;
+    nav = n; blob = n.querySelector('.navblob');
+    drag = { id: e.pointerId, x0: e.clientX, moved: false, left: n.getBoundingClientRect().left };
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.moved) {
+      if (Math.abs(e.clientX - drag.x0) < 8) return;
+      drag.moved = true;
+      nav.classList.add('dragging');
+      try { nav.setPointerCapture(drag.id); } catch {}
+    }
+    const list = items();
+    target = Math.max(slot(0), Math.min(slot(list.length - 1), e.clientX - drag.left));
+    let best = 0;
+    list.forEach((a, i) => { if (Math.abs(slot(i) - target) < Math.abs(slot(best) - target)) best = i; });
+    preview(best);
+    run();
+  });
+  const up = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    if (!d.moved) return;
+    nav.classList.remove('dragging');
+    const list = items();
+    const i = hover >= 0 ? hover : activeIndex();
+    preview(-1);
+    target = slot(i);
+    run();
+    nav.dataset.dragged = '1';
+    setTimeout(() => delete nav.dataset.dragged, 300);
+    if (e.type === 'pointerup' && !list[i].classList.contains('on')) location.hash = list[i].getAttribute('href');
+    else place();
+  };
+  document.addEventListener('pointerup', up);
+  document.addEventListener('pointercancel', up);
+  // the tap that ends a drag must not count as a tap on the tab under the finger
+  document.addEventListener('click', (e) => {
+    const n = e.target.closest?.('.bottomnav');
+    if (n?.dataset.dragged) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+  addEventListener('resize', () => { w = 0; place(false); });
+  return { place };
+})();
 // Colours from the current cover: the accent when "From cover" is picked, the background tint when dynamic colours are on
 let dynFor = null;
 const ACCENT_VARS = ['--accent', '--accent-ink', '--accent2'];
@@ -1215,6 +1384,7 @@ function sourcesForm(welcome) {
       <p class="muted small">${t('youtubeKeyHelp')}</p></div>`;
   return `${pageHead(welcome ? t('welcomeTitle') : t('sources'))}
     <p class="muted lead">${welcome ? t('welcomeText') : t('sourcesHint')}</p>
+    ${welcome ? `<h2 class="wizhead">${t('themeAsk')}</h2><p class="muted small">${t('themeHint')}</p>${themePicker()}<h2 class="wizhead">${t('sources')}</h2>` : ''}
     <div class="srcgrid">${cards}</div>
     <div class="accesses">${access}</div>
     <div class="stack wizard-actions">${welcome ? `<button class="btn primary" data-wizdone>${t('welcomeDone')}</button><button class="btn ghost" data-wizskip>${t('welcomeSkip')}</button>` : `<a class="btn primary" href="#/add">${icon('download')}${t('importAdd')}</a>`}</div>`;
@@ -1688,6 +1858,8 @@ async function render() {
   const seq = ++renderSeq;
   state.route = name || 'home';
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === state.route));
+  document.querySelector('.bottomnav')?.classList.toggle('nohome', !document.querySelector('.bottomnav a.on'));
+  navBlob.place();
   const main = $('#view');
   if (state.route !== state.prevRoute) main.innerHTML = '<div class="loading"></div>';
   state.prevRoute = state.route;
@@ -2354,6 +2526,7 @@ async function renderSettings() {
   const cards = [
     setCard('general', 'gear', t('set_general'),
       setRow(t('language'), `<div class="seg">${['de', 'en'].map((l) => `<button data-lang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`, { keys: 'deutsch english sprache language' }) +
+      setRow(t('theme'), themePicker(), { hint: t('themeHint'), keys: 'theme design liquid glass glas aussehen look', wide: true }) +
       setRow(t('accent'), `<div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, { hint: t('accentHint'), keys: 'farbe color theme cover akzent accent' }) +
       setRow(t('dynColor'), sw('dyncolor', prefs.dynamic), { hint: t('dynColorHint'), keys: t('look') }) +
       setRow(t('searchIn'), `<div class="seg">${SMODES.map((m) => `<button data-smode="${m}" class="${searchMode() === m ? 'on' : ''}">${t('smode_' + m)}</button>`).join('')}</div>`, { hint: t('searchInHint'), keys: 'search suche spotify youtube everything' }) +
@@ -2782,7 +2955,7 @@ function buildShell() {
         <input id="vol" class="vol" type="range" min="0" max="1" step="0.01" value="1">
       </div>
     </footer>
-    <nav class="bottomnav">${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}</nav>
+    <nav class="bottomnav"><i class="navblob"></i>${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}</nav>
   </div>
   <div id="fs" class="fs">
     <div class="fs-top"><button class="icon-btn" data-act="close-fs">${icon('down')}</button><span class="muted small">${t('nowPlaying')}</span><button class="icon-btn" data-act="menu">${icon('more')}</button></div>
