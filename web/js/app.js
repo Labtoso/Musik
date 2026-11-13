@@ -58,6 +58,10 @@ function applyPrefs() {
   setLang(prefs.lang);
   document.documentElement.dataset.accent = prefs.accent;
   document.documentElement.dataset.theme = prefs.theme === 'glass' ? 'glass' : 'default';
+  const light = prefs.mode === 'light';
+  document.documentElement.dataset.mode = light ? 'light' : 'dark';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f5f5f7' : '#111214');
+  window.MusikAndroid?.setMode?.(light ? 'light' : 'dark');
   window.MusikAndroid?.setAccent?.(prefs.accent);
 }
 document.addEventListener('click', async (e) => {
@@ -70,6 +74,15 @@ document.addEventListener('click', async (e) => {
   } catch (err) {
     toast(t(err.code === 'bad_url' ? 'remoteBad' : 'error'));
   }
+});
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mode-pick]');
+  if (!b) return;
+  prefs.mode = b.dataset.modePick;
+  savePrefs();
+  applyPrefs();
+  applyDyn(player?.current, true);
+  b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
 });
 // eye button next to a hidden field (client id, keys): show or hide what is typed
 document.addEventListener('click', (e) => {
@@ -856,14 +869,54 @@ async function forYouSections(h) {
   return html;
 }
 
+// The start page is kept in memory once it has been built: coming back to it is instant until the app is closed.
+// A fresh copy is fetched quietly in the background when the kept one is older than a few minutes.
+let homeKept = null;
+const HOME_FRESH = 4 * 60 * 1000;
+function dropHome() {
+  homeKept = null;
+}
 views.home = async () => {
-  const [h, lib] = await Promise.all([get('/api/home'), get('/api/library')]);
+  if (homeKept && homeKept.lang === getLang() && homeKept.user === conn.user?.id) {
+    state.homeMix = homeKept.mix;
+    if (Date.now() - homeKept.at > HOME_FRESH && !homeKept.busy) {
+      homeKept.busy = true;
+      buildHome().then((html) => keepHome(html)).catch(() => homeKept && (homeKept.busy = false));
+    }
+    return homeKept.html;
+  }
+  return keepHome(await buildHome()).html;
+};
+const laterDone = new Map();
+function keepHome(html) {
+  for (const [id, part] of laterDone) html = html.replace(`<div id="${id}"></div>`, part);
+  return (homeKept = { html, mix: state.homeMix, at: Date.now(), lang: getLang(), user: conn.user?.id });
+}
+// the suggestions come from an outside catalog and take longest: the page shows without them and they slide in when ready
+function laterSection(make) {
+  const id = 'later' + Math.random().toString(36).slice(2, 8);
+  make()
+    .then((html) => {
+      laterDone.set(id, html);
+      if (laterDone.size > 6) laterDone.delete(laterDone.keys().next().value);
+      if (homeKept?.html.includes(id)) homeKept.html = homeKept.html.replace(`<div id="${id}"></div>`, html);
+      const slot = document.getElementById(id);
+      if (slot) {
+        slot.outerHTML = html;
+        tintAll($('#view'));
+      }
+      return html;
+    })
+    .catch(() => {});
+  return `<div id="${id}"></div>`;
+}
+async function buildHome() {
+  const [h, lib, fol] = await Promise.all([get('/api/home'), get('/api/library'), loadFollows(true)]);
   const recentExt = extHistory().slice(0, 12).map(histTrack);
   if (!lib.tracks) {
     // no own files yet: suggestions from Spotify / YouTube listening instead of an empty page
     let html = pageHead(greeting());
     if (recentExt.length) html += section(t('recent'), trackCards(recentExt, 'recentext'));
-    const fol = await loadFollows(true);
     if (fol.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
     const fy = await forYouSections(null);
     html += fy || `<div class="emptystate">${icon('note', 'big')}<p>${t('emptyStart')}</p><div class="stack"><a class="btn primary" href="#/search">${icon('search')}${t('search')}</a><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><button class="btn" data-upload>${icon('upload')}${t('upload')}</button></div></div>`;
@@ -890,9 +943,8 @@ views.home = async () => {
   html += `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(h.mix, { reasons: true })}</section>`;
   const recentAll = [...h.recent, ...recentExt].slice(0, 14);
   if (recentAll.length) html += section(t('recent'), trackCards(recentAll, 'recent'));
-  const fol = await loadFollows(true);
   if (fol.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
-  html += await forYouSections(h).catch(() => '');
+  html += laterSection(() => forYouSections(h));
   if (h.rediscover.length) html += section(t('rediscover'), trackCards(h.rediscover, 'rediscover'));
   if (h.newAlbums.length) html += section(t('newAlbums'), albumCards(h.newAlbums));
   if (h.topArtists.length) {
@@ -906,7 +958,7 @@ views.home = async () => {
     );
   }
   return html;
-};
+}
 
 document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-playmix]')) {
@@ -1030,6 +1082,7 @@ document.addEventListener('click', async (e) => {
     if (on) await put('/api/follows', { kind, ref, name, cover });
     else await del(`/api/follows?kind=${encodeURIComponent(kind)}&ref=${encodeURIComponent(ref)}`);
     await loadFollows(true);
+    dropHome();
     toast(t(on ? 'followed' : 'unfollowed', { name }));
   } catch {
     b.classList.toggle('on', !on);
@@ -2612,6 +2665,7 @@ async function renderSettings() {
     setCard('general', 'gear', t('set_general'),
       setRow(t('language'), `<div class="seg">${['de', 'en'].map((l) => `<button data-lang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`, { keys: 'deutsch english sprache language' }) +
       setRow(t('theme'), themePicker(), { hint: t('themeHint'), keys: 'theme design liquid glass glas aussehen look', wide: true }) +
+      setRow(t('mode'), `<div class="seg">${['dark', 'light'].map((m) => `<button data-mode-pick="${m}" class="${(prefs.mode === 'light' ? 'light' : 'dark') === m ? 'on' : ''}">${icon(m === 'light' ? 'sun' : 'moon')}${t('mode_' + m)}</button>`).join('')}</div>`, { hint: t('modeHint'), keys: 'hell dunkel light dark mode darkmode lightmode' }) +
       setRow(t('accent'), `<div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, { hint: t('accentHint'), keys: 'farbe color theme cover akzent accent' }) +
       setRow(t('dynColor'), sw('dyncolor', prefs.dynamic), { hint: t('dynColorHint'), keys: t('look') }) +
       setRow(t('searchIn'), `<div class="seg">${SMODES.map((m) => `<button data-smode="${m}" class="${searchMode() === m ? 'on' : ''}">${t('smode_' + m)}</button>`).join('')}</div>`, { hint: t('searchInHint'), keys: 'search suche spotify youtube everything' }) +

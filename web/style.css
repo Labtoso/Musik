@@ -1015,3 +1015,64 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--accent); outline
 [data-theme='glass'] .profile { background: linear-gradient(135deg, rgba(46, 48, 62, 0.82), rgba(16, 17, 24, 0.9)); -webkit-backdrop-filter: blur(44px) saturate(1.8); backdrop-filter: blur(44px) saturate(1.8); border-right: 1px solid rgba(255, 255, 255, 0.14); box-shadow: var(--lg-rim), 30px 0 80px -20px rgba(0, 0, 0, 0.7); border-radius: 0 var(--r-win) var(--r-win) 0; }
 [data-theme='glass'] .profile-wrap.open { background: rgba(4, 5, 8, 0.5); }
 .srccard .src.logo { flex: none; }
+
+/* ---------- light mode (for every theme) ---------- */
+:root[data-mode='light'] {
+  --bg: #f5f5f7; --bg2: #ffffff; --surface: #eaeaee; --surface2: #dedee4; --line: #d8d8df; --text: #15161a; --muted: #5f6169;
+  color-scheme: light;
+}
+[data-mode='light'], [data-mode='light'] body { background: var(--bg); color: var(--text); }
+[data-mode='light'][data-accent='blue'], [data-mode='light']:not([data-accent]) { --accent: #2f6fe0; --accent-ink: #ffffff; }
+[data-mode='light'][data-accent='green'] { --accent: #1f9a5c; --accent-ink: #ffffff; }
+[data-mode='light'][data-accent='purple'] { --accent: #7a55f0; --accent-ink: #ffffff; }
+[data-mode='light'][data-accent='orange'] { --accent: #e07a16; --accent-ink: #ffffff; }
+[data-mode='light'][data-accent='pink'] { --accent: #e0468f; --accent-ink: #ffffff; }
+[data-mode='light'][data-accent='red'] { --accent: #dc3c3c; --accent-ink: #ffffff; }
+[data-mode='light'][data-accent='teal'] { --accent: #14a09b; --accent-ink: #ffffff; }
+[data-mode='light'] .menu { box-shadow: 0 12px 32px rgba(20, 22, 30, 0.18); background: #fff; }
+[data-mode='light'] .menu button:hover { background: var(--surface); }
+[data-mode='light'] .qt { background: rgba(20, 22, 30, 0.06); }
+[data-mode='light'] .qt:hover { background: rgba(20, 22, 30, 0.11); }
+[data-mode='light'] .upd-row { background: rgba(20, 22, 30, 0.05); }
+[data-mode='light'] .tb-win:hover { background: rgba(20, 22, 30, 0.1); }
+[data-mode='light'] .toast { background: #15161a; color: #fff; }
+[data-mode='light'] .modal { background: #fff; }
+[data-mode='light'] .field input, [data-mode='light'] .textin { background: #fff; }
+[data-mode='light'] .player { background: #fff; }
+[data-mode='light'] .bottomnav { background: #e6e6eb; border-color: rgba(20, 22, 30, 0.08); }
+[data-mode='light'] .navblob { background: #fff; box-shadow: 0 2px 8px rgba(20, 22, 30, 0.12); }
+[data-mode='light'] .profile { background: #fff; }
+[data-mode='light'] .src-spotify { color: #1db954; }
+[data-mode='light'] .like.on { color: #1db954; }
+[data-mode='light'] input[type='checkbox'], [data-mode='light'] .switch span { background: #c9c9d1; }
+[data-mode='light'] input[type='checkbox']:checked, [data-mode='light'] .switch input:checked + span { background: var(--accent); }
+[data-mode='light'].dyn .player { background: linear-gradient(90deg, color-mix(in srgb, var(--dyn-bg) 16%, #fff), #fff 60%); }
+@media (min-width: 900px) { [data-mode='light'].dyn #content { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 24%, var(--bg)) 0, var(--bg) 340px); } }
+@media (max-width: 899px) { [data-mode='light'].dyn .player { background: color-mix(in srgb, var(--dyn-bg) 18%, #fff); } }
+[data-mode='light'] .detail-head.tinted::before { opacity: 0.28; }
+/* the big player stays a dark stage in the colours of the cover */
+[data-mode='light'] .fs { --bg: #111214; --bg2: #17181b; --surface: #1d1f23; --surface2: #25272c; --line: #2c2f35; --text: #ececee; --muted: #9a9ca3; color: var(--text); color-scheme: dark; }
+
+/* Liquid Glass, light */
+:root[data-theme='glass'][data-mode='light'] {
+  --bg: #eef0f6; --bg2: rgba(255, 255, 255, 0.5); --surface: rgba(255, 255, 255, 0.55); --surface2: rgba(255, 255, 255, 0.82); --line: rgba(20, 22, 40, 0.1); --muted: #585b66;
+  --lg-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.38) 45%, rgba(255, 255, 255, 0.55));
+  --lg-rim: inset 0 1px 0.5px rgba(255, 255, 255, 0.95), inset 0 -1px 0.5px rgba(255, 255, 255, 0.5), inset 1px 0 0.5px rgba(255, 255, 255, 0.6), inset -1px 0 0.5px rgba(255, 255, 255, 0.6);
+  --lg-shadow: 0 22px 50px -24px rgba(40, 50, 90, 0.35), 0 2px 8px -2px rgba(40, 50, 90, 0.12);
+}
+html[data-theme='glass'][data-mode='light'] { background: #eef0f6; }
+[data-theme='glass'][data-mode='light'] body { background: transparent; }
+[data-theme='glass'][data-mode='light'] body::before { opacity: 0.55; filter: blur(60px) saturate(1.5); }
+[data-theme='glass'][data-mode='light'] .side, [data-theme='glass'][data-mode='light'] .player, [data-theme='glass'][data-mode='light'].dyn .player, [data-theme='glass'][data-mode='light'] .menu, [data-theme='glass'][data-mode='light'] .modal, [data-theme='glass'][data-mode='light'] .bottomnav, [data-theme='glass'][data-mode='light'] .profile {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(244, 246, 252, 0.6)); border-color: rgba(255, 255, 255, 0.7);
+}
+[data-theme='glass'][data-mode='light'] .toast { background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(244, 246, 252, 0.8)); color: var(--text); }
+[data-theme='glass'][data-mode='light'] .settings { background: rgba(238, 240, 246, 0.74); }
+[data-theme='glass'][data-mode='light'] .navblob { background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.2)); box-shadow: inset 0 1px 0.5px #fff, inset 0 -1px 0.5px rgba(255, 255, 255, 0.6), 0 5px 16px -4px rgba(40, 50, 90, 0.3); }
+[data-theme='glass'][data-mode='light'] .seg button.on, [data-theme='glass'][data-mode='light'] .side-nav a.on, [data-theme='glass'][data-mode='light'] .menu button:hover { background: rgba(255, 255, 255, 0.9); }
+[data-theme='glass'][data-mode='light'] .tab.on, [data-theme='glass'][data-mode='light'] .chip.on { background: #15161a; color: #fff; }
+[data-theme='glass'][data-mode='light'] .field input, [data-theme='glass'][data-mode='light'] .select, [data-theme='glass'][data-mode='light'] .textin { background: rgba(255, 255, 255, 0.7); border-color: rgba(20, 22, 40, 0.12); }
+[data-theme='glass'][data-mode='light'] .select option { background: #fff; }
+[data-theme='glass'][data-mode='light'] .scrim, [data-theme='glass'][data-mode='light'] .modal-wrap, [data-theme='glass'][data-mode='light'] .profile-wrap.open { background: rgba(230, 233, 242, 0.45); }
+[data-theme='glass'][data-mode='light'] .cover { box-shadow: 0 8px 22px -12px rgba(40, 50, 90, 0.45); }
+.seg button .ic { width: 15px; height: 15px; margin-right: 6px; vertical-align: -2px; }
