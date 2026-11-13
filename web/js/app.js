@@ -1,4 +1,5 @@
 import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
+import { LOGOS } from './logos.js';
 import { Player, EQ_FREQS } from './player.js';
 import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyAlbum, extTrack } from './sources.js';
 import { placeStage } from './engines.js';
@@ -59,6 +60,27 @@ function applyPrefs() {
   document.documentElement.dataset.theme = prefs.theme === 'glass' ? 'glass' : 'default';
   window.MusikAndroid?.setAccent?.(prefs.accent);
 }
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest('[data-saveremote]')) return;
+  const url = ($('#remoteurl')?.value || '').trim();
+  try {
+    await put('/api/remote', { url });
+    window.MusikAndroid?.setRemote?.(url);
+    toast(t('saved'));
+  } catch (err) {
+    toast(t(err.code === 'bad_url' ? 'remoteBad' : 'error'));
+  }
+});
+// eye button next to a hidden field (client id, keys): show or hide what is typed
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-eye]');
+  if (!b) return;
+  e.preventDefault();
+  const inp = b.parentElement.querySelector('input');
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  b.innerHTML = icon(show ? 'eyeOff' : 'eye');
+});
 // ---------- themes ----------
 const THEMES = ['default', 'glass'];
 function themePicker() {
@@ -74,9 +96,106 @@ document.addEventListener('click', (e) => {
   savePrefs();
   applyPrefs();
   document.querySelectorAll('.themeopt').forEach((x) => x.classList.toggle('on', x.dataset.themePick === prefs.theme));
-  requestAnimationFrame(() => navBlob.place(false));
+  requestAnimationFrame(() => {
+    navBlob.place(false);
+    glassPanes.scan();
+  });
 });
 
+// ---------- Liquid Glass: light bends at the rim of a pane ----------
+// backdrop-filter with an SVG filter exists in Chromium only (Android app, Windows app, Chrome, Edge); elsewhere the glass is frosted without the bend
+const LENS_OK = /Chrome\//.test(navigator.userAgent);
+/** Builds (or rebuilds) the SVG filter `id` for a pane of w x h with corner radius r: a displacement map that pushes
+ *  what lies under the rim towards the middle, the way thick glass does, optionally split by colour. */
+function lensFilter(id, w, h, r, bezel, scale, split = false) {
+  const W = Math.max(2, Math.round(w)), H = Math.max(2, Math.round(h));
+  r = Math.min(r, W / 2, H / 2);
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(W, H);
+  const d8 = img.data;
+  for (let py = 0; py < H; py++)
+    for (let px = 0; px < W; px++) {
+      const cx = px + 0.5 - W / 2, cy = py + 0.5 - H / 2;
+      const qx = Math.abs(cx) - (W / 2 - r), qy = Math.abs(cy) - (H / 2 - r);
+      let d, nx = 0, ny = 0;
+      if (qx > 0 && qy > 0) {
+        const len = Math.hypot(qx, qy) || 1;
+        d = r - len; nx = (qx / len) * Math.sign(cx); ny = (qy / len) * Math.sign(cy);
+      } else if (qx > qy) {
+        d = r - qx; nx = Math.sign(cx);
+      } else {
+        d = r - qy; ny = Math.sign(cy);
+      }
+      let m = 0;
+      if (d >= 0 && d < bezel) {
+        const tt = 1 - d / bezel;
+        m = tt * tt * tt * (3 - 2 * tt); // steep at the very edge, flat towards the middle
+      }
+      const i = (py * W + px) * 4;
+      d8[i] = 128 - nx * m * 127;
+      d8[i + 1] = 128 - ny * m * 127;
+      d8[i + 2] = 128;
+      d8[i + 3] = 255;
+    }
+  ctx.putImageData(img, 0, 0);
+  let svg = document.getElementById('lg-defs');
+  if (!svg) {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'lg-defs';
+    svg.setAttribute('width', '0');
+    svg.setAttribute('height', '0');
+    svg.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none';
+    document.body.appendChild(svg);
+  }
+  const pass = (ch, k, row) => `<feDisplacementMap in="SourceGraphic" in2="map" scale="${(scale * k).toFixed(1)}" xChannelSelector="R" yChannelSelector="G" result="d${ch}"/><feColorMatrix in="d${ch}" type="matrix" values="${row}" result="${ch}"/>`;
+  const body = split
+    ? pass('r', 1.12, '1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0') + pass('g', 1, '0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0') + pass('b', 0.88, '0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0') + '<feBlend in="r" in2="g" mode="screen" result="rg"/><feBlend in="rg" in2="b" mode="screen"/>'
+    : `<feDisplacementMap in="SourceGraphic" in2="map" scale="${scale}" xChannelSelector="R" yChannelSelector="G"/>`;
+  const html = `<feImage href="${cv.toDataURL()}" x="0" y="0" width="${W}" height="${H}" result="map"/>${body}`;
+  let f = document.getElementById(id);
+  if (!f) {
+    f = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+    f.id = id;
+    f.setAttribute('filterUnits', 'userSpaceOnUse');
+    f.setAttribute('primitiveUnits', 'userSpaceOnUse');
+    f.setAttribute('color-interpolation-filters', 'sRGB');
+    svg.appendChild(f);
+  }
+  f.setAttribute('x', '0'); f.setAttribute('y', '0'); f.setAttribute('width', W); f.setAttribute('height', H);
+  f.innerHTML = html;
+}
+/** In the glass theme the floating panes (tab bar, player, toast, menus) get their own lens, sized to them. */
+const glassPanes = (() => {
+  const PANES = [['.bottomnav', 'nav', 9], ['.player', 'player', 9], ['.toast', 'toast', 6], ['.menu', 'menu', 8]];
+  const sizes = new Map();
+  let ro = null;
+  const fit = (el, key, frost) => {
+    if (document.documentElement.dataset.theme !== 'glass' || !LENS_OK) return void (el.style.backdropFilter = '');
+    const w = el.offsetWidth, h = el.offsetHeight;
+    if (!w || !h) return;
+    const sig = `${w}x${h}`;
+    if (sizes.get(key) !== sig) {
+      sizes.set(key, sig);
+      lensFilter('lg-' + key, w, h, parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, 14, 34);
+    }
+    el.style.backdropFilter = `url(#lg-${key}) blur(${frost}px) saturate(1.7) brightness(1.05)`;
+  };
+  const scan = () => {
+    ro ||= new ResizeObserver(scan);
+    for (const [sel, key, frost] of PANES) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      ro.observe(el);
+      fit(el, key, frost);
+    }
+  };
+  new MutationObserver((list) => {
+    if (list.some((m) => [...m.addedNodes].some((n) => n.classList?.contains('menu') || n.classList?.contains('shell')))) scan();
+  }).observe(document.body, { childList: true, subtree: true });
+  return { scan };
+})();
 // ---------- tab bar with a glass blob that can be dragged from tab to tab ----------
 const navBlob = (() => {
   let nav = null, blob = null, x = 0, v = 0, target = 0, w = 0, raf = 0, last = 0, drag = null, hover = -1;
@@ -111,47 +230,9 @@ const navBlob = (() => {
     raf = requestAnimationFrame(tick);
   };
   const lens = () => {
-    // refraction at the rim: an SVG displacement map made for the exact size of the blob (Chromium only)
     const h = blob.offsetHeight;
-    if (!w || !h || !/Chrome\//.test(navigator.userAgent)) return document.documentElement.classList.remove('lg-refract');
-    const W = Math.round(w), H = Math.round(h), r = H / 2, bezel = Math.min(11, r * 0.45);
-    const cv = document.createElement('canvas');
-    cv.width = W; cv.height = H;
-    const ctx = cv.getContext('2d');
-    const img = ctx.createImageData(W, H);
-    for (let py = 0; py < H; py++)
-      for (let px = 0; px < W; px++) {
-        const cx = px + 0.5 - W / 2, cy = py + 0.5 - H / 2;
-        const qx = Math.abs(cx) - (W / 2 - r), qy = Math.abs(cy);
-        let d, nx, ny;
-        if (qx > 0) {
-          const len = Math.hypot(qx, qy) || 1;
-          d = r - len; nx = (qx / len) * Math.sign(cx); ny = (qy / len) * Math.sign(cy || 1);
-        } else {
-          d = r - qy; nx = 0; ny = Math.sign(cy || 1);
-        }
-        let m = 0;
-        if (d >= 0 && d < bezel) {
-          const tt = 1 - d / bezel;
-          m = tt * tt * (3 - 2 * tt) * tt; // steep at the very edge, flat towards the middle
-        }
-        const i = (py * W + px) * 4;
-        img.data[i] = 128 - nx * m * 127;
-        img.data[i + 1] = 128 - ny * m * 127;
-        img.data[i + 2] = 128;
-        img.data[i + 3] = 255;
-      }
-    ctx.putImageData(img, 0, 0);
-    let svg = document.getElementById('lg-defs');
-    if (!svg) {
-      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.id = 'lg-defs';
-      svg.setAttribute('width', '0');
-      svg.setAttribute('height', '0');
-      svg.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none';
-      document.body.appendChild(svg);
-    }
-    svg.innerHTML = `<filter id="lg-lens" x="0" y="0" width="${W}" height="${H}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feImage href="${cv.toDataURL()}" x="0" y="0" width="${W}" height="${H}" result="map"/><feDisplacementMap in="SourceGraphic" in2="map" scale="15" xChannelSelector="R" yChannelSelector="G" result="bent"/><feGaussianBlur in="bent" stdDeviation="0.4"/></filter>`;
+    if (!w || !h || !LENS_OK) return document.documentElement.classList.remove('lg-refract');
+    lensFilter('lg-lens', w, h, h / 2, Math.min(11, h * 0.22), 15, true);
     document.documentElement.classList.add('lg-refract');
   };
   const place = (animate = true) => {
@@ -547,7 +628,9 @@ document.addEventListener('click', (e) => {
 
 const SRC_SHORT = { youtube: 'YT', ytmusic: 'YTM', spotify: 'SP', soundcloud: 'SC', deezer: 'DZ', files: 'TXT', local: 'LOK' };
 function srcBadge(src) {
-  return `<span class="src src-${esc(src || '')}" title="${esc(t('src_' + src))}">${SRC_SHORT[src] ?? ''}</span>`;
+  const d = LOGOS[src];
+  if (d) return `<span class="src logo src-${esc(src)}" title="${esc(t('src_' + src))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg></span>`;
+  return `<span class="src logo src-${esc(src || '')}" title="${esc(t('src_' + src))}">${icon(src === 'files' ? 'download' : 'note')}</span>`;
 }
 
 // ---------- share ----------
@@ -1237,7 +1320,8 @@ views.library = async (params) => {
     state.libTracks = r.items;
     body = `<div class="toolbar"><button class="btn primary" data-playlib>${icon('play')}${t('playAll')}</button><button class="btn" data-shufflelib>${icon('shuffle')}${t('shuffle')}</button>
       <span class="muted">${songCount(r.total)}</span>
-      <select class="select" id="sort">${['artist', 'title', 'album', 'added'].map((s) => `<option value="${s}" ${s === sort ? 'selected' : ''}>${{ artist: t('artists'), title: t('tracks'), album: t('albums'), added: t('added') }[s]}</option>`).join('')}</select></div>
+</div>
+      <div class="sortrow"><span class="muted small">${t('sortBy')}</span>${['artist', 'title', 'album', 'added'].map((s) => `<a class="chip ${s === sort ? 'on' : ''}" href="#/library?tab=tracks&sort=${s}">${{ artist: t('artist'), title: t('sortTitle'), album: t('album'), added: t('added') }[s]}</a>`).join('')}</div>
       ${trackList(r.items)}`;
   } else if (tab === 'albums') {
     state.cache.albums = await get('/api/albums');
@@ -1376,11 +1460,11 @@ function sourcesForm(welcome) {
   const spOn = on.spotify, ytOn = on.youtube || on.ytmusic;
   const access = `
     <div class="access ${spOn ? '' : 'hide'}" data-for="spotify"><h3>Spotify</h3>
-      <label class="field"><span>${t('spotifyClient')}</span><input id="spclient" value="${esc(settings.spotifyClientId || '')}" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>${t('spotifyClient')}</span><span class="secret"><input id="spclient" type="password" value="${esc(settings.spotifyClientId || '')}" autocomplete="off" spellcheck="false"><button type="button" class="icon-btn" data-eye title="${t('showHide')}">${icon('eye')}</button></span></label>
       <p class="muted small">${esc(t('spotifyClientHelp', { uri: spotify.redirectUri() }))}</p>
       <div class="stack">${spotify.connected() ? `<span class="pill ok">${icon('check')}${t('spotifyConnected')}</span><button type="button" class="btn" data-splogout>${t('spotifyDisconnect')}</button>` : `<button type="button" class="btn primary" data-splogin>${t('spotifyConnect')}</button>`}<button type="button" class="btn ghost" data-sptoken>${t('spotifyToken')}</button></div></div>
     <div class="access ${ytOn ? '' : 'hide'}" data-for="youtube"><h3>YouTube</h3>
-      <label class="field"><span>${t('youtubeKey')}</span><input id="ytkey" value="${esc(settings.youtubeKey || '')}" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>${t('youtubeKey')}</span><span class="secret"><input id="ytkey" type="password" value="${esc(settings.youtubeKey || '')}" autocomplete="off" spellcheck="false"><button type="button" class="icon-btn" data-eye title="${t('showHide')}">${icon('eye')}</button></span></label>
       <p class="muted small">${t('youtubeKeyHelp')}</p></div>`;
   return `${pageHead(welcome ? t('welcomeTitle') : t('sources'))}
     <p class="muted lead">${welcome ? t('welcomeText') : t('sourcesHint')}</p>
@@ -1860,6 +1944,7 @@ async function render() {
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === state.route));
   document.querySelector('.bottomnav')?.classList.toggle('nohome', !document.querySelector('.bottomnav a.on'));
   navBlob.place();
+  glassPanes.scan();
   const main = $('#view');
   if (state.route !== state.prevRoute) main.innerHTML = '<div class="loading"></div>';
   state.prevRoute = state.route;
@@ -2547,9 +2632,11 @@ async function renderSettings() {
       setRow(t('changePassword'), `<button class="btn" data-chpw>${t('change')}</button>`, { keys: 'passwort password' }) +
       setRow(t('server'), sameOrigin && !window.musikDesktop && !window.MusikAndroid ? '' : `<button class="btn" data-chserver>${t('changeServer')}</button>`, { hint: esc(conn.server), keys: 'adresse address' })),
     setCard('remote', 'radio', t('onTheGo'),
-      info?.remote
-        ? setRow(t('remoteAddr'), `<button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button>`, { hint: `<code class="addr">${esc(info.remote)}</code><br>${t('remoteOn')}`, keys: 'tailscale unterwegs remote' })
-        : setRow(t('remoteAddr'), `<a class="btn" href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a>`, { hint: t('remoteOff'), keys: 'tailscale unterwegs remote' })),
+      (conn.user?.admin
+        ? setRow(t('remoteAddr'), `<div class="remoteedit"><input id="remoteurl" class="textin" value="${esc(info?.remote || '')}" placeholder="http://100.x.x.x:8484" autocomplete="off" spellcheck="false" inputmode="url"><button class="btn primary" data-saveremote>${t('save')}</button>${info?.remote ? `<button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button>` : ''}</div>`, { hint: `${info?.remote ? t('remoteOn') : t('remoteOff')} <a href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a>`, keys: 'tailscale unterwegs remote', wide: true })
+        : info?.remote
+          ? setRow(t('remoteAddr'), `<button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button>`, { hint: `<code class="addr">${esc(info.remote)}</code><br>${t('remoteOn')}`, keys: 'tailscale unterwegs remote' })
+          : setRow(t('remoteAddr'), `<a class="btn" href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a>`, { hint: t('remoteOff'), keys: 'tailscale unterwegs remote' }))),
     user.admin ? setCard('users', 'user', t('users'), setRow(t('users'), `<button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button>`, { hint: '<span id="userlist">…</span>', keys: 'nutzer users admin konto' })) : '',
     setCard('updates', 'download', t('updates'),
       setRow(t('updates'), `<button class="btn" data-updcheck>${icon('refresh')}${t('checkUpdates')}</button>`, { wide: true, hint: '<div id="updinfo" class="upd"></div>', keys: 'update version neu' }) +

@@ -302,6 +302,8 @@ class MainActivity : ComponentActivity() {
             }
             conn.disconnect()
             if (out.length() < 1_000_000) throw IllegalStateException("short download")
+            // an app signed with another key can't be installed over this one: say so instead of a silent failure
+            if (!sameSigner(out)) { updState("signature"); return }
             updState("install")
             val uri = FileProvider.getUriForFile(this, "$packageName.files", out)
             val i = Intent(Intent.ACTION_VIEW)
@@ -312,6 +314,21 @@ class MainActivity : ComponentActivity() {
             updState("error")
         }
     }
+
+    private fun signers(info: android.content.pm.PackageInfo?): Set<String> {
+        val si = info?.signingInfo ?: return emptySet()
+        val list = if (si.hasMultipleSigners()) si.apkContentsSigners else si.signingCertificateHistory
+        return list?.map { java.util.Arrays.hashCode(it.toByteArray()).toString() }?.toSet() ?: emptySet()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun sameSigner(apk: File): Boolean = runCatching {
+        if (Build.VERSION.SDK_INT < 28) return@runCatching true
+        val flag = PackageManager.GET_SIGNING_CERTIFICATES
+        val mine = signers(packageManager.getPackageInfo(packageName, flag))
+        val theirs = signers(packageManager.getPackageArchiveInfo(apk.absolutePath, flag))
+        mine.isEmpty() || theirs.isEmpty() || mine.intersect(theirs).isNotEmpty()
+    }.getOrDefault(true)
 
     private fun emit(o: JSONObject) {
         val js = "window.__musikNative && window.__musikNative(${JSONObject.quote(o.toString())})"

@@ -272,11 +272,36 @@ pub async fn body_json<T: serde::de::DeserializeOwned + Default>(
 }
 
 // ---------- handlers ----------
+/// The address for on the go: the one an admin saved in the settings, else REMOTE_URL of the installation.
+fn remote_url(st: &St) -> Option<String> {
+    let saved: Option<String> = st
+        .db
+        .lock()
+        .unwrap()
+        .query_row("SELECT v FROM kv WHERE k = 'remote_url'", [], |r| r.get(0))
+        .ok();
+    saved.filter(|s| !s.is_empty()).or_else(|| st.remote.clone())
+}
 async fn info(State(st): State<St>) -> Json<Value> {
     let setup = auth::needs_setup(&st.db.lock().unwrap());
+    let remote = remote_url(&st);
     Json(
-        json!({ "name": st.name, "app": "musik", "version": VERSION, "setup": setup, "remote": st.remote, "ytdlp": crate::ytdl::available() }),
+        json!({ "name": st.name, "app": "musik", "version": VERSION, "setup": setup, "remote": remote, "ytdlp": crate::ytdl::available() }),
     )
+}
+async fn set_remote(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    admin(&u)?;
+    let v: Value = body_json(req).await?;
+    let url = v["url"].as_str().unwrap_or("").trim().trim_end_matches('/').to_string();
+    if !url.is_empty() && !(url.starts_with("http://") || url.starts_with("https://")) || url.len() > 300 {
+        return Err(ApiError::new(400, "bad_url"));
+    }
+    st.db
+        .lock()
+        .unwrap()
+        .execute("INSERT INTO kv (k, v) VALUES ('remote_url', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", [&url])
+        .ok();
+    Ok(Json(json!({ "remote": remote_url(&st) })))
 }
 
 async fn setup(State(st): State<St>, req: Request) -> R {
@@ -1111,6 +1136,7 @@ async fn web(State(st): State<St>, method: Method, uri: axum::http::Uri) -> Resp
 pub fn router(st: St) -> Router {
     let api = Router::new()
         .route("/info", get(info))
+        .route("/remote", put(set_remote))
         .route("/setup", post(setup))
         .route("/login", post(login))
         .route("/logout", post(logout))
