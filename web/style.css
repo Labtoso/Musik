@@ -1143,3 +1143,16 @@ html[data-theme='glass'][data-mode='light'] { background: #eef0f6; }
   /* the glass player is a capsule: the line starts where its straight edge starts */
   [data-theme='glass'] #mini-progress { left: 24px; max-width: calc(100% - 48px); bottom: 1px; border-radius: 2px; }
 }
+@media (max-width: 899px) {
+  /* the buttons of the small player always sit at its right edge, however short the title is */
+  #mini .np-text { flex: 1 1 auto; }
+  #mini .icon-btn { flex: none; }
+}
+/* the big player follows the finger */
+.fs.dragging { transition: none !important; visibility: visible; }
+.fs.settling { transition: transform 0.26s cubic-bezier(0.2, 0.9, 0.3, 1) !important; visibility: visible; }
+@media (max-width: 899px) {
+  .fs, .fs-cover, #mini, .player { touch-action: none; }
+  .fs-queue, .fs-lyrics, .fs input { touch-action: pan-y; }
+  .fs .seek { touch-action: none; }
+}

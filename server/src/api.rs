@@ -634,8 +634,29 @@ pub async fn serve_track(st: &St, id: i64, req: Request) -> Result<Response, Api
     Ok(res)
 }
 
-async fn cover(State(st): State<St>, _a: AuthQ, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    serve_cover(&st, id).await
+async fn cover(State(st): State<St>, _a: AuthQ, Path(id): Path<i64>, headers: axum::http::HeaderMap) -> Result<Response, ApiError> {
+    // the picture belongs to the file as it is now: when a song is replaced (ids are reused), the app asks again
+    let tag: Option<String> = st
+        .db
+        .lock()
+        .unwrap()
+        .query_row("SELECT path, mtime FROM tracks WHERE id = ?", [id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .optional()
+        .unwrap_or(None)
+        .map(|(p, m)| format!("\"{id}-{m}-{}\"", p.len()));
+    if let (Some(tag), Some(have)) = (&tag, headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok())) {
+        if have == tag {
+            return Ok((axum::http::StatusCode::NOT_MODIFIED, [(header::ETAG, tag.clone()), (header::CACHE_CONTROL, "private, no-cache".to_string())]).into_response());
+        }
+    }
+    let mut res = serve_cover(&st, id).await?;
+    if let Some(tag) = tag {
+        if let Ok(v) = tag.parse() {
+            res.headers_mut().insert(header::ETAG, v);
+        }
+        res.headers_mut().insert(header::CACHE_CONTROL, axum::http::HeaderValue::from_static("private, no-cache"));
+    }
+    Ok(res)
 }
 
 pub async fn serve_cover(st: &St, id: i64) -> Result<Response, ApiError> {

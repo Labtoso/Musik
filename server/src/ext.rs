@@ -500,7 +500,7 @@ async fn list_imports(State(st): State<St>, Auth(u, _): Auth) -> R {
             "SELECT i.id, i.source, i.name, i.url, i.cover, i.updated, COUNT(it.pos), COUNT(it.track_id),
                     (SELECT cover FROM import_items WHERE import_id = i.id AND cover != '' ORDER BY pos LIMIT 1),
                     (SELECT track_id FROM import_items WHERE import_id = i.id AND track_id IS NOT NULL ORDER BY pos LIMIT 1),
-                    (SELECT updated FROM art WHERE kind = 'import' AND ref_id = i.id)
+                    (SELECT updated FROM art WHERE kind = 'import' AND ref_id = i.id), i.kept
              FROM imports i LEFT JOIN import_items it ON it.import_id = i.id
              WHERE i.user_id = ? GROUP BY i.id ORDER BY i.updated DESC",
         )
@@ -514,6 +514,7 @@ async fn list_imports(State(st): State<St>, Auth(u, _): Auth) -> R {
                 "url": r.get::<_, String>(3)?, "cover": if cover.is_empty() { first.unwrap_or_default() } else { cover },
                 "updated": r.get::<_, i64>(5)?, "total": r.get::<_, i64>(6)?, "matched": r.get::<_, i64>(7)?,
                 "cover_id": r.get::<_, Option<i64>>(9)?, "art": r.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                "kept": r.get::<_, i64>(11)? != 0,
             }))
         })
         .unwrap()
@@ -565,8 +566,9 @@ async fn get_import(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>)
         )
         .map_err(|_| nf())?;
     let meta: Value = serde_json::from_str(&meta).unwrap_or_else(|_| json!({}));
+    let kept: bool = db.query_row("SELECT kept FROM imports WHERE id = ?", [id], |r| r.get::<_, i64>(0)).unwrap_or(0) != 0;
     Ok(Json(
-        json!({ "id": id, "source": source, "name": name, "url": url, "cover": cover, "updated": updated, "meta": meta, "art": art_version(&db, "import", id), "items": import_items(&db, &u, id) }),
+        json!({ "id": id, "kept": kept, "source": source, "name": name, "url": url, "cover": cover, "updated": updated, "meta": meta, "art": art_version(&db, "import", id), "items": import_items(&db, &u, id) }),
     ))
 }
 
@@ -627,9 +629,11 @@ async fn import_to_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Pa
             .collect();
         v
     };
-    // playlists hold songs on the server only; an empty copy would just be clutter
-    if ids.is_empty() {
-        return Err(ApiError::new(400, "no_local_tracks"));
+    // songs from a platform stay where they are: the imported playlist itself becomes one of the own playlists
+    let total: i64 = db.query_row("SELECT COUNT(*) FROM import_items WHERE import_id = ?", [id], |r| r.get(0)).unwrap_or(0);
+    if (ids.len() as i64) < total || ids.is_empty() {
+        db.execute("UPDATE imports SET kept = 1, updated = ? WHERE id = ?", params![now_ms(), id]).ok();
+        return Ok(Json(json!({ "id": id, "name": name, "tracks": total, "kept": true })));
     }
     let now = now_ms();
     db.execute(
@@ -1023,21 +1027,25 @@ async fn yt_check(State(st): State<St>, Auth(u, _): Auth) -> R {
 async fn yt_prefetch(State(st): State<St>, Auth(u, _): Auth, Json(b): Json<Value>) -> R {
     let songs: Vec<(String, String, f64)> = b["songs"]
         .as_array()
-        .map(|a| a.iter().take(3).map(|x| (x["title"].as_str().unwrap_or("").to_string(), x["artist"].as_str().unwrap_or("").to_string(), x["duration"].as_f64().unwrap_or(0.0))).collect())
+        .map(|a| a.iter().take(8).map(|x| (x["title"].as_str().unwrap_or("").to_string(), x["artist"].as_str().unwrap_or("").to_string(), x["duration"].as_f64().unwrap_or(0.0))).collect())
         .unwrap_or_default();
-    let ids: Vec<String> = b["ids"].as_array().map(|a| a.iter().take(3).filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
-    tokio::task::spawn_blocking(move || {
-        for id in ids.into_iter().filter(|i| i.len() == 11) {
-            crate::ytdl::prefetch(id);
-        }
-        for (t, a, d) in songs {
+    let ids: Vec<String> = b["ids"].as_array().map(|a| a.iter().take(8).filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    for id in ids.into_iter().filter(|i| i.len() == 11) {
+        crate::ytdl::prefetch(id);
+    }
+    // three at a time, each one finds its video and then its stream
+    let todo = std::sync::Arc::new(std::sync::Mutex::new(songs));
+    for _ in 0..3 {
+        let (todo, st) = (todo.clone(), st.clone());
+        std::thread::spawn(move || loop {
+            let Some((t, a, d)) = todo.lock().unwrap().pop() else { break };
             if let Ok(v) = find_video(&st, u.id, &t, &a, d, "", &[], false) {
                 if !v.is_empty() {
                     crate::ytdl::prefetch(v);
                 }
             }
-        }
-    });
+        });
+    }
     Ok(Json(json!({ "ok": true })))
 }
 /// ?q= → YouTube videos (no key needed)

@@ -1,6 +1,6 @@
 import { conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
 import { LOGOS } from './logos.js';
-import { Player, EQ_FREQS } from './player.js';
+import { Player, EQ_FREQS, warmSongs } from './player.js';
 import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyAlbum, extTrack } from './sources.js';
 import { placeStage } from './engines.js';
 import { Visualizer, VIZ_MODES } from './viz.js';
@@ -372,9 +372,25 @@ function fmtTime(sec) {
 function artistName(tr) {
   return tr.artist || tr.album_artist || t('unknownArtist');
 }
+/** The sharpest version a platform offers of a cover, for the places where it is shown large. */
+function sharpCover(u) {
+  if (!u) return u;
+  if (/dzcdn\.net|deezer/.test(u)) return u.replace(/\/\d+x\d+-/, '/1000x1000-');
+  if (/i\.scdn\.co\/image\//.test(u)) return u.replace(/ab67616d0000(1e02|4851)/, 'ab67616d0000b273').replace(/ab676161000(05174|0f178)/, 'ab6761610000e5eb').replace(/ab67706c0000(da84|d72c)/, 'ab67706c0000bebb');
+  if (/i\.ytimg\.com\/vi\//.test(u)) return u.replace(/\/(mq|hq|sd)?default\.jpg/, '/maxresdefault.jpg');
+  if (/googleusercontent\.com|ggpht\.com/.test(u)) return u.replace(/=w\d+-h\d+[^?]*/, '=w1000-h1000-l90-rj').replace(/=s\d+[^?]*/, '=s1000');
+  return u;
+}
 function coverImg(id, cls = '') {
   if (!id) return `<div class="cover ${cls} ph">${icon('note')}</div>`;
-  return `<div class="cover ${cls}"><img loading="lazy" alt="" src="${coverUrl(id)}" onerror="this.parentNode.classList.add('ph');this.parentNode.innerHTML='${icon('note').replace(/"/g, '&quot;')}'"></div>`;
+  const ph = `this.parentNode.classList.add('ph');this.parentNode.innerHTML='${icon('note').replace(/"/g, '&quot;')}'`;
+  const url = coverUrl(id);
+  const sharp = /\b(huge|xl)\b/.test(cls) ? sharpCover(url) : url;
+  // the sharp one may be missing (YouTube has no large picture for every video): fall back to the normal one first
+  const onerr = sharp !== url ? `if(!this.dataset.fb){this.dataset.fb=1;this.src='${esc(url)}'}else{${ph}}` : ph;
+  // YouTube answers a missing large picture with a grey 120px placeholder instead of an error
+  const onload = sharp !== url && /ytimg/.test(url) ? ` onload="if(this.naturalWidth<=120&&!this.dataset.fb){this.dataset.fb=1;this.src='${esc(url)}'}"` : '';
+  return `<div class="cover ${cls}"><img loading="lazy" alt="" src="${esc(sharp)}"${onload} onerror="${onerr}"></div>`;
 }
 function songCount(n) {
   return n === 1 ? t('song') : t('songs', { n });
@@ -1534,14 +1550,16 @@ views.library = async (params) => {
       )
       .join('')}</div>`;
   } else if (tab === 'imported') {
-    const list = await get('/api/imports');
+    const list = (await get('/api/imports')).filter((im) => !im.kept);
     body = `<div class="toolbar"><a class="btn primary" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/sources">${t('manageSources')}</a></div>
       ${list.length ? `<div class="cards libgrid"> ${list.map((im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${im.art ? coverImg(artKey('import', im.id, im.art), 'lg') : im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`).join('')}</div>` : `<p class="muted empty">${t('importNone')}</p>`}`;
   } else {
-    const lists = await get('/api/playlists');
+    const [lists, imps] = await Promise.all([get('/api/playlists'), get('/api/imports').catch(() => [])]);
+    const kept = imps.filter((im) => im.kept);
+    for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
     body = `<div class="toolbar"><button class="btn" data-newpl>${icon('plus')}${t('newPlaylist')}</button></div>
       <div class="cards libgrid"><a class="card" href="#/likes"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
-      ${lists.map((p) => `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`).join('')}</div>`;
+      ${lists.map((p) => `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`).join('')}${kept.map((im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`).join('')}</div>`;
   }
   return `${pageHead(t('yourLibrary'), `<button class="icon-btn" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button>`)}<div class="tabs">${LIB_TABS.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
 };
@@ -1893,7 +1911,7 @@ views.imported = async (params, id) => {
       kind: t('playlist'),
       title: r.name,
       sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge(r.source)} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(r.items.length)}${dur ? ', ' + fmtLong(dur) : ''} · ${t('importedOf', { local, total: r.items.length })}`,
-      actions: listActions('imp') + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
+      actions: listActions('imp') + (r.kept ? '' : `<button class="btn" data-saveimp="${r.id}" title="${t('saveAsPlaylist')}">${icon('plus')}${t('saveAsPlaylist')}</button>`) + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
     }) + trackList(tracks)
   );
 };
@@ -2183,6 +2201,7 @@ async function render() {
     main.innerHTML = html;
     main.classList.toggle('detail', !!main.querySelector('.detail-head'));
     tintAll(main);
+    warmSoon(200);
     main.scrollTop = 0;
     $('#content').scrollTop = 0;
     if (state.route === 'search') {
@@ -2197,6 +2216,30 @@ async function render() {
     main.innerHTML = `<p class="muted empty">${esc(errorText(e))}</p>`;
   }
 }
+// songs that come from YouTube are looked up as soon as they are on screen, and again the moment a finger or the mouse reaches one
+function warmVisible() {
+  const main = $('#view');
+  if (!main) return;
+  for (const el of main.querySelectorAll('[data-list], [data-cards]')) {
+    const list = state.lists?.[el.dataset.list || el.dataset.cards];
+    if (!list) continue;
+    const vh = innerHeight;
+    const idx = [...el.children].filter((c) => { const r = c.getBoundingClientRect(); return r.bottom > 0 && r.top < vh && r.right > 0 && r.left < innerWidth; }).map((c) => Number(c.dataset.i)).filter((i) => i >= 0);
+    warmSongs(idx.map((i) => list[i]).filter(Boolean));
+  }
+}
+let warmTimer = 0;
+const warmSoon = (ms = 350) => { clearTimeout(warmTimer); warmTimer = setTimeout(warmVisible, ms); };
+document.addEventListener('scroll', () => warmSoon(450), true);
+const warmUnder = (e) => {
+  const row = e.target.closest?.('[data-list] > .row, [data-cards] > .card');
+  if (!row) return;
+  const box = row.parentElement;
+  const tr = state.lists?.[box.dataset.list || box.dataset.cards]?.[Number(row.dataset.i)];
+  if (tr) warmSongs([tr]);
+};
+document.addEventListener('pointerdown', warmUnder, true);
+document.addEventListener('pointerover', (e) => e.pointerType === 'mouse' && warmUnder(e), true);
 addEventListener('hashchange', () => {
   if ($('#settings')?.classList.contains('open')) closeSettings();
   closeProfile();
@@ -2419,6 +2462,61 @@ function openFs(open) {
   setTimeout(placeStage, 350);
   if (open) history.pushState({ fs: 1 }, '');
 }
+// phone: drag the big player down to put it away, drag the small player up to open it. The player follows the finger.
+(() => {
+  let d = null;
+  const fs = () => $('#fs');
+  document.addEventListener('pointerdown', (e) => {
+    d = null;
+    if (e.pointerType === 'mouse' || innerWidth >= 900 || !player?.current) return;
+    const f = fs();
+    if (!f) return;
+    const open = f.classList.contains('open');
+    if (open ? !e.target.closest('#fs') || e.target.closest('input, .fs-queue, .fs-lyrics, .menu') : !e.target.closest('#player') || e.target.closest('input')) return;
+    d = { id: e.pointerId, y0: e.clientY, x0: e.clientX, open, on: false, y: 0, t: performance.now(), ly: e.clientY, v: 0 };
+  }, true);
+  document.addEventListener('pointermove', (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    const dy = e.clientY - d.y0, dx = e.clientX - d.x0;
+    if (!d.on) {
+      if (Math.abs(dy) < 12 && Math.abs(dx) < 12) return;
+      if (Math.abs(dx) > Math.abs(dy) || (d.open ? dy < 0 : dy > 0)) return void (d = null);
+      d.on = true;
+      const f = fs();
+      f.classList.add('dragging');
+      if (!d.open) placeStage();
+    }
+    const now = performance.now();
+    d.v = (e.clientY - d.ly) / Math.max(1, now - d.t);
+    d.ly = e.clientY; d.t = now;
+    d.y = d.open ? Math.max(0, dy) : Math.max(0, innerHeight + dy);
+    fs().style.transform = `translateY(${d.y}px)`;
+  }, true);
+  const up = (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    const g = d;
+    d = null;
+    if (!g.on) return;
+    const f = fs();
+    const moved = g.open ? g.y : innerHeight - g.y;
+    const go = g.open ? (moved > 130 || g.v > 0.5) && g.v > -0.3 : (moved > 90 || g.v < -0.5) && g.v < 0.3;
+    const want = g.open ? !go : go; // open afterwards?
+    f.classList.remove('dragging');
+    f.classList.add('settling');
+    f.style.transform = want ? 'translateY(0)' : 'translateY(100%)';
+    // the tap that ends the drag must not press what is under the finger
+    const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+    document.addEventListener('click', stop, { capture: true, once: true });
+    setTimeout(() => document.removeEventListener('click', stop, true), 350);
+    setTimeout(() => {
+      f.classList.remove('settling');
+      f.style.transform = '';
+      if (want !== f.classList.contains('open')) openFs(want);
+    }, 260);
+  };
+  document.addEventListener('pointerup', up, true);
+  document.addEventListener('pointercancel', up, true);
+})();
 function toggleFsQueue() {
   const q = $('#fs-queue');
   $('#fs-lyrics').classList.remove('open');
@@ -2453,12 +2551,22 @@ async function renderSidebarPlaylists() {
     for (const im of imps) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
     box.innerHTML =
       lists.map((p) => item('playlist:' + p.id, '#/playlist/' + p.id, artKey('playlist', p.id, p.art) || p.cover_id, p.name, `${t('playlist')} · ${songCount(p.tracks)}`)).join('') +
-      imps.map((im) => item('import:' + im.id, '#/imported/' + im.id, artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), im.name, `${t('src_' + im.source) === 'src_' + im.source ? t('playlist') : t('src_' + im.source)} · ${songCount(im.total)}`)).join('');
+      imps.map((im) => item('import:' + im.id, '#/imported/' + im.id, artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), im.name, `${im.kept || t('src_' + im.source) === 'src_' + im.source ? t('playlist') : t('src_' + im.source)} · ${songCount(im.total)}`)).join('');
   } catch {
     box.innerHTML = '';
   }
 }
 
+async function saveImportAsPlaylist(id) {
+  const r = await post(`/api/imports/${id}/playlist`);
+  renderSidebarPlaylists();
+  toast(t('savedAsPlaylist', { name: r.name, n: r.tracks }));
+  if (state.route === 'imported' || state.route === 'library') render();
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-saveimp]');
+  if (b) saveImportAsPlaylist(Number(b.dataset.saveimp)).catch((err) => toast(errorText(err)));
+});
 // ---------- own covers (zoom and crop in the app, stored on the server) ----------
 function artKey(kind, id, v) {
   if (!v) return null;
@@ -2776,14 +2884,10 @@ async function collectionMenu(anchor, ref) {
     ];
     if (kind === 'import') {
       items.push(
-        {
+        !info.kept && {
           label: t('saveAsPlaylist'),
           icon: 'plus',
-          run: async () => {
-            const r = await post(`/api/imports/${id}/playlist`);
-            renderSidebarPlaylists();
-            toast(t('savedAsPlaylist', { name: r.name, n: r.tracks }));
-          }
+          run: () => saveImportAsPlaylist(id)
         },
         {
           label: t('rematch'),

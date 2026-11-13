@@ -449,6 +449,18 @@ function toItem(t) {
 
 const EVENTS_KEY = 'musik.pendingEvents';
 
+const warmed = new Set();
+/** Look songs up on YouTube before anybody taps them, so the first play starts at once. */
+export function warmSongs(tracks) {
+  const fresh = tracks.filter((t) => streams(t) && !warmed.has(String(t.id))).slice(0, 8);
+  if (!fresh.length) return;
+  fresh.forEach((t) => warmed.add(String(t.id)));
+  if (warmed.size > 600) warmed.clear();
+  post('/api/ytprefetch', {
+    ids: fresh.filter((t) => viaVideo(t.ext)).map((t) => t.ext.id),
+    songs: fresh.filter((t) => !viaVideo(t.ext)).map((t) => ({ title: t.title, artist: t.artist || '', duration: t.duration || 0 }))
+  }).catch(() => fresh.forEach((t) => warmed.delete(String(t.id))));
+}
 export class Player extends EventTarget {
   constructor() {
     super();
