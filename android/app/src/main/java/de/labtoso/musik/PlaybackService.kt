@@ -56,6 +56,10 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(prefs.getBoolean("play_pauseOnDisconnect", true))
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
+        PlaybackService.player = player
+        // the output picked in the app (Bluetooth, headphones or the phone itself) survives a restart
+        val pick = prefs.getInt("outputId", 0)
+        if (pick != 0) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.id == pick }?.let { player.setPreferredAudioDevice(it) }
         // own audio session so the system equalizer can be attached to it
         val audioSession = (getSystemService(Context.AUDIO_SERVICE) as AudioManager).generateAudioSessionId()
         if (audioSession > 0) {
@@ -149,10 +153,13 @@ class PlaybackService : MediaSessionService() {
     companion object {
         /** Audio session of the player, for the visualizer in the activity (same process). */
         @Volatile var audioSession = 0
+        /** The player, so the activity can send the sound to the device picked in the app. */
+        @Volatile var player: ExoPlayer? = null
     }
 
     override fun onDestroy() {
         audioSession = 0
+        player = null
         prefs.unregisterOnSharedPreferenceChangeListener(eqListener)
         runCatching { (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceCallback) }
         eq?.release()

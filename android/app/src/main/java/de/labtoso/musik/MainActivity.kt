@@ -515,6 +515,7 @@ class MainActivity : ComponentActivity() {
             }.getOrDefault(false)
             if (!ok) runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
         }
+        @JavascriptInterface fun setOutput(id: Int) = main.post { pickOutput(id) }
         @JavascriptInterface fun openBluetooth() = main.post { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }
         @JavascriptInterface fun getPlayPref(key: String): Boolean = prefs.getBoolean("play_$key", key == "pauseOnDisconnect")
         @JavascriptInterface fun setPlayPref(key: String, on: Boolean) {
@@ -551,23 +552,52 @@ class MainActivity : ComponentActivity() {
         else -> null
     }
 
-    /** Outputs for music, the one that plays first. Android sends music to the device connected last, the phone's own speaker comes last. */
+    /** Where music plays right now: what the system routes media to (Android 13+), else the device picked in the app, else the one connected last. */
+    private fun activeOutput(list: List<Pair<String, android.media.AudioDeviceInfo>>): Int {
+        val picked = prefs.getInt("outputId", 0)
+        if (picked != 0 && list.any { it.second.id == picked }) return picked
+        if (Build.VERSION.SDK_INT >= 33) {
+            val attrs = android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build()
+            val routed = runCatching { audio.getAudioDevicesForAttributes(attrs) }.getOrNull().orEmpty()
+            routed.firstNotNullOfOrNull { r -> list.firstOrNull { it.second.id == r.id || (it.second.type == r.type && it.second.productName == r.productName) } }?.let { return it.second.id }
+        }
+        return list.firstOrNull()?.second?.id ?: 0
+    }
+
+    /** Outputs for music with the one that plays now marked. Android sends music to the device connected last, the phone's own speaker comes last. */
     private fun outputs(): JSONArray {
-        val list = audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).mapNotNull { d -> kindOf(d.type)?.let { it to d } }
+        val all = audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).mapNotNull { d -> kindOf(d.type)?.let { it to d } }
         val seen = HashSet<String>()
         val rank = mapOf("bluetooth" to 0, "usb" to 1, "wired" to 2, "hdmi" to 3, "phone" to 4)
-        val sorted = list.sortedBy { rank[it.first] ?: 9 }.filter { seen.add(it.first + ":" + it.second.productName) }
+        // one entry per device (Bluetooth devices show up once per profile)
+        val list = all.sortedBy { rank[it.first] ?: 9 }.filter { seen.add(it.first + ":" + it.second.productName) }
+        val active = activeOutput(list)
         val arr = JSONArray()
-        sorted.forEachIndexed { i, (kind, d) ->
-            arr.put(JSONObject().put("kind", kind).put("name", if (kind == "phone") "" else d.productName?.toString() ?: "").put("active", i == 0))
+        list.forEach { (kind, d) ->
+            arr.put(JSONObject().put("id", d.id).put("kind", kind).put("name", if (kind == "phone") "" else d.productName?.toString() ?: "").put("active", d.id == active))
         }
         return arr
+    }
+
+    /** Sends the music to this device (0 = let Android decide again). */
+    @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
+    private fun pickOutput(id: Int) {
+        val dev = if (id == 0) null else audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.id == id }
+        if (id != 0 && dev == null) return
+        // the phone's own speaker as a choice means "stay here", even when Bluetooth is connected
+        prefs.edit().putInt("outputId", id).apply()
+        PlaybackService.player?.setPreferredAudioDevice(dev)
+        main.postDelayed({ web.evaluateJavascript("window.musikDevices && window.musikDevices()", null) }, 300)
     }
 
     private val deviceCallback = object : android.media.AudioDeviceCallback() {
         private fun tell() { web.evaluateJavascript("window.musikDevices && window.musikDevices()", null) }
         override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>) = tell()
-        override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>) = tell()
+        override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>) {
+            val picked = prefs.getInt("outputId", 0)
+            if (picked != 0 && removed.any { it.id == picked }) prefs.edit().putInt("outputId", 0).apply()
+            tell()
+        }
     }
 
     private var viz: Visualizer? = null

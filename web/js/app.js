@@ -1425,15 +1425,38 @@ document.addEventListener('click', (e) => {
 });
 
 // catalog artist and album pages
+// the same song often comes several times (album, single, deluxe, remaster): keep the first one
+const songKey = (x) => {
+  const n = (v) => String(v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[([{].*?[)\]}]/g, '').replace(/\s+-\s+.*$/, '').replace(/\b(feat|ft|with)\b.*$/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return n(String(x.artist || '').split(/,|&| x /)[0]) + '|' + n(x.title);
+};
+function uniqSongs(list) {
+  const seen = new Set();
+  return (list || []).filter((x) => {
+    const k = songKey(x);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+const uniqAlbums = (list) => {
+  const seen = new Set();
+  return (list || []).filter((a) => {
+    const k = String(a.title || a.album || '').toLowerCase().replace(/[([{].*?[)\]}]/g, '').replace(/\s+-\s+.*$/, '').trim();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
 views.cartist = async (params) => {
   const r = await get('/api/catalog/artist/' + encodeURIComponent(params.get('id') || ''));
   const a = catArtist(r.artist);
   await loadFollows();
-  const tracks = (r.tracks || []).map(extTrack);
+  const tracks = uniqSongs((r.tracks || []).map(extTrack));
   state.detail = { cartist: tracks };
   let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : '', actions: (tracks.length ? listActions('cartist') : '') + followBtn('deezer', params.get('id') || '', a.name, r.artist.picture) });
   if (tracks.length) html += section(t('top'), trackList(tracks), `<span class="muted small">${t('catalogHint')}</span>`);
-  if (r.albums?.length) html += section(t('albums'), plainAlbumCards(r.albums.map(catAlbum)));
+  if (r.albums?.length) html += section(t('albums'), plainAlbumCards(uniqAlbums(r.albums).map(catAlbum)));
   return html;
 };
 views.calbum = async (params) => {
@@ -1450,12 +1473,12 @@ views.spartist = async (params) => {
   const r = await spotifyArtist(params.get('id') || '');
   const a = spArtist(r.artist);
   await loadFollows();
-  const tracks = r.tracks.map(extTrack);
+  const tracks = uniqSongs(r.tracks.map(extTrack));
   state.detail = { spartist: tracks };
   const sub = [r.artist.followers ? t('followersN', { n: r.artist.followers.toLocaleString() }) : '', r.artist.genres.slice(0, 3).join(', ')].filter(Boolean).join(' · ');
   let html = detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: `${srcBadge('spotify')} ${esc(sub)}`, actions: (tracks.length ? listActions('spartist') : '') + followBtn('spotify', params.get('id') || '', a.name, r.artist.picture) });
   if (tracks.length) html += section(t('top'), trackList(tracks));
-  if (r.albums.length) html += section(t('albums'), plainAlbumCards(r.albums.map(spAlbum)));
+  if (r.albums.length) html += section(t('albums'), plainAlbumCards(uniqAlbums(r.albums).map(spAlbum)));
   return html;
 };
 views.spalbum = async (params) => {
@@ -1614,6 +1637,8 @@ views.album = async (params) => {
 
 views.artist = async (params) => {
   const r = await get(`/api/artist?name=${encodeURIComponent(params.get('name') || '')}`);
+  r.top = uniqSongs(r.top);
+  r.tracks = uniqSongs(r.tracks);
   await loadFollows();
   state.detail = { artist: r.tracks };
   const albums = [];
@@ -2403,7 +2428,7 @@ function bindPlayer() {
   bindSwipe('#mini', '.np-text');
   document.addEventListener('click', (e) => {
     const mini = e.target.closest('#mini');
-    if (!mini || e.target.closest('button') || mini.dataset.swiped) return;
+    if (!mini || e.target.closest('button, [data-devsheet]') || mini.dataset.swiped) return;
     if (innerWidth < 900 && player.current) openFs(true);
   });
   player.addEventListener('change', renderPlayer);
@@ -3099,7 +3124,7 @@ function devicesHtml() {
     let list = [];
     try { list = JSON.parse(A.audioDevices()); } catch {}
     return (
-      setRow(t('devOutput'), `<div class="devlist">${list.map((d) => line(DEV_ICON[d.kind] || 'speaker', d.name || t('dev_' + d.kind), d.active)).join('') || line('phone', t('dev_phone'), true)}</div>`, { hint: t('devOutputHint'), wide: true, keys: 'bluetooth kopfhörer headphones lautsprecher speaker ausgabe output gerät device' }) +
+      setRow(t('devOutput'), `<div class="devlist">${list.map((d) => line(DEV_ICON[d.kind] || 'speaker', d.name || t('dev_' + d.kind), d.active, A.setOutput ? `data-pickdev="${esc(String(d.id ?? ''))}"` : '')).join('') || line('phone', t('dev_phone'), true)}</div>`, { hint: t('devOutputHint'), wide: true, keys: 'bluetooth kopfhörer headphones lautsprecher speaker ausgabe output gerät device' }) +
       setRow(t('devSwitch'), `<div class="stack"><button class="btn" data-devout>${icon('speaker')}${t('devSwitchBtn')}</button><button class="btn" data-devbt>${icon('bluetooth')}${t('devBtSettings')}</button></div>`, { hint: t('devSwitchHint'), keys: 'bluetooth verbinden connect koppeln pair' }) +
       setRow(t('devPause'), sw('devpause', A.getPlayPref('pauseOnDisconnect')), { hint: t('devPauseHint'), keys: 'bluetooth pause trennen disconnect' }) +
       setRow(t('devResume'), sw('devresume', A.getPlayPref('resumeOnConnect')), { hint: t('devResumeHint'), keys: 'bluetooth weiter resume verbinden auto' })
@@ -3117,13 +3142,104 @@ function devicesHtml() {
     setRow(t('devOutput'), named ? `<div class="devlist">${outDevices.map((d, i) => line(DEV_ICON[kind(d.label)], d.deviceId === 'default' ? t('devSystem') : d.label || t('devOutput') + ' ' + (i + 1), d.deviceId === cur || (cur === 'default' && i === 0 && !outDevices.some((x) => x.deviceId === 'default')), `data-sink="${esc(d.deviceId)}"`)).join('')}</div>` : `<button class="btn" data-devask>${icon('speaker')}${t('devShow')}</button>`, { hint: named ? t('devPickHint') : t('devAskHint'), wide: named, keys: 'bluetooth kopfhörer headphones lautsprecher speaker ausgabe output gerät device' })
   );
 }
-const redrawDevices = () => $('#set-devices') && ($('#set-devices').outerHTML = setCard('devices', 'bluetooth', t('devices'), devicesHtml()));
-window.musikDevices = () => setTimeout(redrawDevices, 400);
+const redrawDevices = () => {
+  if ($('#set-devices')) $('#set-devices').outerHTML = setCard('devices', 'bluetooth', t('devices'), devicesHtml());
+  paintDevice();
+  if ($('.devsheet')) fillDevSheet();
+};
+window.musikDevices = () => setTimeout(redrawDevices, 250);
+
+// ---------- device picker like Spotify's: current device on top, the others below ----------
+function deviceList() {
+  const A = window.MusikAndroid;
+  if (A?.audioDevices) {
+    let l = [];
+    try { l = JSON.parse(A.audioDevices()); } catch {}
+    if (!l.length) l = [{ id: 0, kind: 'phone', name: '', active: true }];
+    return l.map((d) => ({ id: String(d.id ?? ''), kind: d.kind, name: d.name || t('dev_' + d.kind), active: !!d.active, android: true }));
+  }
+  if (!outDevices?.length) return [{ id: 'default', kind: 'out', name: window.musikDesktop ? t('devThisComputer') : t('devThisBrowser'), active: true }];
+  const kind = (l) => (/bluetooth|airpods|buds|wh-|wf-|jbl|bose|sony/i.test(l) ? 'bluetooth' : /head|kopf|hörer|phone/i.test(l) ? 'wired' : 'out');
+  const cur = prefs.sink && outDevices.some((d) => d.deviceId === prefs.sink) ? prefs.sink : 'default';
+  const l = outDevices.filter((d) => d.deviceId !== 'communications').map((d, i) => ({ id: d.deviceId, kind: kind(d.label), name: d.deviceId === 'default' ? (window.musikDesktop ? t('devThisComputer') : t('devSystem')) : d.label || t('devOutput') + ' ' + (i + 1), active: d.deviceId === cur }));
+  if (!l.some((d) => d.active) && l[0]) l[0].active = true;
+  return l;
+}
+/** Spotify shows the device in accent colour under the song once the sound leaves the phone. */
+function paintDevice() {
+  const cur = deviceList().find((d) => d.active);
+  const away = cur && !['phone', 'out'].includes(cur.kind) && !(cur.id === 'default');
+  const line = $('.np-dev');
+  if (line) {
+    line.hidden = !away;
+    line.innerHTML = away ? `${icon(DEV_ICON[cur.kind] || 'speaker')}<span>${esc(cur.name)}</span>` : '';
+  }
+  const fd = $('.fs-dev');
+  if (fd) {
+    fd.classList.toggle('away', !!away);
+    fd.querySelector('span').textContent = cur ? cur.name : '';
+    fd.querySelector('svg')?.replaceWith(document.createRange().createContextualFragment(icon(away ? DEV_ICON[cur.kind] || 'speaker' : 'devices')));
+  }
+  document.querySelectorAll('.devbtn').forEach((b) => b.classList.toggle('away', !!away));
+}
+function fillDevSheet() {
+  const box = $('.devsheet .ds-body');
+  if (!box) return;
+  const l = deviceList();
+  const cur = l.find((d) => d.active) || l[0];
+  const others = l.filter((d) => d !== cur);
+  const A = window.MusikAndroid;
+  const row = (d) => `<button class="ds-row" data-pickdev="${esc(d.id)}">${icon(DEV_ICON[d.kind] || 'speaker')}<span><b>${esc(d.name)}</b><small>${t('dev_' + d.kind) !== 'dev_' + d.kind && d.name !== t('dev_' + d.kind) ? t('dev_' + d.kind) : ''}</small></span></button>`;
+  const named = !outDevices || outDevices.some((d) => d.label) || A;
+  box.innerHTML = `
+    <div class="ds-cur">${icon(DEV_ICON[cur.kind] || 'speaker')}<div><small>${t('devCurrent')}</small><b>${esc(cur.name)}</b></div><i class="ds-eq"><i></i><i></i><i></i></i></div>
+    <h4>${t('devSelect')}</h4>
+    ${others.length ? others.map(row).join('') : `<p class="muted small ds-none">${t(A ? 'devNoneAndroid' : named ? 'devNone' : 'devAskHint')}</p>`}
+    ${!A && !named ? `<button class="btn" data-devask>${icon('speaker')}${t('devShow')}</button>` : ''}
+    <div class="ds-more">
+      ${A?.openBluetooth ? `<button class="btn" data-devbt>${icon('bluetooth')}${t('devPair')}</button>` : ''}
+      ${A?.openOutput ? `<button class="btn" data-devout>${icon('speaker')}${t('devSystemPicker')}</button>` : ''}
+    </div>
+    ${A ? '' : `<p class="muted small">${t('devPickHint')}</p>`}`;
+}
+async function devSheet() {
+  if ($('.devsheet')) return;
+  if (!window.MusikAndroid && outDevices === null) await loadOutputs(false);
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-wrap devsheet-wrap';
+  wrap.innerHTML = `<div class="modal devsheet" role="dialog"><i class="ds-grip"></i><div class="modal-head"><h2>${t('devConnect')}</h2><button class="icon-btn" data-x title="${t('close')}">${icon('close')}</button></div><div class="ds-body"></div></div>`;
+  document.body.appendChild(wrap);
+  const close = () => {
+    wrap.classList.add('closing');
+    setTimeout(() => wrap.remove(), 220);
+  };
+  wrap.addEventListener('mousedown', (e) => e.target === wrap && close());
+  wrap.addEventListener('touchstart', (e) => e.target === wrap && close(), { passive: true });
+  wrap.querySelector('[data-x]').onclick = close;
+  wrap._close = close;
+  fillDevSheet();
+}
+async function pickDevice(id) {
+  const A = window.MusikAndroid;
+  if (A?.setOutput) A.setOutput(Number(id) || 0);
+  else {
+    prefs.sink = id === 'default' ? '' : id;
+    savePrefs();
+    await audioOut.set(prefs.sink);
+  }
+  redrawDevices();
+}
 navigator.mediaDevices?.addEventListener?.('devicechange', () => loadOutputs(false).then(redrawDevices));
 document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-devout]')) return window.MusikAndroid?.openOutput?.();
   if (e.target.closest('[data-devbt]')) return window.MusikAndroid?.openBluetooth?.();
   if (e.target.closest('[data-devask]')) return loadOutputs(true).then(redrawDevices);
+  if (e.target.closest('[data-devsheet]')) {
+    e.stopPropagation();
+    return devSheet();
+  }
+  const pk = e.target.closest('[data-pickdev]');
+  if (pk) return pickDevice(pk.dataset.pickdev);
   const s = e.target.closest('[data-sink]');
   if (s) {
     prefs.sink = s.dataset.sink === 'default' ? '' : s.dataset.sink;
@@ -3562,7 +3678,8 @@ function buildShell() {
       <div id="mini-progress"></div>
       <div class="np" id="mini">
         <div id="np-cover"></div>
-        <div class="np-text"><div id="np-title" class="title"></div><div id="np-artist" class="sub"></div></div>
+        <div class="np-text"><div id="np-title" class="title"></div><div id="np-artist" class="sub"></div><div class="np-dev" data-devsheet hidden></div></div>
+        <button class="icon-btn mobile-only devbtn" data-devsheet title="${t('devConnect')}">${icon('devices')}</button>
         <button class="icon-btn like" data-act="like" title="${t('like')}">${icon('heart')}</button>
         <button class="icon-btn mobile-only" data-act="toggle">${icon('play')}</button>
         <button class="icon-btn mobile-only" data-act="next">${icon('next')}</button>
@@ -3581,6 +3698,7 @@ function buildShell() {
         <button class="icon-btn" data-act="viz" title="${t('viz')}">${icon('viz')}</button>
         <button class="icon-btn" data-act="lyrics" title="${t('lyrics')}">${icon('lyrics')}</button>
         <button class="icon-btn" data-act="queue" title="${t('queue')}">${icon('queue')}</button>
+        <button class="icon-btn devbtn" data-devsheet title="${t('devConnect')}">${icon('devices')}</button>
         <button class="icon-btn" data-act="mute" title="${t('volume')}">${icon('volume')}</button>
         <input id="vol" class="vol" type="range" min="0" max="1" step="0.01" value="1">
       </div>
@@ -3599,6 +3717,7 @@ function buildShell() {
       <button class="icon-btn lg" data-act="next">${icon('next')}</button>
       <button class="icon-btn" data-act="repeat">${icon('repeat')}</button>
     </div>
+    <button class="fs-dev" data-devsheet>${icon('devices')}<span></span></button>
     <div class="fs-bottom"><button class="btn ghost" data-act="viz">${icon('viz')}${t('viz')}</button><button class="btn ghost" data-act="lyrics">${icon('lyrics')}${t('lyrics')}</button><button class="btn ghost" data-act="queue">${icon('queue')}${t('queue')}</button></div>
     <div id="fs-queue" class="fs-queue"></div>
     <div id="fs-lyrics" class="fs-queue fs-lyrics"><div class="lyrbody"></div></div>
@@ -3610,6 +3729,7 @@ function buildShell() {
     renderState();
   }
   renderSidebarPlaylists();
+  paintDevice();
 }
 
 function startApp() {

@@ -36,6 +36,7 @@ const P = {
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
   eyeOff: '<path d="M9.9 5.2A9.6 9.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3 3.9M6.3 6.6A16.600 16.600 0 0 0 2 12s3.600 7 10 7a9.700 9.700 0 0 0 5.300-1.600M9.900 9.900a3 3 0 0 0 4.200 4.200M3 3l18 18"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  devices: '<rect x="3" y="4" width="11" height="16" rx="2"/><circle cx="8.5" cy="14" r="2.5"/><path d="M8.5 8h.01"/><rect x="16" y="9" width="5" height="11" rx="1.5"/>',
   bluetooth: '<path d="m7 7 10 10-5 4V3l5 4L7 17"/>',
   headphones: '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/>',
   speaker: '<rect x="6" y="3" width="12" height="18" rx="2.5"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',

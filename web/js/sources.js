@@ -578,7 +578,8 @@ export async function spotifyArtist(id) {
   const [a, top, al] = await Promise.all([
     spotify.api(`/artists/${id}`),
     // Spotify removed "top tracks" for apps like this one: the artist's best search hits instead
-    spotify.api(`/artists/${id}`).then((x) => spotify.api(`/search?type=track&limit=10&market=from_token&q=${encodeURIComponent(`artist:"${x.name}"`)}`)).then((j) => ({ tracks: (j.tracks?.items || []).filter((t) => (t.artists || []).some((a) => a.id === id)) })).catch(() => ({ tracks: [] })),
+    // two pages: the same song often appears several times (single, album, deluxe), the app keeps one of each
+    spotify.api(`/artists/${id}`).then((x) => Promise.all([0, 10].map((o) => spotify.api(`/search?type=track&limit=10&offset=${o}&market=from_token&q=${encodeURIComponent(`artist:"${x.name}"`)}`).catch(() => ({}))))).then((pages) => ({ tracks: pages.flatMap((j) => j.tracks?.items || []).filter((t) => (t.artists || []).some((a) => a.id === id)) })).catch(() => ({ tracks: [] })),
     spotify.api(`/artists/${id}/albums?include_groups=album,single&limit=30`).catch(() => ({ items: [] }))
   ]);
   return {
