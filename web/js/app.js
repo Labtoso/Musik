@@ -2033,7 +2033,7 @@ views.library = async (params) => {
     const [lists, imps] = await Promise.all([get('/api/playlists'), get('/api/imports').catch(() => [])]);
     const kept = imps.filter((im) => im.kept);
     for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
-    body = `<div class="cards libgrid" data-sortpl><a class="card" href="#/likes"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
+    body = `<div class="cards libgrid" data-sortpl><a class="card" href="#/likes"><div class="cover lg liked">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
       ${byPlOrder([
         ...lists.map((p) => ['playlist:' + p.id, `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`]),
         ...kept.map((im) => ['import:' + im.id, `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`])
@@ -2141,8 +2141,8 @@ views.likes = async () => {
   state.detail = { likes: tracks };
   return (
     detailHeader({ coverId: null, kind: t('playlist'), title: t('likes'), sub: songCount(tracks.length), actions: listActions('likes') + `<button class="icon-btn lg" data-preload="likes" title="${t('preload')}">${icon('bolt')}</button>` }).replace(
-      'cover xl ph',
-      'cover xl ph accent'
+      `<div class="cover xl ph">${icon('note')}</div>`,
+      `<div class="cover xl liked">${icon('heartFill')}</div>`
     ) + trackList(tracks)
   );
 };
