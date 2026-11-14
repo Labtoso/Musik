@@ -3943,7 +3943,14 @@ async function renderUpdates(force) {
     else srvAction = `<span class="muted small">${t('upd_' + u.how)}</span>`;
   }
   const appAvail = app && latest && vNewer(latest, app.v);
-  box.innerHTML = row(t('updServer'), u.current, u.available, srvAction) + (app ? row(t(app.kind === 'android' ? 'updAndroid' : 'updDesktop'), app.v, appAvail, appAvail ? `<button class="btn primary" data-updapp>${t('updNow')}</button>` : '') : '') + (!latest ? `<p class="muted small">${t('updOffline')}</p>` : '') + '<div id="updprog" class="muted small"></div>';
+  // the app first, then the server: a new server can expect things an old app does not have yet
+  if (appAvail && u.available && srvAction.includes('data-updserver')) srvAction = `<span class="muted small">${t('updAfterApp')}</span>`;
+  const both = appAvail && u.available && u.admin && u.how === 'self';
+  box.innerHTML =
+    (both ? `<div class="upd-row upd-all"><div><b>${t('updAll')}</b><span class="muted small">${t('updAllHint')}</span></div><button class="btn primary" data-updall>${t('updAllBtn')}</button></div>` : '') +
+    (app ? row(t(app.kind === 'android' ? 'updAndroid' : 'updDesktop'), app.v, appAvail, appAvail ? `<button class="btn ${both ? '' : 'primary'}" data-updapp>${t('updNow')}</button>` : '') : '') +
+    row(t('updServer'), u.current, u.available, srvAction) +
+    (!latest ? `<p class="muted small">${t('updOffline')}</p>` : '') + '<div id="updprog" class="muted small"></div>';
 }
 async function updateServer() {
   const prog = $('#updprog');
@@ -3962,9 +3969,12 @@ async function updateServer() {
   }
   if (prog) prog.textContent = t('updSlow', { v: r.to || '' });
 }
-function updateApp() {
+function updateApp(thenServer = false) {
   const app = appVersion();
   if (!app) return;
+  try {
+    if (thenServer) localStorage.setItem('musik.updnext', 'server');
+  } catch {}
   const prog = $('#updprog');
   if (prog) prog.textContent = t('updDownloading', { p: 0 });
   if (app.kind === 'android') window.MusikAndroid.updateApp();
@@ -3978,6 +3988,35 @@ window.musikAppUpdate = (stateName, pct) => {
   else if (stateName !== 'download') toast(msg);
 };
 /** Once a day after start: a short hint when something is out of date. */
+/** After the app updated itself as step one, the server follows on its own. An app older than its server is pointed to the update. */
+async function updateFlow() {
+  const app = appVersion();
+  if (!app) return;
+  let next = '';
+  try { next = localStorage.getItem('musik.updnext') || ''; } catch {}
+  const info = await api('GET', '/api/info', undefined, { token: null, timeout: 6000 }).catch(() => null);
+  if (!info?.version || info.offline) return;
+  if (next === 'server') {
+    const u = await updateStatus(true).catch(() => null);
+    // still the old app (the install was cancelled): ask again later
+    if (u?.latest && vNewer(u.latest, app.v)) return;
+    try { localStorage.removeItem('musik.updnext'); } catch {}
+    if (u?.available && u.admin && u.how === 'self') {
+      toast(t('updServerNext'));
+      openSettings('updates');
+      return updateServer().catch(() => toast(t('error')));
+    }
+    return;
+  }
+  if (vNewer(info.version, app.v)) {
+    const bar = document.createElement('div');
+    bar.className = 'updbar';
+    bar.innerHTML = `${icon('download')}<span><b>${t('updAppOld')}</b> ${t('updAppOldHint', { app: app.v, server: info.version })}</span><button class="btn sm primary" data-updapp>${t('updNow')}</button><button class="icon-btn sm" data-x title="${t('close')}">${icon('close')}</button>`;
+    bar.querySelector('[data-x]').onclick = () => bar.remove();
+    bar.querySelector('[data-updapp]').onclick = () => { bar.remove(); openSettings('updates'); updateApp(); };
+    $('#content')?.prepend(bar);
+  }
+}
 async function autoUpdateCheck() {
   let last = 0;
   try {
@@ -4024,7 +4063,7 @@ async function renderUsers() {
   } catch {}
 }
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-updcheck],[data-updserver],[data-updapp],[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
+  const el = e.target.closest('[data-updcheck],[data-updserver],[data-updapp],[data-updall],[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
   if (!el) return;
   if (el.dataset.copyremote) {
     copyText(el.dataset.copyremote).then((ok) => (ok ? toast(t('copied')) : dialog({ title: t('onTheGo'), fields: [{ name: 'url', label: t('remoteAddr'), value: el.dataset.copyremote }], ok: 'OK' })));
@@ -4054,6 +4093,10 @@ document.addEventListener('click', async (e) => {
   try {
     if (el.matches('[data-updcheck]')) return renderUpdates(true);
     if (el.matches('[data-updapp]')) return updateApp();
+    if (el.matches('[data-updall]')) {
+      el.disabled = true;
+      return updateApp(true);
+    }
     if (el.matches('[data-updserver]')) {
       el.disabled = true;
       return await updateServer().catch((err) => {
@@ -4353,6 +4396,7 @@ function startApp() {
       await spotify.finishLogin().catch(() => false);
       loadExtLikes().then(() => renderPlayer());
       setTimeout(() => autoUpdateCheck(), 4000);
+      setTimeout(() => updateFlow().catch(() => {}), 1500);
       if (!settings.setupDone && !state.joined && !/^#\/(welcome|join)\b/.test(location.hash) && !['welcome', 'join'].includes(state.route)) go('#/welcome');
       else render();
     })

@@ -1521,3 +1521,9 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 /* Green's own green; the other accent colours work in Green too */
 :root[data-theme='green'][data-accent='green'] { --accent: #1ed760; --accent-ink: #000; }
 :root[data-theme='green'] .btn.primary, :root[data-theme='green'] .chip.on, :root[data-theme='green'] .detail-head .playpause, :root[data-theme='green'] .listactions .playpause { color: var(--accent-ink); }
+/* update in the right order: app first, then server */
+.upd-all { border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: var(--r-card); padding: 10px 12px; margin-bottom: 6px; }
+.updbar { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; margin: 8px 12px 0; border-radius: var(--r-card); background: color-mix(in srgb, var(--accent) 16%, var(--surface)); font-size: 13px; position: sticky; top: 8px; z-index: 6; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); }
+.updbar > .ic { width: 18px; height: 18px; color: var(--accent); flex: none; }
+.updbar span { flex: 1; min-width: 0; }
+.updbar .btn, .updbar .icon-btn { flex: none; }
