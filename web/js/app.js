@@ -608,7 +608,7 @@ function closeMenu() {
 }
 
 async function pickPlaylist(tracks) {
-  const lists = await get('/api/playlists');
+  const lists = (await get('/api/playlists')).filter((p) => p.canEdit !== false);
   const items = lists.map((p) => ({
     label: p.name,
     icon: 'queue',
@@ -2151,9 +2151,12 @@ views.playlist = async (params, id) => {
   const pl = await get(`/api/playlists/${id}`);
   state.detail = { pl: pl.tracks };
   const who = pl.mine === false ? `${esc(t('sharedBy', { name: pl.owner }))} · ` : '';
+  const edit = pl.canEdit !== false;
+  // people in the playlist: contributors can change it, listeners only listen. The owner switches roles on a tap.
   const members = pl.members?.length
-    ? `<div class="pl-members">${icon('user')}<span>${esc(t('collaborators'))}:</span>${pl.members.map((m) => `<span class="pill">${esc(m.name)}${pl.mine !== false ? `<button class="x" data-rmmember="${pl.id}:${m.id}" title="${t('remove')}">×</button>` : ''}</span>`).join('')}</div>`
+    ? `<div class="pl-members">${icon('user')}<span>${esc(t('members'))}:</span>${pl.members.map((m) => `<span class="pill ${m.role === 'listen' ? 'listen' : ''}">${pl.mine !== false ? `<button class="role" data-memberrole="${pl.id}:${m.id}:${m.role || 'edit'}" title="${t('changeRole')}">` : '<span class="role">'}${icon(m.role === 'listen' ? 'headphones' : 'edit')}${esc(m.name)}<span class="rl">${t(m.role === 'listen' ? 'roleListen' : 'roleEdit')}</span>${pl.mine !== false ? '</button>' : '</span>'}${pl.mine !== false ? `<button class="x" data-rmmember="${pl.id}:${m.id}" title="${t('remove')}">×</button>` : ''}</span>`).join('')}</div>`
     : '';
+  const readOnly = edit ? '' : `<p class="muted small pl-ro">${icon('headphones')}${esc(t('listenOnlyHint', { name: pl.owner }))}</p>`;
   return (
     detailHeader({
       coverId: artKey('playlist', pl.id, pl.art) || pl.tracks[0]?.id,
@@ -2164,13 +2167,13 @@ views.playlist = async (params, id) => {
       // like Spotify: one big play button, the rest as quiet icons
       actions: `<button class="btn primary" data-playkey="pl">${icon('play')}${t('playAll')}</button>` +
         `<button class="icon-btn lg" data-shufflekey="pl" title="${t('shuffle')}">${icon('shuffle')}</button>` +
-        `<button class="icon-btn lg" data-pladd="${pl.id}" title="${t('addSongs')}">${icon('plus')}</button>` +
+        (edit ? `<button class="icon-btn lg" data-pladd="${pl.id}" title="${t('addSongs')}">${icon('plus')}</button>` : '') +
         `<button class="icon-btn lg" data-preload="pl" title="${t('preload')}">${icon('bolt')}</button>` +
         (offline.ok() && !offlineMode ? `<button class="icon-btn lg offbtn" data-offpl="${pl.id}" title="${t('offDownload')}">${icon('download')}<span class="sr"></span></button>` : '') +
         `<button class="icon-btn lg" data-plshare="${pl.id}" title="${t('share')}">${icon('share')}</button>` +
         (pl.mine !== false && pl.tracks.length > 1 ? `<button class="icon-btn lg mobile-only" data-pledit="${pl.id}" title="${t('reorder')}">${icon('sort')}</button>` : '') +
         `<button class="icon-btn lg" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
-    }) + members + trackList(pl.tracks, { playlistId: pl.id, reorder: pl.mine !== false })
+    }) + members + readOnly + trackList(pl.tracks, { playlistId: edit ? pl.id : null, reorder: pl.mine !== false })
   );
 };
 // ---------- playlist tools: preload, add songs, drag to reorder (PC) and an edit mode (phone) ----------
@@ -2407,7 +2410,7 @@ async function redrawOffline() {
 views.join = async (params, token) => {
   state.joined = true; // the invitation wins over the first-start assistant
   const j = await post(`/api/public/${encodeURIComponent(token)}/join`, {});
-  toast(t('joinedPlaylist', { name: j.name }));
+  toast(t(j.role === 'listen' ? 'joinedListen' : 'joinedPlaylist', { name: j.name }));
   renderSidebarPlaylists();
   setTimeout(() => go(`#/playlist/${j.id}`), 0);
   return '';
@@ -2420,8 +2423,20 @@ document.addEventListener('click', async (e) => {
     const pl = await get(`/api/playlists/${id}`).catch(() => null);
     if (!pl) return;
     const items = [{ label: t('shareListen'), icon: 'share', run: () => shareThing('playlist', id, pl.name) }];
-    if (pl.mine !== false) items.push({ label: t('shareCollab'), icon: 'user', run: () => shareThing('collab', id, pl.name) });
+    if (pl.mine !== false) items.push('-', { label: t('shareCollab'), icon: 'edit', run: () => shareThing('collab', id, pl.name) }, { label: t('shareListener'), icon: 'headphones', run: () => shareThing('listener', id, pl.name) });
     return menu(b, items);
+  }
+  const rb = e.target.closest('[data-memberrole]');
+  if (rb) {
+    const [pid, uid, role] = rb.dataset.memberrole.split(':');
+    const set = (r) => async () => {
+      await put(`/api/playlists/${pid}/members/${uid}`, { role: r }).catch((err) => toast(errorText(err)));
+      render();
+    };
+    return menu(rb, [
+      { label: t('makeContributor') + (role !== 'listen' ? ' ✓' : ''), icon: 'edit', run: set('edit') },
+      { label: t('makeListener') + (role === 'listen' ? ' ✓' : ''), icon: 'headphones', run: set('listen') }
+    ]);
   }
   const rm = e.target.closest('[data-rmmember]');
   if (rm) {
@@ -4063,7 +4078,8 @@ async function collectionMenu(anchor, ref) {
       // the phone has no sidebar to pin to
       innerWidth >= 900 && { label: t(pinned ? 'unpin' : 'pin'), icon: 'pin', run: () => togglePin(ref) },
       { label: t(kind === 'playlist' ? 'shareListen' : 'share'), icon: 'share', run: () => shareThing(kind, Number(id), name) },
-      kind === 'playlist' && info.mine !== false && { label: t('shareCollab'), icon: 'user', run: () => shareThing('collab', Number(id), name) },
+      kind === 'playlist' && info.mine !== false && { label: t('shareCollab'), icon: 'edit', run: () => shareThing('collab', Number(id), name) },
+      kind === 'playlist' && info.mine !== false && { label: t('shareListener'), icon: 'headphones', run: () => shareThing('listener', Number(id), name) },
       kind === 'playlist' && info.mine === false && {
         label: t('leavePlaylist'),
         icon: 'close',

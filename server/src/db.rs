@@ -100,6 +100,8 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
            added INTEGER NOT NULL,
            PRIMARY KEY (playlist_id, user_id));",
     )?;
+    // 'edit' = contributor (adds and removes songs), 'listen' = listener (only listens)
+    let _ = conn.execute("ALTER TABLE playlist_members ADD COLUMN role TEXT NOT NULL DEFAULT 'edit'", []);
     // after every update the remembered YouTube matches are looked up again (better matching each time)
     conn.execute_batch("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);")?;
     let seen: Option<String> = conn.query_row("SELECT v FROM kv WHERE k = 'version'", [], |r| r.get(0)).ok();

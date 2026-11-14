@@ -95,9 +95,11 @@
   const T = de
     ? { play: 'Abspielen', save: 'In meiner Bibliothek speichern', saved: 'Gespeichert', open: 'In der App öffnen', notFound: 'Dieser Link ist nicht (mehr) gültig.', offline: 'Der Server dieser Playlist ist gerade nicht erreichbar. Versuch es später noch einmal.', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', login: 'Melde dich in der App an, um zu speichern.', songs: 'Songs', on: 'Geteilt von', join: 'Mitwirken', joinHint: 'Du wurdest eingeladen, an dieser Playlist mitzuwirken. Du kannst Songs hinzufügen, entfernen und alles anhören.',
         joinTitle: 'Mitwirken', joinText: 'Leg ein Konto auf diesem Streyn-Server an oder melde dich an. Danach öffnet sich die Playlist in der App.', newAcc: 'Neues Konto', haveAcc: 'Ich habe ein Konto', name: 'Name', pass: 'Passwort', create: 'Konto anlegen und mitwirken', signin: 'Anmelden und mitwirken',
+        joinL: 'Als Zuhörer beitreten', joinHintL: 'Du wurdest als Zuhörer zu dieser Playlist eingeladen. Sie erscheint in deiner Bibliothek und bleibt immer aktuell, ändern kann sie nur der Besitzer und seine Mitwirkenden.', joinTitleL: 'Als Zuhörer beitreten', createL: 'Konto anlegen und beitreten', signinL: 'Anmelden und beitreten',
         e: { name_taken: 'Den Namen gibt es schon. Nimm einen anderen oder melde dich an.', invalid_name: 'Der Name braucht 2 bis 32 Zeichen (Buchstaben, Zahlen, Leerzeichen, . _ -).', password_short: 'Das Passwort braucht mindestens 4 Zeichen.', wrong_login: 'Name oder Passwort stimmt nicht.', local_only: 'Dieses Konto kann sich nur zuhause anmelden.', too_many: 'Zu viele Versuche. Warte eine Minute.', invite_used_up: 'Diese Einladung wurde schon zu oft benutzt.', not_found: 'Diese Einladung gilt nicht mehr.' } }
     : { play: 'Play', save: 'Save to my library', saved: 'Saved', open: 'Open in the app', notFound: 'This link is not valid (anymore).', offline: "The server of this playlist can't be reached right now. Try again later.", song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', login: 'Sign in in the app to save.', songs: 'songs', on: 'Shared from', join: 'Join as collaborator', joinHint: 'You were invited to work on this playlist. You can add and remove songs and listen to everything.',
         joinTitle: 'Join as collaborator', joinText: 'Create an account on this Streyn server or sign in. The playlist then opens in the app.', newAcc: 'New account', haveAcc: 'I have an account', name: 'Name', pass: 'Password', create: 'Create account and join', signin: 'Sign in and join',
+        joinL: 'Join as listener', joinHintL: 'You were invited to listen to this playlist. It shows up in your library and stays up to date, only the owner and contributors can change it.', joinTitleL: 'Join as listener', createL: 'Create account and join', signinL: 'Sign in and join',
         e: { name_taken: 'That name is taken. Pick another one or sign in.', invalid_name: 'The name needs 2 to 32 characters (letters, digits, spaces, . _ -).', password_short: 'The password needs at least 4 characters.', wrong_login: 'Wrong name or password.', local_only: 'This account can only sign in at home.', too_many: 'Too many tries. Wait a minute.', invite_used_up: 'This invitation has been used too often.', not_found: 'This invitation is no longer valid.' } };
   document.documentElement.lang = de ? 'de' : 'en';
   const SRC = { spotify: 'Spotify', youtube: 'YouTube', ytmusic: 'YT Music', soundcloud: 'SoundCloud', deezer: 'Deezer', apple: 'Apple Music', tidal: 'Tidal' };
@@ -118,6 +120,8 @@
   const au = $('au');
   let data = null, list = [], cur = -1;
 
+  // texts for the kind of invitation: contributor (default) or listener
+  const L = (k) => (data?.invite === 'listen' && T[k + 'L']) || T[k];
   const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 2600); };
 
   function tint(url) {
@@ -147,13 +151,13 @@
       <div class="kind">${T[d.kind] || ''}</div><h1>${esc(d.title)}</h1>
       <div class="sub">${esc(d.sub)}${d.kind !== 'track' ? ` · ${list.length} ${T.songs}` : ''}</div>${d.description ? `<p class="desc">${esc(d.description)}</p>` : ''}</div></div>
       <div class="actions">${list.length ? `<button class="play" id="playall" aria-label="${T.play}">${PLAY}</button>` : ''}
-      ${d.collab ? `<button class="btn join" id="join">${T.join}</button>` : ''}${signedIn ? `<button class="btn" id="save">${T.save}</button><a class="btn" href="/#/home">${T.open}</a>` : ''}</div>`;
-    if (d.collab) h += `<p class="invite">${T.joinHint}</p>
-      <form class="join-box" id="joinbox" autocomplete="on"><h2>${T.joinTitle}</h2><p>${T.joinText}</p>
+      ${d.collab ? `<button class="btn join" id="join">${L('join')}</button>` : ''}${signedIn ? `<button class="btn" id="save">${T.save}</button><a class="btn" href="/#/home">${T.open}</a>` : ''}</div>`;
+    if (d.collab) h += `<p class="invite">${L('joinHint')}</p>
+      <form class="join-box" id="joinbox" autocomplete="on"><h2>${L('joinTitle')}</h2><p>${T.joinText}</p>
         <div class="seg"><button type="button" class="on" data-m="new">${T.newAcc}</button><button type="button" data-m="have">${T.haveAcc}</button></div>
         <label><span>${T.name}</span><input name="name" autocomplete="username" required minlength="2" maxlength="32"></label>
         <label><span>${T.pass}</span><input name="password" type="password" autocomplete="new-password" required minlength="4"></label>
-        <div class="err" id="jerr"></div><button class="go" id="jgo">${T.create}</button></form>`;
+        <div class="err" id="jerr"></div><button class="go" id="jgo">${L('create')}</button></form>`;
     h += list.map((x, i) => `<div class="row" data-i="${i}"><span class="n">${i + 1}</span><span class="c" style="${x.cover ? `background-image:url('${esc(x.cover)}')` : ''}"></span>
       <div style="min-width:0"><div class="t">${esc(x.title)}</div><div class="a">${x.badge ? `<span class="src">${esc(x.badge)}</span>` : ''}${esc(x.artist)}</div></div><span class="d">${x.duration ? fmt(x.duration) : ''}</span></div>`).join('');
     h += `<div class="foot">${T.on} ${esc(d.server || 'Streyn')}</div>`;
@@ -169,7 +173,7 @@
       box.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => {
         mode = b.dataset.m;
         box.querySelectorAll('[data-m]').forEach((x) => x.classList.toggle('on', x === b));
-        $('jgo').textContent = mode === 'new' ? T.create : T.signin;
+        $('jgo').textContent = mode === 'new' ? L('create') : L('signin');
         box.elements.password.autocomplete = mode === 'new' ? 'new-password' : 'current-password';
         $('jerr').textContent = '';
       }));

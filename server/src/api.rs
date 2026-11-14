@@ -943,6 +943,21 @@ fn open_playlist(db: &Connection, u: &User, id: i64) -> Result<(i64, String, boo
     .unwrap_or(None)
     .ok_or_else(nf)
 }
+/// Owner or contributor: may change the songs. Listeners may only listen.
+fn can_edit(db: &Connection, u: &User, id: i64) -> bool {
+    own_playlist(db, u, id).is_ok()
+        || db
+            .query_row("SELECT role FROM playlist_members WHERE playlist_id = ? AND user_id = ?", params![id, u.id], |r| r.get::<_, String>(0))
+            .map(|r| r != "listen")
+            .unwrap_or(false)
+}
+fn edit_playlist(db: &Connection, u: &User, id: i64) -> Result<(i64, String, bool), ApiError> {
+    let r = open_playlist(db, u, id)?;
+    if !can_edit(db, u, r.0) {
+        return Err(ApiError::new(403, "read_only"));
+    }
+    Ok(r)
+}
 fn playlist_ids(db: &Connection, id: i64) -> Vec<i64> {
     let mut s = db
         .prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id = ? ORDER BY pos")
@@ -985,7 +1000,8 @@ async fn playlists(State(st): State<St>, Auth(u, _): Auth) -> R {
             "SELECT p.id, p.name, p.updated, COUNT(pt.track_id), MIN(pt.track_id),
                     (SELECT updated FROM art WHERE kind = 'playlist' AND ref_id = p.id),
                     p.description, p.user_id = ?1, (SELECT name FROM users WHERE id = p.user_id),
-                    (SELECT COUNT(*) FROM playlist_members WHERE playlist_id = p.id)
+                    (SELECT COUNT(*) FROM playlist_members WHERE playlist_id = p.id),
+                    p.user_id = ?1 OR EXISTS (SELECT 1 FROM playlist_members WHERE playlist_id = p.id AND user_id = ?1 AND role != 'listen')
              FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
              WHERE p.user_id = ?1 OR p.id IN (SELECT playlist_id FROM playlist_members WHERE user_id = ?1)
              GROUP BY p.id ORDER BY p.updated DESC",
@@ -996,7 +1012,7 @@ async fn playlists(State(st): State<St>, Auth(u, _): Auth) -> R {
             Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "updated": r.get::<_, i64>(2)?,
                 "tracks": r.get::<_, i64>(3)?, "cover_id": r.get::<_, Option<i64>>(4)?, "art": r.get::<_, Option<i64>>(5)?.unwrap_or(0),
                 "description": r.get::<_, String>(6)?, "mine": r.get::<_, bool>(7)?, "owner": r.get::<_, Option<String>>(8)?.unwrap_or_default(),
-                "members": r.get::<_, i64>(9)? }))
+                "members": r.get::<_, i64>(9)?, "canEdit": r.get::<_, bool>(10)? }))
         })
         .unwrap()
         .filter_map(Result::ok)
@@ -1035,15 +1051,15 @@ async fn get_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64
         )
         .unwrap_or_default();
     let mut s = db
-        .prepare("SELECT u.id, u.name FROM playlist_members m JOIN users u ON u.id = m.user_id WHERE m.playlist_id = ? ORDER BY m.added")
+        .prepare("SELECT u.id, u.name, m.role FROM playlist_members m JOIN users u ON u.id = m.user_id WHERE m.playlist_id = ? ORDER BY m.added")
         .unwrap();
     let members: Vec<Value> = s
-        .query_map([id], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)? })))
+        .query_map([id], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "role": r.get::<_, String>(2)? })))
         .unwrap()
         .filter_map(Result::ok)
         .collect();
     Ok(Json(
-        json!({ "id": id, "name": name, "description": description, "mine": mine, "owner": owner, "members": members,
+        json!({ "id": id, "name": name, "description": description, "mine": mine, "owner": owner, "members": members, "canEdit": can_edit(&db, &u, id),
             "art": crate::ext::art_version(&db, "playlist", id), "tracks": with_likes(&db, &u, tracks_by_ids(&db, &ids)) }),
     ))
 }
@@ -1056,6 +1072,19 @@ async fn remove_member(State(st): State<St>, Auth(u, _): Auth, Path((id, uid)): 
     }
     db.execute("DELETE FROM playlist_members WHERE playlist_id = ? AND user_id = ?", params![id, uid]).ok();
     Ok(Json(json!({ "ok": true })))
+}
+/// The owner makes someone a contributor ('edit') or a listener ('listen').
+async fn set_member_role(State(st): State<St>, Auth(u, _): Auth, Path((id, uid)): Path<(i64, i64)>, req: Request) -> R {
+    let v: Value = body_json(req).await?;
+    let role = match v["role"].as_str() {
+        Some("edit") => "edit",
+        Some("listen") => "listen",
+        _ => return Err(ApiError::new(400, "bad_role")),
+    };
+    let db = st.db.lock().unwrap();
+    let (id, _) = own_playlist(&db, &u, id)?;
+    db.execute("UPDATE playlist_members SET role = ? WHERE playlist_id = ? AND user_id = ?", params![role, id, uid]).ok();
+    Ok(Json(json!({ "ok": true, "role": role })))
 }
 async fn update_playlist(
     State(st): State<St>,
@@ -1077,6 +1106,9 @@ async fn update_playlist(
         }
     }
     if let Some(ids) = b.track_ids {
+        if !can_edit(&db, &u, id) {
+            return Err(ApiError::new(403, "read_only"));
+        }
         let ids = valid_ids(&db, &to_ids(&ids));
         set_playlist_tracks(&mut db, id, &ids);
     }
@@ -1090,7 +1122,7 @@ async fn add_to_playlist(
 ) -> R {
     let b: PlaylistBody = body_json(req).await?;
     let mut db = st.db.lock().unwrap();
-    let (id, _, _) = open_playlist(&db, &u, id)?;
+    let (id, _, _) = edit_playlist(&db, &u, id)?;
     let mut ids = playlist_ids(&db, id);
     ids.extend(valid_ids(&db, &to_ids(&b.track_ids.unwrap_or_default())));
     set_playlist_tracks(&mut db, id, &ids);
@@ -1336,7 +1368,7 @@ pub fn router(st: St) -> Router {
                 .delete(delete_playlist),
         )
         .route("/playlists/{id}/tracks", post(add_to_playlist))
-        .route("/playlists/{id}/members/{uid}", delete(remove_member))
+        .route("/playlists/{id}/members/{uid}", delete(remove_member).put(set_member_role))
         .route("/events", post(events))
         .route("/history", get(history))
         .route("/recommend/mix", get(rec_mix))

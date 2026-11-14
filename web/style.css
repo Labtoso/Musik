@@ -1111,6 +1111,14 @@ html[data-theme='glass'][data-mode='light'] { background: #eef0f6; }
 .pl-members { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; color: var(--muted); font-size: 13.5px; }
 .pl-members > .ic { width: 16px; height: 16px; }
 .pl-members .pill { height: 28px; padding: 0 10px; font-size: 13px; color: var(--text); }
+.pl-members .pill { display: inline-flex; align-items: center; gap: 4px; }
+.pl-members .role { display: inline-flex; align-items: center; gap: 6px; color: inherit; font: inherit; background: none; border: 0; padding: 0; cursor: default; }
+.pl-members button.role { cursor: pointer; }
+.pl-members .role .ic { width: 14px; height: 14px; color: var(--accent); }
+.pl-members .pill.listen .role .ic { color: var(--muted); }
+.pl-members .role .rl { color: var(--muted); font-size: 12px; }
+.pl-ro { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+.pl-ro .ic { width: 16px; height: 16px; flex: none; }
 .pl-members .pill .x { margin-left: 2px; width: 18px; height: 18px; border-radius: 50%; padding: 0; line-height: 1; color: var(--muted); }
 .pl-members .pill .x:hover { background: var(--line); color: var(--text); }
 @media (max-width: 599px) {

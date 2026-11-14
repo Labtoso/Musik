@@ -1672,7 +1672,7 @@ async fn create_share(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R
             .ok()
             .map(|id| !tracks_by_ids(&db, &[id]).is_empty())
             .unwrap_or(false),
-        "playlist" | "collab" => reference
+        "playlist" | "collab" | "listener" => reference
             .parse::<i64>()
             .ok()
             .and_then(|id| {
@@ -1770,7 +1770,7 @@ fn resolve_share(
         v
     };
     // an invitation shows the same playlist as a listening link
-    let kind = if kind == "collab" { "playlist".to_string() } else { kind };
+    let kind = if kind == "collab" || kind == "listener" { "playlist".to_string() } else { kind };
     match kind.as_str() {
         "track" => {
             let id: i64 = reference.parse().map_err(|_| nf())?;
@@ -1863,7 +1863,7 @@ async fn public_share(State(st): State<St>, Path(token): Path<String>) -> R {
         .collect();
     let ext: Vec<Value> = ext.iter().map(|e| json!({ "title": e["title"], "artist": e["artist"], "source": e["source"], "url": e["url"], "cover": e["cover"], "ext_id": e["ext_id"], "duration": e["duration"] })).collect();
     Ok(Json(
-        json!({ "title": title, "sub": sub, "kind": kind, "tracks": list, "external": ext, "server": st.name, "collab": share_is_collab(&db, &token), "description": share_description(&db, &token) }),
+        json!({ "title": title, "sub": sub, "kind": kind, "tracks": list, "external": ext, "server": st.name, "collab": share_is_collab(&db, &token), "invite": share_invite(&db, &token), "description": share_description(&db, &token) }),
     ))
 }
 fn share_description(db: &Connection, token: &str) -> String {
@@ -1874,14 +1874,30 @@ fn share_description(db: &Connection, token: &str) -> String {
     )
     .unwrap_or_default()
 }
+/// What an invitation makes of the person: "edit" (contributor), "listen" (listener), or null.
+fn share_invite(db: &Connection, token: &str) -> Value {
+    match db.query_row("SELECT kind FROM shares WHERE token = ?", [token], |r| r.get::<_, String>(0)).unwrap_or_default().as_str() {
+        "collab" => json!("edit"),
+        "listener" => json!("listen"),
+        _ => Value::Null,
+    }
+}
+/// Add someone to a playlist with the role of the invitation. An invitation never takes rights
+/// away: a contributor who opens a listener link stays a contributor.
+fn add_member(db: &Connection, pid: i64, uid: i64, role: &str) {
+    db.execute("INSERT OR IGNORE INTO playlist_members (playlist_id, user_id, added, role) VALUES (?,?,?,?)", params![pid, uid, now_ms(), role]).ok();
+    if role == "edit" {
+        db.execute("UPDATE playlist_members SET role = 'edit' WHERE playlist_id = ? AND user_id = ?", params![pid, uid]).ok();
+    }
+}
 fn share_is_collab(db: &Connection, token: &str) -> bool {
-    db.query_row("SELECT kind = 'collab' FROM shares WHERE token = ?", [token], |r| r.get(0)).unwrap_or(false)
+    db.query_row("SELECT kind IN ('collab','listener') FROM shares WHERE token = ?", [token], |r| r.get(0)).unwrap_or(false)
 }
 /// Accept an invitation: the signed-in user becomes a collaborator of the playlist.
 async fn join_share(State(st): State<St>, Auth(u, _): Auth, Path(token): Path<String>) -> R {
     let db = st.db.lock().unwrap();
-    let (owner, pid): (i64, i64) = db
-        .query_row("SELECT user_id, CAST(ref AS INTEGER) FROM shares WHERE token = ? AND kind = 'collab'", [&token], |r| Ok((r.get(0)?, r.get(1)?)))
+    let (owner, pid, kind): (i64, i64, String) = db
+        .query_row("SELECT user_id, CAST(ref AS INTEGER), kind FROM shares WHERE token = ? AND kind IN ('collab','listener')", [&token], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?)))
         .optional()
         .unwrap_or(None)
         .ok_or_else(nf)?;
@@ -1890,10 +1906,11 @@ async fn join_share(State(st): State<St>, Auth(u, _): Auth, Path(token): Path<St
         .optional()
         .unwrap_or(None)
         .ok_or_else(nf)?;
+    let role = if kind == "collab" { "edit" } else { "listen" };
     if owner != u.id {
-        db.execute("INSERT OR IGNORE INTO playlist_members (playlist_id, user_id, added) VALUES (?,?,?)", params![pid, u.id, now_ms()]).ok();
+        add_member(&db, pid, u.id, role);
     }
-    Ok(Json(json!({ "kind": "playlist", "id": pid, "name": name })))
+    Ok(Json(json!({ "kind": "playlist", "id": pid, "name": name, "role": role })))
 }
 
 #[derive(Deserialize, Default)]
@@ -1910,8 +1927,8 @@ async fn signup_share(State(st): State<St>, Path(token): Path<String>, req: Requ
     let st2 = st.clone();
     tokio::task::spawn_blocking(move || -> R {
         let db = st2.db.lock().unwrap();
-        let (owner, pid): (i64, i64) = db
-            .query_row("SELECT user_id, CAST(ref AS INTEGER) FROM shares WHERE token = ? AND kind = 'collab'", [&token], |r| Ok((r.get(0)?, r.get(1)?)))
+        let (owner, pid, kind): (i64, i64, String) = db
+            .query_row("SELECT user_id, CAST(ref AS INTEGER), kind FROM shares WHERE token = ? AND kind IN ('collab','listener')", [&token], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?)))
             .optional()
             .unwrap_or(None)
             .ok_or_else(nf)?;
@@ -1927,9 +1944,10 @@ async fn signup_share(State(st): State<St>, Path(token): Path<String>, req: Requ
         let u = crate::auth::create_user(&db, &b.name, &b.password, false)?;
         let now = now_ms();
         db.execute("INSERT OR IGNORE INTO share_signups (token, user_id, created) VALUES (?,?,?)", params![token, u.id, now]).ok();
-        db.execute("INSERT OR IGNORE INTO playlist_members (playlist_id, user_id, added) VALUES (?,?,?)", params![pid, u.id, now]).ok();
+        let role = if kind == "collab" { "edit" } else { "listen" };
+        add_member(&db, pid, u.id, role);
         let session = crate::auth::issue(&db, u.id, if b.client.is_empty() { "Invite" } else { &b.client });
-        Ok(Json(json!({ "token": session, "user": u, "playlist": { "id": pid, "name": name } })))
+        Ok(Json(json!({ "token": session, "user": u, "playlist": { "id": pid, "name": name }, "role": role })))
     })
     .await
     .map_err(|_| ApiError::new(500, "internal"))?
