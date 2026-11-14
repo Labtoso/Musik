@@ -700,7 +700,7 @@ document.addEventListener('click', (e) => {
   const x = tasteList().find((y) => y.key === b.dataset.tasteinc);
   if (x) setTasteExcluded({ id: x.id, ext: x.id == null ? {} : null, title: x.title, artist: x.artist }, false);
 });
-// ---------- Discord: "Listening to Musik" with the song and a button to the download page (desktop app) ----------
+// ---------- Discord: "Listening to Streyn" with the song and a button to the download page (desktop app) ----------
 let discordT = 0, discordLast = '';
 function discordSync() {
   clearTimeout(discordT);
@@ -715,7 +715,7 @@ function discordSync() {
       const cover = tr.ext ? extCovers.get(tr.id) || '' : '';
       const dur = player.duration || tr.duration || 0;
       const start = Date.now() - Math.round((player.position || 0) * 1000);
-      msg = { client, title: tr.title, artist: artistName(tr), album: tr.album || 'Musik', cover: /^https:\/\//.test(cover) ? cover : '', start, end: dur ? start + Math.round(dur * 1000) : undefined, url: 'https://musik.labtoso.de', label: t('discordBtn') };
+      msg = { client, title: tr.title, artist: artistName(tr), album: tr.album || 'Streyn', cover: /^https:\/\//.test(cover) ? cover : '', start, end: dur ? start + Math.round(dur * 1000) : undefined, url: 'https://musik.labtoso.de', label: t('discordBtn') };
     }
     const key = JSON.stringify({ ...msg, start: msg.start && Math.round(msg.start / 3000), end: undefined });
     if (key === discordLast) return;

@@ -1,5 +1,5 @@
 //! Discord Rich Presence over Discord's local IPC (named pipe on Windows, unix socket on Linux).
-//! Shows the song that plays ("Listening to Musik") with a button to the download page.
+//! Shows the song that plays ("Listening to Streyn") with a button to the download page.
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::sync::Mutex;
@@ -88,10 +88,10 @@ pub fn update(msg: &str) {
         };
         let mut a = json!({
             "type": 2,
-            "details": cut(m["title"].as_str().unwrap_or("Musik"), 128),
+            "details": cut(m["title"].as_str().unwrap_or("Streyn"), 128),
             "state": cut(m["artist"].as_str().unwrap_or(""), 128),
-            "assets": { "large_image": m["cover"].as_str().filter(|u| u.starts_with("https://")).unwrap_or("musik"), "large_text": cut(m["album"].as_str().unwrap_or("Musik"), 128) },
-            "buttons": [{ "label": cut(m["label"].as_str().unwrap_or("Download Musik"), 32), "url": m["url"].as_str().unwrap_or("https://musik.labtoso.de") }]
+            "assets": { "large_image": m["cover"].as_str().filter(|u| u.starts_with("https://")).unwrap_or("streyn"), "large_text": cut(m["album"].as_str().unwrap_or("Streyn"), 128) },
+            "buttons": [{ "label": cut(m["label"].as_str().unwrap_or("Download Streyn"), 32), "url": m["url"].as_str().unwrap_or("https://musik.labtoso.de") }]
         });
         if let (Some(s), Some(e)) = (m["start"].as_i64(), m["end"].as_i64()) {
             a["timestamps"] = json!({ "start": s, "end": e });
