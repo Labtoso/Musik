@@ -4308,7 +4308,7 @@ function buildShell() {
       <div id="side-playlists" class="side-pls"></div>
     </aside>
     <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo">Musik</span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
-    <main id="content">${offlineMode ? `<div class="offbar">${icon('download')}<span><b>${t('offMode')}</b> ${t('offModeHint')}</span><button class="btn sm" data-goonline>${t('goOnline')}</button></div>` : ''}<div id="view"></div></main>
+    <main id="content">${offlineMode ? `<div class="offbar">${icon('download')}<span id="offbar-text"><b>${t('offMode')}</b> ${t('offModeHint')}</span><button class="btn sm" data-goonline>${t('goOnline')}</button></div>` : ''}<div id="view"></div></main>
     <footer id="player" class="player idle">
       <div id="mini-progress"><i></i></div>
       <div class="np" id="mini">
@@ -4367,6 +4367,15 @@ function buildShell() {
   paintDevice();
 }
 
+// offline with nothing downloaded: keep the normal app, but say so in the bar
+async function offlineEmptyNote() {
+  const pls = await api('GET', '/api/playlists').catch(() => null);
+  const el = document.getElementById('offbar-text');
+  if (!el || !Array.isArray(pls) || pls.length) return;
+  el.innerHTML = `<b>${t('offMode')}</b> ${t('offEmpty')}`;
+  el.closest('.offbar')?.classList.add('empty');
+}
+
 function startApp() {
   document.body.classList.remove('auth');
   if (!player) {
@@ -4378,6 +4387,7 @@ function startApp() {
     bindPlayer();
   } else buildShell();
   renderPlayer();
+  if (offlineMode) offlineEmptyNote();
   loadSettings()
     .then(async () => {
       if (SMODES.includes(settings.searchIn)) prefs.searchIn = settings.searchIn;
