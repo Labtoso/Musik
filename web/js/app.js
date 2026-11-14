@@ -3441,12 +3441,17 @@ function bindPlayer() {
   player.addEventListener('change', () => rememberPlay(player.current));
   player.addEventListener('state', renderState);
   player.addEventListener('state', miniVizSync);
-  player.addEventListener('change', () => chill && setTimeout(chillMeta, 50));
+  player.addEventListener('change', () => chill && chillMeta());
   player.addEventListener('change', () => setTimeout(presenceTick, 800));
   player.addEventListener('change', discordSync);
   player.addEventListener('state', discordSync);
   player.addEventListener('state', () => { clearTimeout(window.__presT); window.__presT = setTimeout(presenceTick, 600); });
-  player.addEventListener('state', () => chill && chillMeta());
+  player.addEventListener('state', () => {
+    if (!chill) return;
+    // the new song waits silently until its record is down: an engine that starts on its own is stopped again
+    if (chill.hold != null && player.playing) player.pause();
+    chillMeta();
+  });
   player.addEventListener('change', miniVizSync);
   document.addEventListener('visibilitychange', miniVizSync);
   player.addEventListener('time', renderTime);
@@ -3571,13 +3576,24 @@ function chillDecor() {
 function chillMeta() {
   if (!chill) return;
   const tr = player.current;
-  chill.el.querySelector('[data-chill="toggle"]').innerHTML = icon(player.playing ? 'pause' : 'play');
+  chill.el.querySelector('[data-chill="toggle"]').innerHTML = icon(player.playing || chill.hold != null ? 'pause' : 'play');
   if (!tr) return;
   const m = { id: tr.id, title: tr.title || '', artist: artistName(tr), src: chillCover() };
   if (!chill.room) { chill.first = m; chill.id = m.id; chillShow(m); return; }
   chillDecor();
   // a new song: the record change runs completely, the title switches once the new record spins
-  if (m.id !== chill.id && m.src) { chill.id = m.id; chill.meta[chill.room.next(m.src)] = m; }
+  if (m.id !== chill.id && m.src) {
+    chill.id = m.id; chill.meta[chill.room.next(m.src)] = m;
+    // and the song itself only starts when the needle is down
+    chill.hold = m.id; if (player.playing) player.pause();
+  }
+}
+// the record of the held song is down: now it plays, from the start
+function chillRelease(m) {
+  if (!chill || chill.hold == null || (m && m.id !== chill.hold)) return;
+  chill.hold = null;
+  if (player.position > 1) player.seek(0);
+  player.play();
 }
 async function openChill() {
   if (chill || !player.current) return;
@@ -3597,7 +3613,7 @@ async function openChill() {
     if (!b) return;
     const k = b.dataset.chill;
     if (k === 'close') closeChill();
-    else if (k === 'toggle') player.toggle();
+    else if (k === 'toggle') { if (chill.hold != null) { chill.hold = null; chillMeta(); } else player.toggle(); }
     else if (k === 'next') player.next();
     else if (k === 'prev') player.prev();
   });
@@ -3611,7 +3627,7 @@ async function openChill() {
     if (!chill || chill.el !== el) return;
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4c8dff';
     chill.meta = [chill.first];
-    chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chill.first?.src || chillCover() }], center: true, follow: false, manual: true, onTrack: (i) => chillShow(chill?.meta[i]), reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
+    chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chill.first?.src || chillCover() }], center: true, follow: false, manual: true, onTrack: (i) => { chillShow(chill?.meta[i]); chillRelease(chill?.meta[i]); }, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
     chillMeta();
     el.classList.add('ready');
     chill.tick = setInterval(() => {
@@ -3622,6 +3638,7 @@ async function openChill() {
       const live = [viz, miniViz].find((v) => v?.running);
       const e = live ? Array.from(live.smooth.slice(0, 10)).reduce((s, v) => s + v, 0) / 10 : player.playing ? 0.32 + Math.max(0, Math.sin(performance.now() / 260)) * 0.18 : 0;
       r.setEnergy(player.playing ? Math.min(1, e) : 0);
+      r.setPlaying?.(player.playing || player.buffering || chill.hold != null);
     }, 100);
   } catch (err) {
     console.warn('chill', err);
@@ -3632,6 +3649,7 @@ async function openChill() {
 function closeChill(fromHistory) {
   const c = chill;
   if (!c) return;
+  chillRelease();
   chill = null;
   clearInterval(c.tick); clearTimeout(c.hide);
   try { c.lock?.release(); } catch {}
