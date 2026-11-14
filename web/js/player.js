@@ -530,7 +530,7 @@ export async function preloadSongs(tracks, progress = () => {}) {
       wait: true,
       ids: part.filter((t) => viaVideo(t.ext)).map((t) => t.ext.id),
       songs: part.filter((t) => !viaVideo(t.ext)).map((t) => ({ title: t.title, artist: t.artist || '', duration: t.duration || 0 }))
-    }, { timeout: 90000 }).catch(() => null);
+    }, { timeout: 300000 }).catch(() => null);
     part.forEach((t) => warmed.add(String(t.id)));
     done += part.length;
     progress(done, list.length);

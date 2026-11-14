@@ -212,7 +212,8 @@ function lensFilter(id, w, h, r, bezel, scale, split = false) {
 }
 /** In the glass theme the floating panes (tab bar, player, toast, menus) get their own lens, sized to them. */
 const glassPanes = (() => {
-  const PANES = [['.bottomnav', 'nav', 9], ['.player', 'player', 9], ['.toast', 'toast', 6], ['.menu', 'menu', 8]];
+  // every floating layer is real glass: it bends what lies under its rim (Chromium: Windows app, Android, browsers)
+  const PANES = [['.bottomnav', 'nav', 9], ['.player', 'player', 9], ['.toast', 'toast', 6], ['.menu', 'menu', 8], ['.side', 'side', 14], ['.modal', 'modal', 16], ['.profile', 'profile', 16], ['.devsheet', 'devsheet', 14]];
   const sizes = new Map();
   let ro = null;
   const fit = (el, key, frost) => {
@@ -236,7 +237,7 @@ const glassPanes = (() => {
     }
   };
   new MutationObserver((list) => {
-    if (list.some((m) => [...m.addedNodes].some((n) => n.classList?.contains('menu') || n.classList?.contains('shell')))) scan();
+    if (list.some((m) => [...m.addedNodes].some((n) => ['menu', 'shell', 'modal-wrap', 'profile-wrap', 'sheet-wrap'].some((c) => n.classList?.contains(c))))) requestAnimationFrame(scan);
   }).observe(document.body, { childList: true, subtree: true });
   return { scan };
 })();
@@ -607,26 +608,60 @@ function closeMenu() {
   }
 }
 
+// a song as an entry of an imported playlist (works for own files and songs from other platforms)
+function itemOf(tr) {
+  if (tr.ext) return { source: tr.ext.source, ext_id: String(tr.ext.id || ''), title: tr.title, artist: artistName(tr), album: tr.album || '', duration: tr.duration || 0, cover: extCovers.get(tr.id) || '', url: tr.ext.url || '' };
+  return { source: 'files', ext_id: '', title: tr.title, artist: tr.artist || '', album: tr.album || '', duration: tr.duration || 0, cover: '', url: '' };
+}
+/** "Add to playlist": every own playlist and imported playlist, newest order like the sidebar, plus a new one. */
 async function pickPlaylist(tracks) {
-  const lists = (await get('/api/playlists')).filter((p) => p.canEdit !== false);
-  const items = lists.map((p) => ({
-    label: p.name,
-    icon: 'queue',
-    run: async () => {
-      await post(`/api/playlists/${p.id}/tracks`, { trackIds: tracks.map((x) => x.id) });
-      toast(t('addedTo', { name: p.name }));
-    }
-  }));
-  items.push('-', {
+  tracks = tracks.filter((x) => x && !x._off);
+  const [lists, imps] = await Promise.all([get('/api/playlists').catch(() => []), get('/api/imports').catch(() => [])]);
+  const local = tracks.every((x) => !x.ext && typeof x.id === 'number');
+  const done = (name) => {
+    toast(t('addedTo', { name }));
+    state.cache.playlists = null;
+    renderSidebarPlaylists();
+  };
+  const all = [
+    // own playlists hold songs from this server; songs from other platforms go into the imported ones
+    ...(local ? lists.filter((p) => p.canEdit !== false) : []).map((p) => ['playlist:' + p.id, {
+      label: p.name,
+      icon: 'queue',
+      run: async () => {
+        await post(`/api/playlists/${p.id}/tracks`, { trackIds: tracks.map((x) => x.id) });
+        done(p.name);
+      }
+    }]),
+    ...imps.map((im) => ['import:' + im.id, {
+      label: im.name,
+      icon: 'queue',
+      run: async () => {
+        await post(`/api/imports/${im.id}/items`, { items: tracks.map(itemOf) });
+        done(im.name);
+      }
+    }])
+  ];
+  const items = [];
+  if (tracks.length === 1 && !tracks[0]._off) {
+    const tr = tracks[0];
+    items.push({ label: isLiked(tr) ? t('unlike') : t('likes'), icon: isLiked(tr) ? 'heartFill' : 'heart', run: () => toggleLike(tr) }, '-');
+  }
+  items.push(...byPlOrder(all, (x) => x[0]).map((x) => x[1]));
+  if (all.length) items.push('-');
+  items.push({
     label: t('newPlaylist'),
     icon: 'plus',
     run: async () => {
       const r = await dialog({ title: t('newPlaylist'), fields: [{ name: 'name', label: t('playlistName') }], ok: t('create') });
-      if (!r?.name?.trim()) return;
-      await post('/api/playlists', { name: r.name.trim(), trackIds: tracks.map((x) => x.id) });
-      toast(t('addedTo', { name: r.name.trim() }));
-      state.cache.playlists = null;
-      renderSidebarPlaylists();
+      const name = r?.name?.trim();
+      if (!name) return;
+      if (local) await post('/api/playlists', { name, trackIds: tracks.map((x) => x.id) });
+      else {
+        const im = await post('/api/imports', { source: tracks.find((x) => x.ext)?.ext.source || 'files', name, items: tracks.map(itemOf) });
+        await post(`/api/imports/${im.id}/playlist`, {});
+      }
+      done(name);
     }
   });
   return items;
@@ -806,8 +841,8 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
   const extra = ['year', 'genre', 'added'].filter((k) => c.has(k));
   // grid: lead, title, [album], [extras], side, [duration], more
   const w = { year: '52px', genre: 'minmax(0, 1fr)', added: '104px' };
-  const full = ['40px', 'minmax(0, 3fr)', showAlb && 'minmax(0, 2fr)', ...extra.map((k) => w[k]), '36px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
-  const mid = ['40px', 'minmax(0, 1fr)', '36px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
+  const full = ['40px', 'minmax(0, 3fr)', showAlb && 'minmax(0, 2fr)', ...extra.map((k) => w[k]), '72px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
+  const mid = ['40px', 'minmax(0, 1fr)', '72px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
   return `<div class="tracks ${c.has('cover') ? '' : 'nocover'}" style="--cols:${full};--cols-mid:${mid}" data-list="${id}" ${playlistId ? `data-playlist="${playlistId}"` : ''} ${reorder ? 'data-reorder' : ''}>${tracks
     .map((tr, i) => {
       const reason = reasons && tr.reason ? `<span class="reason">${esc(t('reason_' + tr.reason, { artist: artistName(tr) }))}</span>` : '';
@@ -817,6 +852,7 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
         : tr.ext
         ? `<button class="icon-btn like on" data-like="${esc(String(tr.id))}" title="${t('unlike')}">${icon('heartFill')}</button>`
         : `<button class="icon-btn like ${tr.liked ? 'on' : ''}" data-like="${tr.id}" title="${tr.liked ? t('unlike') : t('like')}">${icon(tr.liked ? 'heartFill' : 'heart')}</button>`;
+      const add = tr._off ? '' : `<button class="icon-btn addpl" title="${t('addPlaylist')}">${icon('plusCircle')}</button>`;
       const lead = numbers || !c.has('cover') ? `<span class="num">${(numbers && tr.track_no) || i + 1}</span>` : coverImg(tr.id, 'sm');
       const sub = [c.has('artist') ? artistLinks(tr) : '', reason].filter(Boolean).join(' · ');
       const xc = { year: tr.year || '', genre: esc(tr.genre || ''), added: tr.added ? fmtDate(tr.added) : '' };
@@ -825,7 +861,7 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
         <div class="main"><div class="title">${esc(tr.title)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>
         ${showAlb ? `<div class="alb">${albumLink(tr)}</div>` : ''}
         ${extra.map((k) => `<div class="alb xcol">${xc[k]}</div>`).join('')}
-        ${side}
+        <div class="acts">${add}${side}</div>
         ${c.has('duration') ? `<div class="dur">${fmtTime(tr.duration)}</div>` : ''}
         <button class="icon-btn more" title="…">${icon('more')}</button>
       </div>`;
@@ -843,6 +879,10 @@ document.addEventListener('click', (e) => {
   const tr = tracks[i];
   if (tr._off) return toast(t('notAvailable', { src: t('src_' + tr._src) }));
   if (e.target.closest('.like')) return toggleLike(tr);
+  if (e.target.closest('.addpl')) {
+    const b = e.target.closest('.addpl');
+    return pickPlaylist([tr]).then((items) => menu(b, items));
+  }
   if (e.target.closest('.more')) {
     const qi = listEl.dataset.queue ? Number(row.dataset.q) : null;
     return trackMenu(e.target.closest('.more'), tr, {
@@ -983,6 +1023,7 @@ function profileDialog() {
         <div class="pld-fields">
           <label class="field"><span>${t('name')}</span><input name="name" maxlength="32" value="${esc(u.name || '')}" autocomplete="off"></label>
           <p class="muted small">${t('profileNameHint')}</p>
+          <label class="field"><span>${t('bio')}</span><textarea name="bio" maxlength="160" rows="3" placeholder="${t('bioHint')}">${esc(settings.bio || '')}</textarea></label>
         </div>
       </div>
       <div class="pld-art"><button type="button" class="btn" data-up>${icon('image')}${t('uploadPicture')}</button><button type="button" class="btn ghost ${u.avatar ? '' : 'hide'}" data-rm>${t('removePicture')}</button></div>
@@ -1019,6 +1060,8 @@ function profileDialog() {
       btn.disabled = true;
       try {
         if (name !== u.name) await put('/api/me', { name });
+        const bio = form.elements.bio.value.trim().slice(0, 160);
+        if (bio !== (settings.bio || '')) await saveSettings({ bio });
         if (blob) {
           const r = await fetch(`${conn.server}/api/art/user/${u.id}`, { method: 'PUT', headers: { Authorization: 'Bearer ' + conn.token, 'Content-Type': 'image/jpeg' }, body: blob });
           if (!r.ok) throw new Error('error');
@@ -1048,7 +1091,7 @@ function openProfile() {
   wrap.className = 'profile-wrap';
   const item = (attr, ic, label) => `<button ${attr}>${icon(ic)}<span>${label}</span></button>`;
   wrap.innerHTML = `<aside class="profile" role="dialog" aria-label="${t('profile')}">
-    <div class="pf-head"><span class="avatar big">${initial}</span><div><b>${esc(name)}</b><button class="pf-edit muted small" data-pfedit>${t('editProfile')}</button></div></div>
+    <div class="pf-head"><span class="avatar big">${initial}</span><div><b>${esc(name)}</b>${settings.bio ? `<p class="pf-bio">${esc(settings.bio)}</p>` : `<button class="pf-bio add muted small" data-pfedit>${t('addBio')}</button>`}<button class="pf-edit muted small" data-pfedit>${t('editProfile')}</button></div></div>
     <nav class="pf-nav">
       ${item('data-pfgo="#/add"', 'plus', t('importAdd'))}
       ${item('data-pfgo="#/sources"', 'link', t('manageSources'))}
@@ -2186,7 +2229,7 @@ views.playlist = async (params, id) => {
         `<button class="icon-btn lg" data-preload="pl" title="${t('preload')}">${icon('bolt')}</button>` +
         (offline.ok() && !offlineMode ? `<button class="icon-btn lg offbtn" data-offpl="${pl.id}" title="${t('offDownload')}">${icon('download')}<span class="sr"></span></button>` : '') +
         `<button class="icon-btn lg" data-plshare="${pl.id}" title="${t('share')}">${icon('share')}</button>` +
-        (pl.mine !== false && pl.tracks.length > 1 ? `<button class="icon-btn lg mobile-only" data-pledit="${pl.id}" title="${t('reorder')}">${icon('sort')}</button>` : '') +
+        (pl.mine !== false && pl.tracks.length ? `<button class="icon-btn lg" data-pledit="playlist:${pl.id}" title="${t('editPlaylist')}">${icon('edit')}</button>` : '') +
         `<button class="icon-btn lg" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
     }) + members + readOnly + trackList(pl.tracks, { playlistId: edit ? pl.id : null, reorder: pl.mine !== false })
   );
@@ -2211,7 +2254,7 @@ document.addEventListener('click', async (e) => {
   const add = e.target.closest('[data-pladd]');
   if (add) return addSongsDialog(Number(add.dataset.pladd));
   const ed = e.target.closest('[data-pledit]');
-  if (ed) return reorderDialog(Number(ed.dataset.pledit));
+  if (ed) return reorderDialog(ed.dataset.pledit);
 });
 /** Search and add songs right inside the playlist, like Spotify's "Let's find something for your playlist". */
 function addSongsDialog(id) {
@@ -2268,17 +2311,33 @@ function addSongsDialog(id) {
   setTimeout(() => input.focus(), 50);
 }
 /** Phone: an edit list with handles to drag songs into a new order, like Spotify's "Edit playlist". */
-async function reorderDialog(id) {
-  const pl = await get(`/api/playlists/${id}`);
-  let order = pl.tracks.slice();
+async function reorderDialog(ref) {
+  // own playlists and imported playlists (songs from Spotify & co.) both have an edit mode
+  const [kind, sid] = String(ref).includes(':') ? String(ref).split(':') : ['playlist', ref];
+  const id = Number(sid);
+  let order, save;
+  if (kind === 'import') {
+    const r = await get('/api/imports/' + id);
+    order = r.items.map((it) => {
+      const cid = it.local ? it.local.id : 'ro:' + it.pos;
+      if (!it.local && it.cover) extCovers.set(cid, it.cover);
+      return { cid, title: it.local?.title || it.title, artist: it.local ? artistName(it.local) : it.artist, item: it };
+    });
+    save = () => put('/api/imports/' + id, { items: order.map(({ item: it }) => ({ source: it.source, ext_id: it.ext_id, title: it.title, artist: it.artist, album: it.album, duration: it.duration, cover: it.cover, url: it.url })) });
+  } else {
+    const pl = await get(`/api/playlists/${id}`);
+    order = pl.tracks.map((x) => ({ cid: x.id, title: x.title, artist: artistName(x), id: x.id }));
+    save = () => put(`/api/playlists/${id}`, { trackIds: order.map((x) => x.id) });
+  }
   const wrap = document.createElement('div');
   wrap.className = 'modal-wrap';
-  const rows = () => order.map((x, i) => `<div class="ro-row" data-ri="${i}"><button class="icon-btn sm" data-rorm="${i}" title="${t('remove')}">${icon('minus')}</button>${coverImg(x.id, 'sm')}<div class="main"><div class="title">${esc(x.title)}</div><div class="sub">${esc(artistName(x))}</div></div><span class="ro-grip" data-grip="${i}">${icon('drag')}</span></div>`).join('');
-  wrap.innerHTML = `<div class="modal reorder"><div class="modal-head"><button class="icon-btn" data-x>${icon('close')}</button><h2>${t('reorder')}</h2><button class="btn primary sm" data-ok>${t('save')}</button></div><div class="ro-list">${rows()}</div></div>`;
+  const rows = () => order.map((x, i) => `<div class="ro-row" data-ri="${i}"><button class="icon-btn sm ro-rm" data-rorm="${i}" title="${t('remove')}">${icon('minus')}</button>${coverImg(x.cid, 'sm')}<div class="main"><div class="title">${esc(x.title)}</div><div class="sub">${esc(x.artist || '')}</div></div><span class="ro-grip" data-grip="${i}">${icon('drag')}</span></div>`).join('');
+  wrap.innerHTML = `<div class="modal reorder"><div class="modal-head"><button class="icon-btn" data-x>${icon('close')}</button><h2>${t('editPlaylist')}</h2><button class="btn primary sm" data-ok>${t('save')}</button></div><div class="ro-tools"><button class="btn sm" data-edit="${kind}:${id}">${icon('edit')}${t('editDetails')}</button><span class="muted small">${t('editPlaylistHint')}</span></div><div class="ro-list">${rows()}</div></div>`;
   document.body.appendChild(wrap);
   const list = wrap.querySelector('.ro-list');
   wrap.addEventListener('click', async (e) => {
     if (e.target.closest('[data-x]')) return wrap.remove();
+    if (e.target.closest('[data-edit]')) return wrap.remove();
     const rm = e.target.closest('[data-rorm]');
     if (rm) {
       order.splice(Number(rm.dataset.rorm), 1);
@@ -2286,7 +2345,7 @@ async function reorderDialog(id) {
       return;
     }
     if (e.target.closest('[data-ok]')) {
-      await put(`/api/playlists/${id}`, { trackIds: order.map((x) => x.id) }).catch((err) => toast(errorText(err)));
+      await save().catch((err) => toast(errorText(err)));
       wrap.remove();
       render();
     }
@@ -2855,7 +2914,7 @@ views.imported = async (params, id) => {
       title: r.name,
       sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge(r.source)} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(r.items.length)}${dur ? ', ' + fmtLong(dur) : ''} · ${t('importedOf', { local, total: r.items.length })}`,
       edit: `import:${r.id}`,
-      actions: listActions('imp') + `<button class="icon-btn lg" data-preload="imp" title="${t('preload')}">${icon('bolt')}</button>` + (r.kept ? '' : `<button class="btn" data-saveimp="${r.id}" title="${t('saveAsPlaylist')}">${icon('plus')}${t('saveAsPlaylist')}</button>`) + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
+      actions: listActions('imp') + `<button class="icon-btn lg" data-preload="imp" title="${t('preload')}">${icon('bolt')}</button>` + (r.kept ? '' : `<button class="btn" data-saveimp="${r.id}" title="${t('saveAsPlaylist')}">${icon('plus')}${t('saveAsPlaylist')}</button>`) + shareBtn('import', r.id, r.name) + (r.items.length ? `<button class="icon-btn lg" data-pledit="import:${r.id}" title="${t('editPlaylist')}">${icon('edit')}</button>` : '') + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
     }) + trackList(tracks)
   );
 };

@@ -1,5 +1,6 @@
 //! Plays YouTube songs the way the Msik bot does: yt-dlp finds the audio stream of the video and
-//! the server passes it on to the app (with seeking). Nothing is stored, every play streams.
+//! the server passes it on to the app (with seeking). Songs fetched ahead (the next one, the
+//! "preload" button) are kept whole in a size-limited cache on disk and play from there.
 //!
 //! yt-dlp is looked for in YTDLP_PATH, <data>/bin and the PATH, and downloaded from its GitHub
 //! releases when missing. YouTube needs a JavaScript runtime for its player code: deno, node or bun
@@ -18,6 +19,10 @@ struct Bins {
 static BINS: OnceLock<Mutex<Bins>> = OnceLock::new();
 static READY: OnceLock<()> = OnceLock::new();
 static TMP: OnceLock<PathBuf> = OnceLock::new();
+/// Whole songs fetched ahead (the "preload" button, the next song in the queue): they play from disk.
+static CACHE: OnceLock<PathBuf> = OnceLock::new();
+/// How much the song cache may use on disk; the oldest songs go first.
+const CACHE_MAX: u64 = 3 * 1024 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct Stream {
@@ -121,6 +126,9 @@ pub fn init(data_dir: &Path) {
     let tmp = bin.join("tmp");
     std::fs::create_dir_all(&tmp).ok();
     TMP.set(tmp).ok();
+    let cache = data_dir.join("audio-cache");
+    std::fs::create_dir_all(&cache).ok();
+    CACHE.set(cache).ok();
     std::thread::spawn(move || {
         let exe = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
         let local = bin.join(exe);
@@ -463,23 +471,167 @@ fn warm_head(vid: &str, s: &Stream) {
 }
 
 /// Looks up the stream ahead of time (next songs) and fetches its beginning, errors are ignored.
+/// The whole song is then put into the song cache too, so it plays from disk without loading.
 pub fn prefetch(vid: String) {
     std::thread::spawn(move || {
-        // only the light way ahead of time, yt-dlp is kept for the song that is really played
-        let cache = STREAMS.get_or_init(|| Mutex::new(HashMap::new()));
-        let known = cache.lock().unwrap().get(&vid).filter(|s| s.until > Instant::now()).cloned();
-        let s = match known {
-            Some(s) => s,
-            None => match direct(&vid) {
-                Ok(s) => {
-                    cache.lock().unwrap().insert(vid.clone(), s.clone());
-                    s
-                }
-                Err(_) => return,
-            },
-        };
+        if cached(&vid).is_some() {
+            return;
+        }
+        // the light way first, yt-dlp when YouTube refuses it
+        let Ok(s) = stream_with(&vid, false) else { return };
         warm_head(&vid, &s);
+        queue_full(vid);
     });
+}
+
+/// A song that is completely on disk: (file, content type, size).
+pub fn cached(vid: &str) -> Option<(PathBuf, String, u64)> {
+    let dir = CACHE.get()?;
+    let f = dir.join(format!("{vid}.audio"));
+    let size = std::fs::metadata(&f).ok()?.len();
+    if size == 0 {
+        return None;
+    }
+    let ctype = std::fs::read_to_string(dir.join(format!("{vid}.type"))).unwrap_or_else(|_| "audio/mp4".into());
+    // touched on use, so the songs played most stay longest
+    std::fs::File::options().append(true).open(&f).and_then(|h| h.set_modified(std::time::SystemTime::now())).ok();
+    Some((f, ctype.trim().to_string(), size))
+}
+
+/// Whole songs are fetched one after the other in the background (two at a time).
+static FULL_Q: OnceLock<Mutex<std::collections::VecDeque<String>>> = OnceLock::new();
+static FULL_RUN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+fn queue_full(vid: String) {
+    let q = FULL_Q.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+    {
+        let mut l = q.lock().unwrap();
+        if l.contains(&vid) {
+            return;
+        }
+        l.push_back(vid);
+        if l.len() > 400 {
+            l.pop_front();
+        }
+    }
+    use std::sync::atomic::Ordering::SeqCst;
+    if FULL_RUN.fetch_add(1, SeqCst) >= 2 {
+        FULL_RUN.fetch_sub(1, SeqCst);
+        return;
+    }
+    std::thread::spawn(|| {
+        loop {
+            let next = FULL_Q.get().and_then(|q| q.lock().unwrap().pop_front());
+            let Some(v) = next else { break };
+            if let Err(e) = fetch_full(&v) {
+                eprintln!("song cache {v}: {e}");
+            }
+        }
+        FULL_RUN.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+/// Wait until a song is completely on disk (the "preload" button counts along with it).
+pub fn preload_full(vid: &str) -> bool {
+    if cached(vid).is_some() {
+        return true;
+    }
+    match fetch_full(vid) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("preload {vid}: {e}");
+            false
+        }
+    }
+}
+static FETCHING: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+fn fetch_full(vid: &str) -> Result<(), String> {
+    let dir = CACHE.get().ok_or("no cache")?.clone();
+    if cached(vid).is_some() {
+        return Ok(());
+    }
+    let busy = FETCHING.get_or_init(|| Mutex::new(std::collections::HashSet::new()));
+    if !busy.lock().unwrap().insert(vid.to_string()) {
+        return Ok(());
+    }
+    let r = (|| {
+        let mut s = stream_with(vid, false)?;
+        let part = dir.join(format!("{vid}.part"));
+        for attempt in 0..2 {
+            match download_ranges(&s, &part) {
+                Ok(ctype) => {
+                    std::fs::write(dir.join(format!("{vid}.type")), &ctype).ok();
+                    std::fs::rename(&part, dir.join(format!("{vid}.audio"))).map_err(|e| e.to_string())?;
+                    trim_cache(&dir);
+                    return Ok(());
+                }
+                Err(e) if attempt == 0 => {
+                    forget(vid);
+                    s = stream_with(vid, true).map_err(|e2| format!("{e}; {e2}"))?;
+                }
+                Err(e) => {
+                    std::fs::remove_file(&part).ok();
+                    return Err(e);
+                }
+            }
+        }
+        Err("failed".into())
+    })();
+    busy.lock().unwrap().remove(vid);
+    r
+}
+/// The whole stream in 1 MB ranges (one long request gets slowed down by YouTube); returns its content type.
+fn download_ranges(s: &Stream, to: &Path) -> Result<String, String> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(to).map_err(|e| e.to_string())?;
+    let (mut pos, mut total, mut ctype) = (0u64, u64::MAX, String::from("audio/mp4"));
+    const STEP: u64 = 1024 * 1024;
+    while pos < total {
+        let mut req = ureq::get(&s.url).timeout(Duration::from_secs(30));
+        for (k, v) in &s.headers {
+            req = req.set(k, v);
+        }
+        let r = req.set("range", &format!("bytes={}-{}", pos, pos + STEP - 1)).call().map_err(|e| e.to_string())?;
+        if total == u64::MAX {
+            total = r
+                .header("content-range")
+                .and_then(|c| c.rsplit('/').next())
+                .and_then(|n| n.trim().parse::<u64>().ok())
+                .or_else(|| r.header("content-length").and_then(|n| n.parse().ok()))
+                .ok_or("no size")?;
+            if total > 80 * 1024 * 1024 {
+                return Err("too big".into());
+            }
+            ctype = r.header("content-type").unwrap_or("audio/mp4").to_string();
+        }
+        let mut buf = Vec::new();
+        r.into_reader().take(STEP).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+        if buf.is_empty() {
+            return Err("empty".into());
+        }
+        f.write_all(&buf).map_err(|e| e.to_string())?;
+        pos += buf.len() as u64;
+    }
+    Ok(ctype)
+}
+fn trim_cache(dir: &Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = rd
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().map(|x| x == "audio").unwrap_or(false))
+        .filter_map(|e| {
+            let m = e.metadata().ok()?;
+            Some((m.modified().ok()?, m.len(), e.path()))
+        })
+        .collect();
+    let mut sum: u64 = files.iter().map(|f| f.1).sum();
+    files.sort_by_key(|f| f.0);
+    for (_, len, p) in files {
+        if sum <= CACHE_MAX {
+            break;
+        }
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(p.with_extension("type")).ok();
+        sum = sum.saturating_sub(len);
+    }
 }
 
 #[cfg(test)]

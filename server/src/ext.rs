@@ -112,6 +112,7 @@ pub fn routes() -> Router<St> {
             get(get_import).put(replace_import).delete(delete_import),
         )
         .route("/imports/{id}/rematch", post(rematch))
+        .route("/imports/{id}/items", post(append_items))
         .route("/imports/{id}/playlist", post(import_to_playlist))
         .route("/fetch/deezer", get(fetch_deezer))
         .route("/catalog/search", get(catalog_search))
@@ -616,6 +617,35 @@ fn import_items(db: &Connection, u: &crate::auth::User, id: i64) -> Vec<Value> {
     items
 }
 
+/// Add songs to the end of an imported playlist ("add to playlist" for songs from other platforms too).
+async fn append_items(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>, req: Request) -> R {
+    let b: ImportIn = body_json_big(req).await?;
+    let mut db = st.db.lock().unwrap();
+    own_import(&db, u.id, id)?;
+    let src: String = db.query_row("SELECT source FROM imports WHERE id = ?", [id], |r| r.get(0)).unwrap_or_default();
+    let start: i64 = db.query_row("SELECT COALESCE(MAX(pos) + 1, 0) FROM import_items WHERE import_id = ?", [id], |r| r.get(0)).unwrap_or(0);
+    let m = Matcher::new(&db);
+    let tx = db.transaction().unwrap();
+    let mut n = 0;
+    for it in b.items.iter().take(2000) {
+        let title = clip(&it.title, 300);
+        if title.is_empty() {
+            continue;
+        }
+        let local = m.find(&title, &it.artist, it.duration);
+        let s = if it.source.is_empty() { src.as_str() } else { it.source.as_str() };
+        tx.execute(
+            "INSERT INTO import_items (import_id, pos, source, ext_id, title, artist, album, duration, cover, url, track_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            params![id, start + n, clip(s, 20), clip(&it.ext_id, 200), title, clip(&it.artist, 300), clip(&it.album, 300), it.duration.max(0.0), clip(&it.cover, 1000), clip(&it.url, 1000), local],
+        )
+        .ok();
+        n += 1;
+    }
+    tx.execute("UPDATE imports SET updated = ? WHERE id = ?", params![now_ms(), id]).ok();
+    tx.commit().ok();
+    Ok(Json(json!({ "ok": true, "added": n })))
+}
+
 async fn get_import(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
     let db = st.db.lock().unwrap();
     own_import(&db, u.id, id)?;
@@ -1018,6 +1048,12 @@ async fn proxy_audio(vid: String, headers: axum::http::HeaderMap, q: String) -> 
     // the beginning was fetched ahead of time (next song): it plays at once, the rest follows behind it
     let from_start = range.as_deref().map(|r| r.trim() == "bytes=0-").unwrap_or(true);
     let q2 = q.clone();
+    // the whole song is on disk already (fetched ahead): no loading at all
+    if crate::ytdl::is_default_q(&q) {
+        if let Some((file, ctype, size)) = crate::ytdl::cached(&vid) {
+            return serve_cached(file, ctype, size, range.as_deref());
+        }
+    }
     if from_start && crate::ytdl::is_default_q(&q) {
         if let Some(h) = crate::ytdl::head(&vid) {
             return head_then_rest(vid, h, range.is_some());
@@ -1074,6 +1110,62 @@ async fn proxy_audio(vid: String, headers: axum::http::HeaderMap, q: String) -> 
     std::thread::spawn(move || pump(&vid2, &q2, Some(r), pos, end, &tx));
     let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
     (status, out, Body::from_stream(stream)).into_response()
+}
+
+/// A song from the song cache, with Range so seeking works.
+fn serve_cached(file: std::path::PathBuf, ctype: String, size: u64, range: Option<&str>) -> Response {
+    use axum::http::{header, StatusCode};
+    use std::io::{Seek, SeekFrom};
+    let (a, b) = range
+        .and_then(|r| r.trim().strip_prefix("bytes="))
+        .and_then(|r| r.split(',').next())
+        .and_then(|r| {
+            let (x, y) = r.split_once('-')?;
+            let (x, y) = (x.trim(), y.trim());
+            if x.is_empty() {
+                let n: u64 = y.parse().ok()?;
+                Some((size.saturating_sub(n), size - 1))
+            } else {
+                Some((x.parse().ok()?, y.parse().unwrap_or(size - 1).min(size - 1)))
+            }
+        })
+        .unwrap_or((0, size - 1));
+    if a > b || a >= size {
+        return (StatusCode::RANGE_NOT_SATISFIABLE, [(header::CONTENT_RANGE, format!("bytes */{size}"))]).into_response();
+    }
+    let Ok(mut f) = std::fs::File::open(&file) else { return ApiError::new(500, "internal").into_response() };
+    if f.seek(SeekFrom::Start(a)).is_err() {
+        return ApiError::new(500, "internal").into_response();
+    }
+    let len = b - a + 1;
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(8);
+    std::thread::spawn(move || {
+        let mut left = len;
+        let mut buf = vec![0u8; 256 * 1024];
+        while left > 0 {
+            let n = match f.read(&mut buf[..(left.min(256 * 1024)) as usize]) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            if tx.blocking_send(Ok(buf[..n].to_vec())).is_err() {
+                break;
+            }
+            left -= n as u64;
+        }
+    });
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
+    let mut out = axum::http::HeaderMap::new();
+    out.insert(header::CONTENT_TYPE, ctype.parse().unwrap_or_else(|_| "audio/mp4".parse().unwrap()));
+    out.insert(header::CONTENT_LENGTH, len.into());
+    out.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+    out.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    let status = if range.is_some() {
+        out.insert(header::CONTENT_RANGE, format!("bytes {a}-{b}/{size}").parse().unwrap());
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
+    (status, out, axum::body::Body::from_stream(stream)).into_response()
 }
 
 /// "bytes a-b/total" -> (a, b)
@@ -1208,9 +1300,15 @@ async fn yt_prefetch(State(st): State<St>, Auth(u, _): Auth, Json(b): Json<Value
         .map(|a| a.iter().take(8).map(|x| (x["title"].as_str().unwrap_or("").to_string(), x["artist"].as_str().unwrap_or("").to_string(), x["duration"].as_f64().unwrap_or(0.0))).collect())
         .unwrap_or_default();
     let ids: Vec<String> = b["ids"].as_array().map(|a| a.iter().take(8).filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
-    for id in ids.into_iter().filter(|i| i.len() == 11) {
-        crate::ytdl::prefetch(id);
+    let wait = b["wait"].as_bool().unwrap_or(false);
+    let ids: Vec<String> = ids.into_iter().filter(|i| i.len() == 11).collect();
+    if !wait {
+        for id in ids.iter().cloned() {
+            crate::ytdl::prefetch(id);
+        }
     }
+    // videos given directly: the preload button waits for them too
+    let direct_ids = ids.clone();
     // three at a time, each one finds its video and then its stream
     let todo = std::sync::Arc::new(std::sync::Mutex::new(songs));
     let found = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -1222,14 +1320,26 @@ async fn yt_prefetch(State(st): State<St>, Auth(u, _): Auth, Json(b): Json<Value
             if let Ok(v) = find_video(&st, u.id, &t, &a, d, "", &[], false) {
                 if !v.is_empty() {
                     found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    crate::ytdl::prefetch(v);
+                    // the "preload" button: the whole song onto disk, so it never loads when played
+                    if wait {
+                        crate::ytdl::preload_full(&v);
+                    } else {
+                        crate::ytdl::prefetch(v);
+                    }
                 }
             }
         }));
     }
     // the playlist's "preload" button waits, so it can count along
-    if b["wait"].as_bool().unwrap_or(false) {
-        tokio::task::spawn_blocking(move || workers.into_iter().for_each(|w| drop(w.join()))).await.ok();
+    if wait {
+        tokio::task::spawn_blocking(move || {
+            for v in direct_ids {
+                crate::ytdl::preload_full(&v);
+            }
+            workers.into_iter().for_each(|w| drop(w.join()))
+        })
+        .await
+        .ok();
     }
     Ok(Json(json!({ "ok": true, "found": found.load(std::sync::atomic::Ordering::Relaxed) })))
 }

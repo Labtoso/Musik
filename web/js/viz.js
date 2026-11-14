@@ -392,7 +392,7 @@ export class MiniViz extends Visualizer {
         const m = Math.abs(i - (n - 1) / 2) / (n / 2);
         const v = Math.sqrt(this.smooth[Math.min(59, Math.floor(m * 60))]);
         const bh = v * h;
-        if (bh < 1.5 * dpr) continue; // silence draws nothing
+        if (bh < 2.5 * dpr) continue; // silence draws nothing
         g.fillRect(i * (bw + gap), h - bh, bw, bh);
       }
     } else if (this.mode === 'wave') {
