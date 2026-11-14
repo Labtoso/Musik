@@ -5087,7 +5087,7 @@ function buildShell() {
   $('#app').innerHTML = `
   ${frameless ? `<div class="titlebar" data-drag>
     <div class="tb-left"><span class="tb-logo"><span class="brandmark" aria-hidden="true"></span></span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
-    <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><label class="tb-search">${icon('search')}<input id="tbq" type="search" placeholder="${t('searchPlaceholder_' + searchMode())}" autocomplete="off" spellcheck="false"></label></div>
+    <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><label class="tb-search">${icon('search')}<input id="tbq" type="search" placeholder="${t('tbSearch')}" autocomplete="off" spellcheck="false"></label></div>
     <div class="tb-right"><button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
       <button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
       <button class="tb-win" data-win="max" title="${t('maximize')}"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button>
