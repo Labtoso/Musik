@@ -1728,3 +1728,18 @@ html.is-playing .eqi i { animation-play-state: running; }
   .queue-view .tracks[data-queue] .row { grid-template-columns: 44px minmax(0, 1fr) 32px; }
   .queue-view .tracks[data-queue] .row .like, .queue-view .tracks[data-queue] .row .dur { display: none; }
 }
+
+/* ---------- Discord button next to the profile picture ---------- */
+.discord-btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px 0 10px; border-radius: 16px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; white-space: nowrap; flex: none; transition: background 0.15s, color 0.15s; }
+.discord-btn .ic { width: 18px; height: 18px; }
+.discord-btn:hover { background: #5865f2; color: #fff; }
+.tb-discord { margin-right: 4px; }
+.side-discord { margin-left: auto; height: 30px; padding: 0 9px; }
+.side-discord span { display: none; }
+.frameless .side-discord { display: none; }
+.mhead .discord-btn.m-only { display: none; }
+@media (max-width: 899px) {
+  .mhead .discord-btn.m-only { display: inline-flex; width: 34px; height: 34px; padding: 0; justify-content: center; border-radius: 50%; order: 9; }
+  .mhead .discord-btn span { display: none; }
+  .side-discord, .tb-discord { display: none; }
+}

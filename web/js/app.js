@@ -1,7 +1,7 @@
 import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
 import { LOGOS } from './logos.js';
 import { Player, EQ_FREQS, warmSongs, preloadSongs } from './player.js';
-import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong } from './sources.js';
+import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong, DISCORD_URL, openExternal as openExt } from './sources.js';
 import { placeStage } from './engines.js';
 import { Visualizer, MiniViz, VIZ_MODES, MINI_MODES, vizTune } from './viz.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -1084,8 +1084,23 @@ document.addEventListener('click', (e) => {
 
 function pageHead(title, extra = '') {
   const initial = avatarInner();
-  return `<div class="mhead"><button class="avatar" data-profile title="${t('profile')}">${initial}</button><h1>${title}</h1>${extra}</div>`;
+  return `<div class="mhead"><button class="avatar" data-profile title="${t('profile')}">${initial}</button><h1>${title}</h1>${extra}${discordBtn('m-only')}</div>`;
 }
+// Discord: a button next to the profile picture, only while an invite link is set
+// the link comes from links.json on the website, so it can change without an app update
+let discordUrl = DISCORD_URL;
+function discordBtn(cls = '') {
+  return `<button type="button" class="discord-btn ${cls}${discordUrl ? '' : ' hide'}" data-discord title="Discord" aria-label="Discord">${icon('discord')}<span>Discord</span></button>`;
+}
+fetch('https://musik.labtoso.de/links.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+  const u = String(j?.discord || '').trim();
+  if (!/^https:\/\//.test(u)) return;
+  discordUrl = u;
+  document.querySelectorAll('.discord-btn').forEach((b) => b.classList.remove('hide'));
+}).catch(() => {});
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-discord]') && discordUrl) openExt(discordUrl);
+});
 function greeting() {
   const h = new Date().getHours();
   return t(h < 5 ? 'greetNight' : h < 11 ? 'greetMorning' : h < 18 ? 'greetDay' : 'greetEvening');
@@ -5104,14 +5119,14 @@ function buildShell() {
   ${frameless ? `<div class="titlebar" data-drag>
     <div class="tb-left"><span class="tb-logo"><span class="brandmark" aria-hidden="true"></span></span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
     <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><label class="tb-search">${icon('search')}<input id="tbq" type="search" placeholder="${t('tbSearch')}" autocomplete="off" spellcheck="false"></label></div>
-    <div class="tb-right"><button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
+    <div class="tb-right">${discordBtn('tb-discord')}<button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
       <button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
       <button class="tb-win" data-win="max" title="${t('maximize')}"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button>
       <button class="tb-win close" data-win="close" title="${t('close')}"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button></div>
   </div>` : ''}
   <div class="shell">
     <aside class="side">
-      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span>Streyn</span></div>
+      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span>Streyn</span>${discordBtn('side-discord')}</div>
       <nav class="side-nav">${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}${nav('likes', 'heart', t('likes'))}${nav('queue', 'queue', t('queue'))}</nav>
       <div class="side-head">${t('playlists')}<button class="icon-btn sm" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button></div>
       <div id="side-playlists" class="side-pls"></div>
