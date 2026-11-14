@@ -58,8 +58,9 @@ if (prefs.sink) audioOut.id = prefs.sink;
 function applyPrefs() {
   setLang(prefs.lang);
   document.documentElement.dataset.accent = prefs.accent;
-  document.documentElement.dataset.theme = prefs.theme === 'glass' ? 'glass' : 'default';
-  const light = prefs.mode === 'light';
+  document.documentElement.dataset.theme = curTheme();
+  // Green is dark only
+  const light = prefs.mode === 'light' && curTheme() !== 'green';
   document.documentElement.dataset.mode = light ? 'light' : 'dark';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f5f5f7' : '#111214');
   window.MusikAndroid?.setMode?.(light ? 'light' : 'dark');
@@ -106,19 +107,35 @@ document.addEventListener('click', (e) => {
   b.innerHTML = icon(show ? 'eyeOff' : 'eye');
 });
 // ---------- themes ----------
-const THEMES = ['default', 'glass'];
+const THEMES_ALL = ['default', 'glass', 'green'];
+// extra themes only show once "Themes +" is switched on
+const themeList = () => (prefs.themesPlus ? THEMES_ALL : THEMES_ALL.filter((k) => k !== 'green'));
+const curTheme = () => (themeList().includes(prefs.theme) ? prefs.theme : 'default');
 function themePicker() {
-  const cur = prefs.theme === 'glass' ? 'glass' : 'default';
-  return `<div class="themes">${THEMES.map(
+  const cur = curTheme();
+  return `<div class="themesplus"><div><b>${t('themesPlus')}</b><small>${t('themesPlusHint')}</small></div>${sw('themesplus', !!prefs.themesPlus)}</div><div class="themes">${themeList().map(
     (k) => `<button type="button" class="themeopt ${k === cur ? 'on' : ''}" data-theme-pick="${k}"><span class="themeprev ${k}"><i></i><i></i><i></i><b></b></span><span class="themename">${t('theme_' + k)}</span></button>`
   ).join('')}</div>`;
 }
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'themesplus') return;
+  prefs.themesPlus = e.target.checked;
+  if (!prefs.themesPlus && prefs.theme === 'green') prefs.theme = 'default';
+  savePrefs();
+  applyPrefs();
+  document.querySelectorAll('.themes').forEach((x) => (x.parentElement.innerHTML = themePicker()));
+  requestAnimationFrame(() => {
+    navBlob.place(false);
+    glassPanes.scan();
+  });
+});
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-theme-pick]');
   if (!b) return;
   prefs.theme = b.dataset.themePick;
   savePrefs();
   applyPrefs();
+  if (typeof player !== 'undefined' && player) applyDyn(player.current, true);
   document.querySelectorAll('.themeopt').forEach((x) => x.classList.toggle('on', x.dataset.themePick === prefs.theme));
   requestAnimationFrame(() => {
     navBlob.place(false);
@@ -337,12 +354,14 @@ let dynFor = null;
 const ACCENT_VARS = ['--accent', '--accent-ink', '--accent2'];
 function applyDyn(tr, force = false) {
   const root = document.documentElement;
-  const wantAccent = prefs.accent === 'cover';
+  // Green keeps its green; it only takes the cover's colour for the player background
+  const green = curTheme() === 'green';
+  const wantAccent = prefs.accent === 'cover' && !green;
   const clear = () => {
     root.classList.remove('dyn');
     [...ACCENT_VARS, '--dyn-bg'].forEach((k) => root.style.removeProperty(k));
   };
-  const id = (prefs.dynamic || wantAccent) && tr ? tr.id : null;
+  const id = (prefs.dynamic || wantAccent || green) && tr ? tr.id : null;
   if (id === dynFor && !force) return;
   dynFor = id;
   if (!id) return clear();
@@ -356,9 +375,9 @@ function applyDyn(tr, force = false) {
       root.style.setProperty('--accent2', p.accent2);
       root.style.setProperty('--accent-ink', p.ink);
     } else ACCENT_VARS.forEach((k) => root.style.removeProperty(k));
-    if (prefs.dynamic) {
+    if (prefs.dynamic || green) {
       root.style.setProperty('--dyn-bg', p.bg);
-      root.classList.add('dyn');
+      root.classList.toggle('dyn', !!prefs.dynamic);
     } else {
       root.style.removeProperty('--dyn-bg');
       root.classList.remove('dyn');

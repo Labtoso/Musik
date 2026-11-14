@@ -1422,3 +1422,79 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 [data-theme='glass'] .offrow { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.12); }
 .offbtn.on, .offbtn.on .ic { color: var(--accent) !important; }
 .offbtn.on .ic { fill: color-mix(in srgb, var(--accent) 25%, transparent); }
+
+/* ---------- Green theme (switched on under Themes +): black, green accent, round pill buttons, bold type ---------- */
+:root[data-theme='green'] {
+  --bg: #000; --bg2: #000; --surface: #121212; --surface2: #1f1f1f; --line: #292929;
+  --text: #fff; --muted: #b3b3b3; --accent: #1ed760; --accent-ink: #000;
+  --r-ctl: 999px; --r-card: 8px; --r-win: 12px;
+  color-scheme: dark;
+}
+[data-theme='green'] body { background: #000; font-weight: 450; }
+[data-theme='green'] h1, [data-theme='green'] h2, [data-theme='green'] .dh-text h1, [data-theme='green'] .sec-head h2 { font-weight: 800; letter-spacing: -0.02em; }
+/* the main area is a rounded panel on black, like the desktop layout of big music apps */
+@media (min-width: 900px) {
+  [data-theme='green'] .shell { gap: 8px; padding: 0 8px; background: #000; }
+  [data-theme='green'] .side { background: var(--surface); border: 0; border-radius: 8px; margin-top: 8px; }
+  [data-theme='green'] #content { background: linear-gradient(180deg, #1f1f1f 0, #121212 280px); border-radius: 8px; margin-top: 8px; }
+  [data-theme='green'] .player { background: #000; border-top: 0; }
+}
+[data-theme='green'] .btn { border-radius: 999px; background: transparent; border: 1px solid #7c7c7c; font-weight: 700; transition: transform 0.12s, border-color 0.12s, background 0.12s; }
+[data-theme='green'] .btn:hover { border-color: #fff; transform: scale(1.04); background: transparent; }
+[data-theme='green'] .btn:active { transform: scale(0.97); }
+[data-theme='green'] .btn.primary { background: var(--accent); border-color: var(--accent); color: #000; }
+[data-theme='green'] .btn.primary:hover { background: #3be477; border-color: #3be477; }
+[data-theme='green'] .btn.ghost { border-color: transparent; }
+[data-theme='green'] .playpause { background: #fff; color: #000; transition: transform 0.12s; }
+[data-theme='green'] .playpause:hover { transform: scale(1.06); }
+[data-theme='green'] .playpause:active { transform: scale(0.95); }
+[data-theme='green'] .detail-head .playpause, [data-theme='green'] .listactions .playpause, [data-theme='green'] .playpause.xl { background: var(--accent); color: #000; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+[data-theme='green'] .detail-head .playpause:hover, [data-theme='green'] .listactions .playpause:hover { background: #3be477; transform: scale(1.05); }
+[data-theme='green'] .chip { background: #2a2a2a; color: #fff; font-weight: 600; transition: background 0.12s, transform 0.12s; }
+[data-theme='green'] .chip:hover { background: #333; }
+[data-theme='green'] .chip.on { background: var(--accent); color: #000; }
+[data-theme='green'] .seg button.on { background: #fff; color: #000; }
+[data-theme='green'] .card { padding: 12px; border-radius: 8px; transition: background 0.25s; }
+[data-theme='green'] .card:hover { background: #1f1f1f; }
+[data-theme='green'] .card .cover { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); border-radius: 6px; }
+[data-theme='green'] .card.artist .cover { border-radius: 50%; }
+[data-theme='green'] .c-title { font-weight: 700; }
+[data-theme='green'] .row { border-radius: 4px; transition: background 0.1s; }
+[data-theme='green'] .row:hover { background: rgba(255, 255, 255, 0.1); }
+[data-theme='green'] .row.current .title { color: var(--accent); }
+[data-theme='green'] .like.on, [data-theme='green'] .like.on .ic { color: var(--accent); }
+[data-theme='green'] .seek, [data-theme='green'] .vol { accent-color: #fff; }
+[data-theme='green'] .seek:hover, [data-theme='green'] .vol:hover { accent-color: var(--accent); }
+[data-theme='green'] .menu { background: #282828; border: 0; border-radius: 4px; box-shadow: 0 16px 24px rgba(0, 0, 0, 0.5); padding: 4px; }
+[data-theme='green'] .menu button { border-radius: 2px; }
+[data-theme='green'] .menu button:hover { background: #3e3e3e; }
+[data-theme='green'] .modal { background: #282828; border: 0; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6); }
+[data-theme='green'] .set-card { background: #121212; border-color: #121212; }
+[data-theme='green'] .side-nav a.on, [data-theme='green'] .side-pl.on { color: #fff; }
+[data-theme='green'] .searchbar, [data-theme='green'] .tb-search { background: #1f1f1f; border-radius: 999px; }
+[data-theme='green'] .tb-search:hover { background: #2a2a2a; border-color: #333; }
+/* phone: tab bar on a black fade, the mini player a rounded card that takes the song's colour */
+@media (max-width: 899px) {
+  [data-theme='green'] .bottomnav { margin: 0; border: 0; border-radius: 0; height: auto; padding: 8px 0 calc(6px + var(--safe-b)); background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.85) 30%, #000 70%); }
+  [data-theme='green'] .navblob { display: none; }
+  [data-theme='green'] .bottomnav a { flex-direction: column; gap: 3px; font-size: 10.5px; color: #b3b3b3; }
+  [data-theme='green'] .bottomnav a.on { color: #fff; }
+  [data-theme='green'] .bottomnav a:active .ic { transform: scale(0.88); }
+  [data-theme='green'] .player { margin: 0 8px; border-radius: 6px; background: color-mix(in srgb, var(--dyn-bg, #3a3a3a) 70%, #000); border: 0; overflow: hidden; }
+  [data-theme='green'] #mini-progress { background: #fff; height: 2px; left: 8px !important; bottom: 0; border-radius: 1px; }
+  [data-theme='green'] #mini .cover, [data-theme='green'] #np-cover img { border-radius: 4px; }
+  [data-theme='green'] .fs { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg, #535353) 75%, #000), #121212 70%); }
+  [data-theme='green'] .fs-buttons .playpause.xl { background: #fff; color: #000; box-shadow: none; }
+}
+/* small motion: cards rise a little, the play button pops in */
+[data-theme='green'] .card .cover { transition: transform 0.3s cubic-bezier(0.3, 0.7, 0.4, 1); }
+[data-theme='green'] .card:hover .cover { transform: translateY(-2px); }
+[data-theme='green'] .ds-cur { background: rgba(30, 215, 96, 0.12); }
+[data-theme='green'] .themeopt.on .themeprev { outline-color: var(--accent); }
+.themeprev.green { background: #000; }
+.themeprev.green i { background: #2a2a2a; }
+.themeprev.green i:nth-child(1) { background: #fff; }
+.themeprev.green b { background: #121212; border-radius: 4px; }
+.themeprev.green b::after { background: #1ed760; border-radius: 999px; }
+.themesplus { display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; margin-bottom: 10px; }
+.themesplus small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
