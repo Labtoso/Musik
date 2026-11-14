@@ -1426,7 +1426,7 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 /* ---------- Green theme (switched on under Themes +): black, green accent, round pill buttons, bold type ---------- */
 :root[data-theme='green'] {
   --bg: #000; --bg2: #000; --surface: #121212; --surface2: #1f1f1f; --line: #292929;
-  --text: #fff; --muted: #b3b3b3; --accent: #1ed760; --accent-ink: #000;
+  --text: #fff; --muted: #b3b3b3;
   --r-ctl: 999px; --r-card: 8px; --r-win: 12px;
   color-scheme: dark;
 }
@@ -1443,13 +1443,13 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 [data-theme='green'] .btn:hover { border-color: #fff; transform: scale(1.04); background: transparent; }
 [data-theme='green'] .btn:active { transform: scale(0.97); }
 [data-theme='green'] .btn.primary { background: var(--accent); border-color: var(--accent); color: #000; }
-[data-theme='green'] .btn.primary:hover { background: #3be477; border-color: #3be477; }
+[data-theme='green'] .btn.primary:hover { filter: brightness(1.12); }
 [data-theme='green'] .btn.ghost { border-color: transparent; }
 [data-theme='green'] .playpause { background: #fff; color: #000; transition: transform 0.12s; }
 [data-theme='green'] .playpause:hover { transform: scale(1.06); }
 [data-theme='green'] .playpause:active { transform: scale(0.95); }
 [data-theme='green'] .detail-head .playpause, [data-theme='green'] .listactions .playpause, [data-theme='green'] .playpause.xl { background: var(--accent); color: #000; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
-[data-theme='green'] .detail-head .playpause:hover, [data-theme='green'] .listactions .playpause:hover { background: #3be477; transform: scale(1.05); }
+[data-theme='green'] .detail-head .playpause:hover, [data-theme='green'] .listactions .playpause:hover { filter: brightness(1.12); transform: scale(1.05); }
 [data-theme='green'] .chip { background: #2a2a2a; color: #fff; font-weight: 600; transition: background 0.12s, transform 0.12s; }
 [data-theme='green'] .chip:hover { background: #333; }
 [data-theme='green'] .chip.on { background: var(--accent); color: #000; }
@@ -1489,7 +1489,7 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 /* small motion: cards rise a little, the play button pops in */
 [data-theme='green'] .card .cover { transition: transform 0.3s cubic-bezier(0.3, 0.7, 0.4, 1); }
 [data-theme='green'] .card:hover .cover { transform: translateY(-2px); }
-[data-theme='green'] .ds-cur { background: rgba(30, 215, 96, 0.12); }
+[data-theme='green'] .ds-cur { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 [data-theme='green'] .themeopt.on .themeprev { outline-color: var(--accent); }
 .themeprev.green { background: #000; }
 .themeprev.green i { background: #2a2a2a; }
@@ -1504,7 +1504,7 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 @media (hover: hover) {
   [data-theme='green'] .card .cover::after {
     content: ''; position: absolute; right: 8px; bottom: 8px; width: 48px; height: 48px; border-radius: 50%;
-    background: #1ed760 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M8 5.5v13l11-6.5z' fill='%23000'/%3E%3C/svg%3E") center / 22px no-repeat;
+    background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M8 5.5v13l11-6.5z' fill='%23000'/%3E%3C/svg%3E") center / 22px no-repeat;
     box-shadow: 0 8px 8px rgba(0, 0, 0, 0.3); opacity: 0; transform: translateY(8px); transition: opacity 0.3s, transform 0.3s; pointer-events: none;
   }
   [data-theme='green'] .card:hover .cover::after { opacity: 1; transform: none; }
@@ -1516,3 +1516,6 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 @media (min-width: 900px) { [data-theme='green'] { --bar: 72px; } [data-theme='green'] .player .playpause { width: 32px; height: 32px; } }
 [data-theme='green'] .sec-head h2 { font-size: 24px; }
 [data-theme='green'] .c-sub, [data-theme='green'] .row .sub { color: #b3b3b3; }
+/* Green's own green; the other accent colours work in Green too */
+:root[data-theme='green'][data-accent='green'] { --accent: #1ed760; --accent-ink: #000; }
+:root[data-theme='green'] .btn.primary, :root[data-theme='green'] .chip.on, :root[data-theme='green'] .detail-head .playpause, :root[data-theme='green'] .listactions .playpause { color: var(--accent-ink); }

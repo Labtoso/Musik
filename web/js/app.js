@@ -57,14 +57,14 @@ if (window.MusikAndroid) {
 if (prefs.sink) audioOut.id = prefs.sink;
 function applyPrefs() {
   setLang(prefs.lang);
-  document.documentElement.dataset.accent = prefs.accent;
+  document.documentElement.dataset.accent = accentNow();
   document.documentElement.dataset.theme = curTheme();
   // Green is dark only
   const light = prefs.mode === 'light' && curTheme() !== 'green';
   document.documentElement.dataset.mode = light ? 'light' : 'dark';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f5f5f7' : '#111214');
   window.MusikAndroid?.setMode?.(light ? 'light' : 'dark');
-  window.MusikAndroid?.setAccent?.(prefs.accent);
+  window.MusikAndroid?.setAccent?.(accentNow());
 }
 document.addEventListener('click', async (e) => {
   if (!e.target.closest('[data-savepublic]')) return;
@@ -111,6 +111,8 @@ const THEMES_ALL = ['default', 'glass', 'green'];
 // extra themes only show once "Themes +" is switched on
 const themeList = () => (prefs.themesPlus ? THEMES_ALL : THEMES_ALL.filter((k) => k !== 'green'));
 const curTheme = () => (themeList().includes(prefs.theme) ? prefs.theme : 'default');
+// Green keeps its own accent (green unless changed there), the other themes share prefs.accent
+const accentNow = () => (curTheme() === 'green' ? prefs.greenAccent || 'green' : prefs.accent);
 function themePicker() {
   const cur = curTheme();
   return `<div class="themesplus"><div><b>${t('themesPlus')}</b><small>${t('themesPlusHint')}</small></div>${sw('themesplus', !!prefs.themesPlus)}</div><div class="themes">${themeList().map(
@@ -136,6 +138,7 @@ document.addEventListener('click', (e) => {
   savePrefs();
   applyPrefs();
   if (typeof player !== 'undefined' && player) applyDyn(player.current, true);
+  document.querySelectorAll('.swatch').forEach((s) => s.classList.toggle('on', s.dataset.accent === accentNow()));
   document.querySelectorAll('.themeopt').forEach((x) => x.classList.toggle('on', x.dataset.themePick === prefs.theme));
   requestAnimationFrame(() => {
     navBlob.place(false);
@@ -356,7 +359,7 @@ function applyDyn(tr, force = false) {
   const root = document.documentElement;
   // Green keeps its green; it only takes the cover's colour for the player background
   const green = curTheme() === 'green';
-  const wantAccent = prefs.accent === 'cover' && !green;
+  const wantAccent = accentNow() === 'cover';
   const clear = () => {
     root.classList.remove('dyn');
     [...ACCENT_VARS, '--dyn-bg'].forEach((k) => root.style.removeProperty(k));
@@ -1281,7 +1284,8 @@ async function buildHome() {
   state.homeMix = h.mix;
   state.homeMixExt = null;
   // too few own songs for a real mix (e.g. mostly Spotify listening): the mix comes from the catalog instead, never an empty list
-  const ownMix = h.mix.length >= 8;: the mix plus albums played lately and new ones
+  const ownMix = h.mix.length >= 8;
+  // quick tiles: the mix plus albums played lately and new ones
   const quick = [];
   const seenAlb = new Set();
   for (const x of [...h.recent.map((tr) => ({ album: tr.album, artist: tr.album_artist || tr.artist, cover_id: tr.id })), ...h.newAlbums]) {
@@ -2172,7 +2176,7 @@ views.welcome = async (params) => {
     return wizFrame(i, `<h1>${t('wizLookTitle')}</h1><p class="muted lead">${t('wizLookText')}</p>
       ${wizQ(t('themeAsk'), themePicker(), t('themeHint'))}
       ${wizQ(t('mode'), `<div class="seg">${['dark', 'light'].map((m) => `<button data-mode-pick="${m}" class="${(prefs.mode === 'light' ? 'light' : 'dark') === m ? 'on' : ''}">${icon(m === 'light' ? 'sun' : 'moon')}${t('mode_' + m)}</button>`).join('')}</div>`)}
-      ${wizQ(t('wizAccentAsk'), `<div class="swatches">${ACCENTS.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, t('accentHint'))}
+      ${wizQ(t('wizAccentAsk'), `<div class="swatches">${ACCENTS.map((a) => `<button class="swatch ${a} ${accentNow() === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, t('accentHint'))}
       ${wizQ(t('dynColor'), `<label class="wiz-sw">${sw('dyncolor', prefs.dynamic)}<span>${t('wizDynAsk')}</span></label>`)}`);
   }
   if (step === 'genres') {
@@ -3851,7 +3855,7 @@ async function renderSettings() {
       setRow(t('language'), `<div class="seg">${['de', 'en'].map((l) => `<button data-lang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`, { keys: 'deutsch english sprache language' }) +
       setRow(t('theme'), themePicker(), { hint: t('themeHint'), keys: 'theme design liquid glass glas aussehen look', wide: true }) +
       setRow(t('mode'), `<div class="seg">${['dark', 'light'].map((m) => `<button data-mode-pick="${m}" class="${(prefs.mode === 'light' ? 'light' : 'dark') === m ? 'on' : ''}">${icon(m === 'light' ? 'sun' : 'moon')}${t('mode_' + m)}</button>`).join('')}</div>`, { hint: t('modeHint'), keys: 'hell dunkel light dark mode darkmode lightmode' }) +
-      setRow(t('accent'), `<div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, { hint: t('accentHint'), keys: 'farbe color theme cover akzent accent' }) +
+      setRow(t('accent'), `<div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${accentNow() === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, { hint: t('accentHint'), keys: 'farbe color theme cover akzent accent' }) +
       setRow(t('dynColor'), sw('dyncolor', prefs.dynamic), { hint: t('dynColorHint'), keys: t('look') }) +
       setRow(t('searchIn'), `<div class="seg">${SMODES.map((m) => `<button data-smode="${m}" class="${searchMode() === m ? 'on' : ''}">${t('smode_' + m)}</button>`).join('')}</div>`, { hint: t('searchInHint'), keys: 'search suche spotify youtube everything' }) +
       setRow(t('columns'), `<div class="colpick">${COLS.map((k) => `<button data-col="${k}" class="chip ${cols().has(k) ? 'on' : ''}">${t('col_' + k)}</button>`).join('')}</div>`, { hint: t('columnsHint'), keys: 'spalten columns artist album länge duration quelle source jahr genre', wide: true })),
@@ -4039,11 +4043,12 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (el.dataset.accent) {
-    prefs.accent = el.dataset.accent;
+    if (curTheme() === 'green') prefs.greenAccent = el.dataset.accent;
+    else prefs.accent = el.dataset.accent;
     savePrefs();
     applyPrefs();
     applyDyn(player?.current, true);
-    document.querySelectorAll('.swatch').forEach((s) => s.classList.toggle('on', s.dataset.accent === prefs.accent));
+    document.querySelectorAll('.swatch').forEach((s) => s.classList.toggle('on', s.dataset.accent === accentNow()));
     return;
   }
   try {
