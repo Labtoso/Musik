@@ -105,6 +105,8 @@ body.set-open .panel { transform: none; }
 .playing .listen .ic-pause { display: block; }
 .meta { margin-top: 26px; font: 12px var(--mono); color: var(--dim); display: flex; gap: 8px 22px; flex-wrap: wrap; position: relative; z-index: 2; }
 .meta b { color: var(--muted); font-weight: 500; }
+.meta a { color: inherit; text-decoration: none; }
+.meta a:hover b { color: var(--text, #fff); }
 
 /* turntable */
 .stage { position: absolute; inset: 0; z-index: 1; }
@@ -886,7 +888,7 @@ function render() {
     $(`[data-os=${os}] .n`).innerHTML = names[os] + `<span class="yours">${d.yours}</span>`;
   } else $('span', main).textContent = d.dlAll;
   const m = [`<span>${d.metaOs}</span>`, `<span>${d.metaFree}</span>`, '<span>LabtosoStudios</span>'];
-  if (release) m.unshift(`<span>${d.metaVer} <b>${release.tag_name.replace(/^v/, '')}</b></span>`);
+  if (release) m.unshift(`<a href="https://github.com/Labtoso/Musik/releases/tag/${release.tag_name}" target="_blank" rel="noopener">${d.metaVer} <b>${release.tag_name.replace(/^v/, '')}</b></a>`);
   $('#meta').innerHTML = m.join('');
   const words = d.marq.map((w) => `<span>${w}</span><span class="d">/</span>`).join('');
   $('#marq').innerHTML = words + words;
@@ -921,7 +923,10 @@ resetDemo(); render();
 })();
 const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .1 });
 $$('.rv').forEach((el) => io.observe(el));
-fetch('https://api.github.com/repos/Labtoso/Musik/releases/latest').then((r) => (r.ok ? r.json() : null)).then((r) => { if (r && r.tag_name) { release = r; render(); } }).catch(() => {});
+// newest version: version.json is written by every release (no limits, no waiting), GitHub's own list as a backup
+const useRelease = (r) => { if (r && r.tag_name && (!release || r.tag_name.localeCompare(release.tag_name, undefined, { numeric: true }) > 0)) { release = r; render(); } };
+fetch('version.json?' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then(useRelease).catch(() => {});
+fetch('https://api.github.com/repos/Labtoso/Musik/releases/latest', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then(useRelease).catch(() => {});
 </script>
 <script type="module">
 import { createTurntable } from './turntable.js';
