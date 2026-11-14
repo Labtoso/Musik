@@ -1060,9 +1060,29 @@ async function favouriteArtists(h) {
 }
 // suggestions from the catalog, worked out on the server from plays, skips, likes, followed artists and the setup assistant
 const fyLists = new Map();
+let fyLoad = null;
+function loadForYou(h) {
+  if (!fyLoad || fyLoad.h !== h) fyLoad = { h, p: favouriteArtists(h).then((names) => get('/api/catalog/foryou?artists=' + encodeURIComponent(names.join('|')))).catch(() => null) };
+  return fyLoad.p;
+}
+/** "Mix für dich" from the catalog when the own files give too little: the Daily Mixes woven together. */
+async function catalogMixSection(h) {
+  const r = await loadForYou(h);
+  const lists = [...(r?.mixes || []).map((m) => m.tracks), r?.discover || [], r?.onRepeat || []].filter((l) => l.length);
+  const out = [];
+  const seen = new Set();
+  for (let i = 0; out.length < 50 && lists.some((l) => l[i]); i++)
+    for (const l of lists) {
+      const x = l[i];
+      const k = x && `${x.artist}|${x.title}`.toLowerCase();
+      if (x && !seen.has(k)) seen.add(k), out.push(extTrack(x));
+    }
+  state.homeMixExt = out;
+  if (!out.length) return '';
+  return `<section class="sec home-mix"><div class="sec-head"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(out.slice(0, 12))}</section>`;
+}
 async function forYouSections(h) {
-  const names = await favouriteArtists(h);
-  const r = await get('/api/catalog/foryou?artists=' + encodeURIComponent(names.join('|'))).catch(() => null);
+  const r = await loadForYou(h);
   if (!r) return '';
   let html = '';
   const rows = (r.rows || []).map((row) => ({ ...row, tracks: row.tracks.map(extTrack) }));
@@ -1243,19 +1263,25 @@ function laterSection(make) {
   return `<div id="${id}"></div>`;
 }
 async function buildHome() {
+  fyLoad = null;
   const [h, lib, fol] = await Promise.all([get('/api/home'), get('/api/library'), loadFollows(true)]);
   const recentExt = extHistory().slice(0, 12).map(histTrack);
   if (!lib.tracks) {
     // no own files yet: suggestions from Spotify / YouTube listening instead of an empty page
     let html = pageHead(greeting(), homeReloadBtn());
+    const mixPart = await catalogMixSection(null);
+    html += mixPart;
     if (recentExt.length) html += section(t('recent'), trackCards(recentExt, 'recentext'));
     if (fol.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
-    const fy = await forYouSections(null);
+    const fy = (await forYouSections(null)) + '';
+    if (mixPart && !fy) return html;
     html += fy || `<div class="emptystate">${icon('note', 'big')}<p>${t('emptyStart')}</p><div class="stack"><a class="btn primary" href="#/search">${icon('search')}${t('search')}</a><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><button class="btn" data-upload>${icon('upload')}${t('upload')}</button></div></div>`;
     return html;
   }
   state.homeMix = h.mix;
-  // quick tiles: the mix plus albums played lately and new ones
+  state.homeMixExt = null;
+  // too few own songs for a real mix (e.g. mostly Spotify listening): the mix comes from the catalog instead, never an empty list
+  const ownMix = h.mix.length >= 8;: the mix plus albums played lately and new ones
   const quick = [];
   const seenAlb = new Set();
   for (const x of [...h.recent.map((tr) => ({ album: tr.album, artist: tr.album_artist || tr.artist, cover_id: tr.id })), ...h.newAlbums]) {
@@ -1269,10 +1295,12 @@ async function buildHome() {
     .slice(0, 7)
     .map((a) => `<a class="qt" href="${albumHref(a.album, a.artist)}">${coverImg(a.cover_id)}<span>${esc(a.album)}</span></a>`)
     .join('')}</div>`;
-  html += `<div class="hero">
+  if (ownMix) html += `<div class="hero">
     <div class="hero-text"><h1>${t('mixForYou')}</h1><p class="muted">${h.cold ? t('coldHint') : esc(h.mix.slice(0, 4).map(artistName).filter((v, i, a) => a.indexOf(v) === i).join(', '))}</p></div>
     <button class="btn primary" data-playmix>${icon('play')}${t('playAll')}</button></div>`;
-  html += `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(h.mix, { reasons: true })}</section>`;
+  html += ownMix
+    ? `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(h.mix, { reasons: true })}</section>`
+    : laterSection(() => catalogMixSection(h));
   const recentAll = [...h.recent, ...recentExt].slice(0, 14);
   if (recentAll.length) html += section(t('recent'), trackCards(recentAll, 'recent'));
   if (fol.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
@@ -1295,7 +1323,9 @@ async function buildHome() {
 document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-playmix]')) {
     try {
-      const mix = await get('/api/recommend/mix?limit=60');
+      if (!state.homeMixExt && state.homeMix && state.homeMix.length < 8) await catalogMixSection(fyLoad?.h ?? null);
+      const mix = state.homeMixExt?.length ? state.homeMixExt : await get('/api/recommend/mix?limit=60');
+      if (!mix.length) return toast(t('coldHint'));
       player.playList(mix, 0);
     } catch (err) {
       toast(errorText(err));

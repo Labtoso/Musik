@@ -492,7 +492,9 @@ pub fn for_you(cat: &dyn Catalog, t: &Taste, extra: &[String], user: i64, now: i
     let cold = names.is_empty();
     // nothing heard yet: start from the genres picked in the setup assistant
     if cold {
-        let lists: Vec<Vec<ArtistRef>> = parallel(t.genres.iter().take(4).map(|g| Box::new(move || cat.genre_artists(*g)) as Box<dyn FnOnce() -> _ + Send>).collect());
+        // no genres picked either: what is popular everywhere (genre 0 = all)
+        let genres: Vec<u32> = if t.genres.is_empty() { vec![0] } else { t.genres.clone() };
+        let lists: Vec<Vec<ArtistRef>> = parallel(genres.iter().take(4).map(|g| Box::new(move || cat.genre_artists(*g)) as Box<dyn FnOnce() -> _ + Send>).collect());
         for i in 0..3 {
             for l in &lists {
                 if let Some(a) = l.get(i) {
