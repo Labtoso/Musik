@@ -108,7 +108,7 @@ const de = {
   devPc: 'PC ({os})', devAccount: 'Andere Geräte mit deinem Konto', devPlayHere: 'Hier abspielen', devPlayingOn: 'Spielt auf {name}', devTookOver: 'Läuft jetzt hier statt auf {name}',
   crossfade: 'Überblenden', crossfadeHint: 'Songs gehen weich ineinander über (in Sekunden).', normalize: 'Gleiche Lautstärke', normalizeHint: 'Leise und laute Songs klingen ungefähr gleich laut.', streamQ: 'Streaming-Qualität', streamQHint: 'Automatisch spart bei mobilen Daten. Sehr hoch braucht am meisten Daten.', q_auto: 'Automatisch', q_low: 'Niedrig', q_normal: 'Normal', q_high: 'Hoch', q_veryhigh: 'Sehr hoch',
   chill: 'Chillscreen', chillHint: 'Ein Knopf im großen Player öffnet den Raum mit Plattenspieler und Kamerafahrten wie auf der Website, als Vollbild.',
-  miniViz: 'Visualizer im Mini-Player', mviz_off: 'Aus', mviz_bars: 'Balken', mviz_wave: 'Welle', mviz_glow: 'Leuchten', miniVizHint: 'Läuft leise hinter dem Songnamen.', vizColor: 'Farbe', vcol_accent: 'Akzentfarbe', vcol_rainbow: 'Regenbogen', vizSpeed: 'Tempo des Regenbogens', vizSens: 'Empfindlichkeit', vizSensHint: 'Wie stark der Visualizer auf die Musik reagiert.', vizBass: 'Bass', vizMid: 'Mitten', vizHigh: 'Höhen',
+  miniViz: 'Visualizer im Mini-Player', mviz_off: 'Aus', mviz_bars: 'Balken', mviz_wave: 'Welle', mviz_glow: 'Leuchten', miniVizHint: 'Läuft als schmaler Streifen am unteren Rand der Leiste.', vizColor: 'Farbe', vcol_accent: 'Akzentfarbe', vcol_rainbow: 'Regenbogen', vizSpeed: 'Tempo des Regenbogens', vizSens: 'Empfindlichkeit', vizSensHint: 'Wie stark der Visualizer auf die Musik reagiert.', vizBass: 'Bass', vizMid: 'Mitten', vizHigh: 'Höhen',
 };
 
 const en = {
@@ -220,7 +220,7 @@ const en = {
   devPc: 'PC ({os})', devAccount: 'Other devices on your account', devPlayHere: 'Play here', devPlayingOn: 'Playing on {name}', devTookOver: 'Now playing here instead of on {name}',
   crossfade: 'Crossfade', crossfadeHint: 'Songs blend into each other (in seconds).', normalize: 'Same volume for all songs', normalizeHint: 'Quiet and loud songs sound about equally loud.', streamQ: 'Streaming quality', streamQHint: 'Automatic saves mobile data. Very high uses the most data.', q_auto: 'Automatic', q_low: 'Low', q_normal: 'Normal', q_high: 'High', q_veryhigh: 'Very high',
   chill: 'Chillscreen', chillHint: 'A button in the big player opens the room with the turntable and the camera moves from the website, full screen.',
-  miniViz: 'Visualizer in the mini player', mviz_off: 'Off', mviz_bars: 'Bars', mviz_wave: 'Wave', mviz_glow: 'Glow', miniVizHint: 'Runs softly behind the song name.', vizColor: 'Colour', vcol_accent: 'Accent colour', vcol_rainbow: 'Rainbow', vizSpeed: 'Rainbow speed', vizSens: 'Sensitivity', vizSensHint: 'How strongly the visualizer reacts to the music.', vizBass: 'Bass', vizMid: 'Mids', vizHigh: 'Highs',
+  miniViz: 'Visualizer in the mini player', mviz_off: 'Off', mviz_bars: 'Bars', mviz_wave: 'Wave', mviz_glow: 'Glow', miniVizHint: 'Runs as a thin strip along the bottom edge of the bar.', vizColor: 'Colour', vcol_accent: 'Accent colour', vcol_rainbow: 'Rainbow', vizSpeed: 'Rainbow speed', vizSens: 'Sensitivity', vizSensHint: 'How strongly the visualizer reacts to the music.', vizBass: 'Bass', vizMid: 'Mids', vizHigh: 'Highs',
 };
 
 const dicts = { de, en };

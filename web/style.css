@@ -13,7 +13,7 @@
   --r-card: 12px;
   --r-win: 18px;
   --side: 232px;
-  --bar: 84px;
+  --bar: 92px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
   color-scheme: dark;
@@ -1526,7 +1526,7 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 [data-theme='green'] .like.on .ic { animation: g-pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1); }
 @keyframes g-pop { 0% { transform: scale(0.6); } 60% { transform: scale(1.2); } 100% { transform: scale(1); } }
 [data-theme='green'] .seek, [data-theme='green'] .vol { height: 4px; }
-@media (min-width: 900px) { [data-theme='green'] { --bar: 72px; } [data-theme='green'] .player .playpause { width: 32px; height: 32px; } }
+@media (min-width: 900px) { [data-theme='green'] { --bar: 88px; } [data-theme='green'] .player .playpause { width: 32px; height: 32px; } }
 [data-theme='green'] .sec-head h2 { font-size: 24px; }
 [data-theme='green'] .c-sub, [data-theme='green'] .row .sub { color: #b3b3b3; }
 /* Green's own green; the other accent colours work in Green too */
@@ -1541,11 +1541,14 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 
 /* ---------- 1.12 ---------- */
 /* mini player visualizer: behind the song name, never in the way */
-#mini { position: relative; isolation: isolate; }
-#mini canvas.miniviz { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 72%; z-index: -1; pointer-events: none; opacity: 0.32; border-radius: inherit; display: none; }
-#mini:not([data-miniviz='off'])[data-miniviz] canvas.miniviz { display: block; }
-#mini[data-miniviz='glow'] canvas.miniviz { height: 100%; opacity: 0.55; }
-@media (min-width: 900px) { #mini canvas.miniviz { height: 60%; opacity: 0.22; border-radius: 8px; } }
+/* mini player visualizer: a thin strip along the bottom edge of the bar, drawn under everything */
+#player { isolation: isolate; }
+#player > canvas.miniviz { will-change: transform; transform: translateZ(0); position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 14px; z-index: -1; pointer-events: none; opacity: 0.55; display: none; border-radius: 0 0 var(--mv-r, 0) var(--mv-r, 0); }
+#player:not([data-miniviz='off'])[data-miniviz] > canvas.miniviz { display: block; }
+#player[data-miniviz='glow'] > canvas.miniviz { height: 26px; opacity: 0.7; }
+#player[data-miniviz='wave'] > canvas.miniviz { height: 18px; }
+[data-theme='glass'] #player { --mv-r: 20px; } [data-theme='green'] #player { --mv-r: 6px; }
+@media (min-width: 900px) { #player > canvas.miniviz { height: 10px; opacity: 0.6; } [data-theme='green'] #player { --mv-r: 6px; } }
 /* sliders and choices in the settings */
 .prng { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .prng input[type='range'] { width: 180px; max-width: 46vw; accent-color: var(--accent); }
@@ -1742,4 +1745,19 @@ html.is-playing .eqi i { animation-play-state: running; }
   .mhead .discord-btn.m-only { display: inline-flex; width: 34px; height: 34px; padding: 0; justify-content: center; border-radius: 50%; order: 9; }
   .mhead .discord-btn span { display: none; }
   .side-discord, .tb-discord { display: none; }
+}
+/* 1.15: the song name and cover in the bar open the big player */
+#np-cover, #np-title { cursor: pointer; }
+@media (min-width: 900px) { #np-title:hover { text-decoration: underline; text-underline-offset: 3px; } #np-cover { transition: transform 0.15s; } #np-cover:hover { transform: scale(1.04); } }
+/* active buttons in the bar light up in the accent colour with a small dot, like Spotify */
+#player .extra .icon-btn.on, #player .buttons .icon-btn.on { color: var(--accent); background: transparent; position: relative; }
+#player .extra .icon-btn.on::after, #player .buttons .icon-btn.on::after { content: ''; position: absolute; left: 50%; bottom: 1px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
+.fs-buttons .icon-btn.on { color: var(--accent); position: relative; }
+.fs-buttons .icon-btn.on::after { content: ''; position: absolute; left: 50%; bottom: 0; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
+[data-theme='glass'] .fs-bottom .btn.on { color: var(--accent); }
+/* the bar: the same room above and below, everything in the middle */
+@media (min-width: 900px) {
+  .player { padding-block: 12px; align-items: center; }
+  .player .controls { justify-content: center; gap: 6px; }
+  .player .np, .player .extra { align-self: center; }
 }

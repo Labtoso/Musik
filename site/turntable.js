@@ -73,7 +73,7 @@ function tube(a, b, r, mat) {
   return m;
 }
 
-export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, tracks = [], onTrack = () => {}, center = false, follow = true } = {}) {
+export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, tracks = [], onTrack = () => {}, center = false, follow = true, manual = false, decor = null } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -152,7 +152,21 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const accentBits = [];
   const TOP = -0.64, FLOOR = -6.6, WALL = -4.4;
   const loader = new THREE.TextureLoader();
-  const coverTex = tracks.map((tr) => { const t = loader.load(tr.cover); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; });
+  const loadTex = (url) => { const t = loader.load(url); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
+  const coverTex = tracks.map((tr) => loadTex(tr.cover));
+  // room decoration (crate, CDs, shelf, ledge, prints): the tracks by default, or any covers (e.g. the queue) via setDecor
+  const deco = [];
+  let decoTex = coverTex.slice();
+  const decoMat = (i, opts, plain) => {
+    const m = new THREE.MeshStandardMaterial({ ...opts });
+    deco.push({ m, i, plain }); paintDeco(deco[deco.length - 1]); return m;
+  };
+  function paintDeco(d) {
+    const n = decoTex.length, use = n && (d.plain == null || d.i < n);
+    d.m.map = use ? decoTex[d.i % n] : null;
+    d.m.color.set(use ? 0xffffff : (d.plain || '#2b2b30'));
+    d.m.needsUpdate = true;
+  }
   function canvasTex(w, h, draw, repeat) {
     const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
@@ -220,8 +234,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const sleeveSide = new THREE.MeshStandardMaterial({ color: 0xe9e3d6, roughness: 0.8 });
   const plainCols = ['#c4472f', '#1f3b63', '#e3b23c', '#2b2b30', '#5c7c5a', '#8a3b6e', '#d9d2c3'];
   for (let i = 0; i < 16; i++) {
-    const ci = i % (tracks.length + plainCols.length);
-    const face = ci < tracks.length ? new THREE.MeshStandardMaterial({ map: coverTex[ci], roughness: 0.7 }) : new THREE.MeshStandardMaterial({ color: plainCols[ci - tracks.length], roughness: 0.75 });
+    const face = decoMat(i, { roughness: 0.7 }, plainCols[i % plainCols.length]);
     const s = new THREE.Mesh(new THREE.BoxGeometry(3.6, 3.6, 0.045), [sleeveSide, sleeveSide, sleeveSide, sleeveSide, face, sleeveSide]);
     const z = 1.2 - i * 0.15;
     s.position.set((rnd() - 0.5) * 0.08, 1.85, z);
@@ -285,15 +298,14 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const cds = new THREE.Group(); cds.position.set(-9.4, TOP, 0.9); cds.rotation.y = 0.35; root.add(cds);
   const jewel = new THREE.MeshStandardMaterial({ color: 0xdfe6f0, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.35 });
   for (let i = 0; i < 9; i++) {
-    const ci = i % tracks.length;
-    const top = new THREE.MeshStandardMaterial({ map: coverTex[(ci + 2) % tracks.length], roughness: 0.4 });
+    const top = decoMat(i + 2, { roughness: 0.4 });
     const spine = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rnd(), 0.5, 0.45), roughness: 0.5 });
     const cd = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 1.24), [spine, spine, top, jewel, spine, spine]);
     cd.position.set((rnd() - 0.5) * 0.12, 0.06 + i * 0.125, (rnd() - 0.5) * 0.1); cd.rotation.y = (rnd() - 0.5) * 0.18;
     cd.castShadow = cd.receiveShadow = true; cds.add(cd);
   }
   for (let i = 0; i < 3; i++) {
-    const face = new THREE.MeshStandardMaterial({ map: coverTex[(i + 4) % tracks.length], roughness: 0.35 });
+    const face = decoMat(i + 4, { roughness: 0.35 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x111218 });
     const cd = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.24, 0.12), [dark, dark, dark, dark, face, dark]);
     cd.position.set(1.7 + i * 0.16, 0.62, -0.2 - i * 0.15); cd.rotation.set(-0.05, -0.3, 0.04 * i);
@@ -302,7 +314,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   // a loose disc
   const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.012, 64), new THREE.MeshStandardMaterial({ color: 0xd8dbe6, roughness: 0.15, metalness: 1 }));
   disc.position.set(1.0, 0.01, 1.3); cds.add(disc);
-  const discLabel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.014, 48), new THREE.MeshStandardMaterial({ map: coverTex[0], roughness: 0.5 }));
+  const discLabel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.014, 48), decoMat(0, { roughness: 0.5 }));
   discLabel.position.set(1.0, 0.012, 1.3); cds.add(discLabel);
 
   // floor shelf full of records, with an amplifier on top
@@ -318,7 +330,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     const x0 = -SW / 2 + 0.3 + cx * (CW + 0.3), y0 = 0.3 + cy * (CW + 0.3);
     if (cx === 1 && cy === 1) {
       // one cube shows a record face out
-      const f = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.4, 0.05), [sleeveSide, sleeveSide, sleeveSide, sleeveSide, new THREE.MeshStandardMaterial({ map: coverTex[3 % tracks.length], roughness: 0.7 }), sleeveSide]);
+      const f = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.4, 0.05), [sleeveSide, sleeveSide, sleeveSide, sleeveSide, decoMat(3, { roughness: 0.7 }), sleeveSide]);
       f.position.set(x0 + CW / 2, y0 + 1.72, -0.4); f.rotation.x = -0.12; f.castShadow = true; shelf.add(f);
       continue;
     }
@@ -392,7 +404,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const ledge = new THREE.Mesh(new THREE.BoxGeometry(12, 0.18, 0.7), oakMat); ledge.position.set(10.8, 3.8, WALL + 0.35); ledge.castShadow = true; root.add(ledge);
   const lip = new THREE.Mesh(new THREE.BoxGeometry(12, 0.3, 0.06), oakMat); lip.position.set(10.8, 3.95, WALL + 0.68); root.add(lip);
   for (let i = 0; i < 3; i++) {
-    const f = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.4, 0.05), [sleeveSide, sleeveSide, sleeveSide, sleeveSide, new THREE.MeshStandardMaterial({ map: coverTex[(i * 2 + 1) % tracks.length], roughness: 0.7 }), sleeveSide]);
+    const f = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.4, 0.05), [sleeveSide, sleeveSide, sleeveSide, sleeveSide, decoMat(i * 2 + 1, { roughness: 0.7 }), sleeveSide]);
     f.position.set(7.0 + i * 3.8, 3.89 + 1.7, WALL + 0.32); f.rotation.x = -0.1; f.castShadow = true; root.add(f);
   }
 
@@ -425,11 +437,11 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   // framed print on the wall
   const pframe = new THREE.Mesh(new THREE.BoxGeometry(5.2, 5.2, 0.15), new THREE.MeshStandardMaterial({ color: 0x0b0c10, roughness: 0.5 }));
   pframe.position.set(2.0, 5.6, WALL + 0.08); pframe.castShadow = true; root.add(pframe);
-  const print = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 4.2), new THREE.MeshStandardMaterial({ map: coverTex[0], roughness: 0.6 }));
+  const print = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 4.2), decoMat(0, { roughness: 0.6 }));
   print.position.set(2.0, 5.6, WALL + 0.17); root.add(print);
   const frame2 = new THREE.Mesh(new THREE.BoxGeometry(3.2, 3.2, 0.12), pframe.material);
   frame2.position.set(-4.4, 6.6, WALL + 0.07); root.add(frame2);
-  const print2 = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.MeshStandardMaterial({ map: coverTex[5 % tracks.length], roughness: 0.6 }));
+  const print2 = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), decoMat(5, { roughness: 0.6 }));
   print2.position.set(-4.4, 6.6, WALL + 0.14); root.add(print2);
 
   // warm lamp glow from the left
@@ -590,17 +602,29 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   for (const k in MV) if (MV[k].path) { MV[k].pc = new THREE.CatmullRomCurve3(MV[k].path, false, 'centripetal'); MV[k].lc = new THREE.CatmullRomCurve3(MV[k].look, false, 'centripetal'); }
   const REST = [['roomL', 'needle', 'fly'], ['label', 'shelf', 'amp'], ['spk2', 'speaker', 'sweep'], ['pullback', 'phones', 'ledge'], ['arm', 'neon', 'crate'], ['floorWide', 'cds', 'mug'], ['high', 'low', 'top'], ['along', 'wall', 'roomR'], ['alongR', 'spk2', 'fly']];
   const T0 = 24, C = 46, CH = 24; // first change, cycle length, change duration
+  // manual mode: a record change only runs when next() is called (the real song changed);
+  // otherwise one change every C seconds. → { k: change number, r: time into it, base: its start }
+  const chg = [];
+  let pending = null;
+  function cyc(t) {
+    const n = tracks.length || 1;
+    if (!manual) { const k = Math.floor((t - T0) / C); return { k, r: t - T0 - k * C, base: T0 + k * C, prev: ((k % n) + n) % n, next: (k + 1) % n }; }
+    if (!chg.length) { const r = CH + t - 7.2; return { k: -1, r, base: t - r, prev: 0, next: 0 }; }
+    const k = chg.length - 1, c = chg[k]; return { k, r: t - c.s, base: c.s, prev: k ? chg[k - 1].to : 0, next: c.to };
+  }
   // returns [move, start, end]
   function shotAt(t) {
     if (t < 9) return ['intro', 0, 9];
     if (t < 16.5) return ['needle', 9, 16.5];
     if (t < T0) return ['label', 16.5, T0];
-    const k = Math.floor((t - T0) / C), base = T0 + k * C, u = t - base;
+    const { k, base, r: u } = cyc(t);
     if (u < 7) return ['deck', base, base + 7];
     if (u < 17.5) return ['sleeve', base + 7, base + 17.5];
     if (u < CH) return ['deck2', base + 17.5, base + CH];
-    const rest = REST[k % REST.length], len = (C - CH) / rest.length, j = Math.min(rest.length - 1, Math.floor((u - CH) / len));
-    return [rest[j], base + CH + j * len, base + CH + (j + 1) * len];
+    // long songs: keep moving through the shot groups, three shots per group
+    const g = Math.floor((u - CH) / (C - CH)), gs = base + CH + g * (C - CH);
+    const rest = REST[(((k + g) % REST.length) + REST.length) % REST.length], len = (C - CH) / rest.length, j = Math.min(rest.length - 1, Math.floor((t - gs) / len));
+    return [rest[j], gs + j * len, gs + (j + 1) * len];
   }
   const lerp = (a, b, k) => a + (b - a) * k;
   const smooth = (k) => k * k * (3 - 2 * k);
@@ -642,8 +666,13 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const start = reduced ? -10 : 0;
   if (reduced) lastT = 10;
 
+  let heard = -1;
   function frame() {
     const t = fixed !== null ? +fixed : clock.getElapsedTime() - start;
+    if (pending !== null && t >= T0) {
+      const c = chg.length ? t - chg[chg.length - 1].s : Infinity;
+      if (c >= CH + 1.6) { chg.push({ s: t, to: pending }); pending = null; }
+    }
     const now = performance.now(), rdt = Math.min(0.1, (now - lastNow) / 1000); lastNow = now;
     // energy follows the music gently; colours fade over to the next record
     eS += (energy - eS) * (1 - Math.exp(-rdt * (energy > eS ? 7 : 2.5)));
@@ -652,7 +681,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       if (Math.abs(_c.r - accentTo.r) + Math.abs(_c.g - accentTo.g) + Math.abs(_c.b - accentTo.b) < 0.003) _c.copy(accentTo);
       accentCol.copy(_c); accentMats().forEach((m) => m.color.copy(_c));
     }
-    let armY, up, spin, idx = 0;
+    let armY, up, spin, idx = manual && reduced ? tracks.length - 1 : 0, now3 = idx;
     let recP = REC_P, recQ = null, recVis = true, slP = SLOT_P, slQ = SLOT_Q, slTex = 0;
     const playY = (since) => PLAY_Y + (INNER_Y - PLAY_Y) * 0.1 * Math.min(1, Math.max(0, since / 20));
     if (t < T0 || reduced || !tracks.length) {
@@ -664,8 +693,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     } else {
       // change: arm up and parked, old record back into its sleeve, sleeve into the crate,
       // next sleeve out, record out of it and onto the platter, needle down
-      const k = Math.floor((t - T0) / C), r = t - T0 - k * C;
-      const prev = k % tracks.length, next = (k + 1) % tracks.length;
+      const { r, prev, next } = cyc(t);
       const ph = (a, b) => sine((r - a) / (b - a));
       const lastPlay = playY(C);
       if (r < CH) {
@@ -693,17 +721,19 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
         else { recP = REC_P; recQ = qFlat(frozen); }
         if (r > 22.4) { spin = ph(22.4, 25.4); recQ = null; }
         idx = r < 16.4 ? prev : next;
+        now3 = prev;
       } else {
         armY = playY(r - CH);
         up = 0;
         spin = r < 25.4 ? ph(22.4, 25.4) : 1;
-        slTex = next; idx = next;
+        slTex = next; idx = next; now3 = next;
       }
     }
+    // the song is "on" once its record is down and spinning
+    if (now3 !== heard) { heard = now3; if (tracks.length) onTrack(now3); }
     if (idx !== cur || shown < 0) {
       cur = idx; shown = idx;
       vinylMat.map = texFor(idx); vinylMat.needsUpdate = true;
-      if (tracks.length) onTrack(idx);
     }
     if (sleeveMat.map !== coverTex[slTex]) { sleeveMat.map = coverTex[slTex]; sleeveMat.needsUpdate = true; }
     sleeve.position.copy(slP); sleeve.quaternion.copy(slQ);
@@ -753,7 +783,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   io.observe(canvas);
   raf = requestAnimationFrame(frame);
 
-  return {
+  const api = {
     setAccent(hex) { accentTo.set(hex); },
     setEnergy(v) { energy = v; },
     // swap the record (label and sleeve) for another cover, e.g. the song that plays now
@@ -766,10 +796,35 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
       im.src = url;
     },
+    // manual mode: the song changed → put the new record on with the full change animation
+    // (waits for a running change to finish; only the newest pending song is played)
+    next(url) {
+      if (!url) return;
+      const i = tracks.length;
+      tracks.push({ cover: url });
+      coverTex[i] = loadTex(url);
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
+      im.src = url;
+      if (!reduced) pending = i;
+      return i;
+    },
+    // the covers the room is decorated with (crate, CDs, shelf, wall), e.g. the upcoming songs
+    setDecor(urls) {
+      const list = (urls || []).filter(Boolean);
+      if (list.join('|') === (decoTex.urls || []).join('|')) return;
+      const old = new Map((decoTex.urls || []).map((u, i) => [u, decoTex[i]]));
+      decoTex = list.length ? list.map((u) => old.get(u) || loadTex(u)) : coverTex.slice();
+      decoTex.urls = list;
+      deco.forEach(paintDeco);
+    },
     dispose() {
       cancelAnimationFrame(raf); raf = 0; visible = false; io.disconnect();
       removeEventListener('resize', resize); removeEventListener('pointermove', onMove); removeEventListener('scroll', onScroll);
       renderer.dispose(); renderer.forceContextLoss();
     }
   };
+  if (decor) api.setDecor(decor);
+  return api;
 }

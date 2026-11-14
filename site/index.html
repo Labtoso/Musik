@@ -1019,9 +1019,10 @@ try {
   const colorFor = (src) => imgs[src] || (imgs[src] = new Promise((res) => { const im = new Image(); im.onload = () => { try { res(coverColor(im)); } catch { res(null); } }; im.onerror = () => res(null); im.src = src; }));
   let trackTimer = 0, firstTrack = true;
   const onTrack = (i) => {
+    // fired once the record is down and spinning, so the song only switches after the whole change
     clearTimeout(trackTimer);
     if (firstTrack) { firstTrack = false; return showTrack(i); }
-    trackTimer = setTimeout(() => showTrack(i), 6000);
+    trackTimer = setTimeout(() => showTrack(i), 200);
   };
   const showTrack = (i) => {
     const tr = TRACKS[i];
@@ -1031,7 +1032,7 @@ try {
       document.getElementById('npt').textContent = tr.title;
       document.getElementById('npa').textContent = tr.artist;
       bar.classList.remove('run'); void bar.offsetWidth; bar.classList.add('run');
-      bar.style.animationDuration = (i === 0 ? 40.4 : 46) + 's';
+      bar.style.animationDuration = (i === 0 ? 48 : 46) + 's';
       np.classList.remove('swap');
     }, i === 0 ? 0 : 450);
     colorFor(tr.cover).then((c) => { lastCol = c; window.__dynApply(); });

@@ -2937,10 +2937,17 @@ function toggleFsLyrics() {
 }
 // the three buttons under the big player show what is open
 function fsButtons() {
+  if (!$('#fs')) return;
   const on = (act, yes) => document.querySelector(`.fs-bottom [data-act="${act}"]`)?.classList.toggle('on', yes);
   on('viz', (prefs.viz || 'off') !== 'off');
-  on('lyrics', $('#fs-lyrics').classList.contains('open'));
-  on('queue', $('#fs-queue').classList.contains('open'));
+  on('lyrics', $('#fs-lyrics')?.classList.contains('open'));
+  on('queue', $('#fs-queue')?.classList.contains('open'));
+  // the bar along the bottom too: what is open lights up in the accent colour, like Spotify
+  const fsOpen = $('#fs')?.classList.contains('open');
+  const bar = (act, yes) => document.querySelectorAll(`#player [data-act="${act}"]`).forEach((b) => b.classList.toggle('on', yes));
+  bar('queue', state.route === 'queue' || (fsOpen && $('#fs-queue')?.classList.contains('open')));
+  bar('lyrics', state.route === 'lyrics' || (fsOpen && $('#fs-lyrics')?.classList.contains('open')));
+  bar('viz', fsOpen && (prefs.viz || 'off') !== 'off');
 }
 // swipe left for the next song, right for the previous one (big cover and small player)
 function bindSwipe(sel, moving) {
@@ -3138,6 +3145,7 @@ async function render() {
   else if (state.route === 'likes' || state.route === 'imported' || state.route === 'playlist') state.tab = 'library';
   const tab = state.tab || 'home';
   document.querySelectorAll('.side-nav [data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === state.route));
+  fsButtons();
   document.querySelectorAll('.bottomnav [data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === tab));
   navBlob.place();
   glassPanes.scan();
@@ -3363,9 +3371,12 @@ function bindPlayer() {
   });
   document.addEventListener('click', (e) => {
     const mini = e.target.closest('#mini');
-    if (!mini || e.target.closest('button, [data-devsheet]') || mini.dataset.swiped) return;
+    if (!mini || !player.current || e.target.closest('button, [data-devsheet]') || mini.dataset.swiped) return;
+    // phone: a tap anywhere on the small player opens the big one (the artist too, it is tiny there)
+    if (innerWidth < 900) return void (e.preventDefault(), openFs(true));
+    // desktop: the cover or the song name open the big player, the artist name opens the artist
     if (e.target.closest('a.alink')) return;
-    if (innerWidth < 900 && player.current) openFs(true);
+    if (e.target.closest('#np-cover, #np-title, .np-text')) openFs(true);
   });
   player.addEventListener('change', renderPlayer);
   player.addEventListener('change', () => rememberPlay(player.current));
@@ -3401,10 +3412,10 @@ function miniVizSync() {
   if (!player) return;
   if (!viz) viz = new Visualizer(player);
   if (!miniViz) miniViz = new MiniViz(player, viz);
-  const box = $('#mini');
+  const box = $('#player');
   if (!box) return;
   miniViz.attach(box);
-  const mode = 'off'; // the mini player has no visualizer any more (it cost too much); lists show a small equalizer instead
+  const mode = prefs.miniViz || 'bars'; // a thin strip along the bottom edge of the bar
   miniViz.setMode(mode);
   const run = mode !== 'off' && player.playing && !document.hidden && !$('#fs').classList.contains('open');
   if (run) {
@@ -3485,15 +3496,29 @@ function chillSync() {
   if (!prefs.chill && chill) closeChill();
 }
 const chillCover = () => $('#fs-cover img')?.src || $('#np-cover img')?.src || '';
+function chillShow(m) {
+  if (!chill || !m) return;
+  chill.el.querySelector('.ch-title').textContent = m.title;
+  chill.el.querySelector('.ch-artist').textContent = m.artist;
+  chill.el.querySelector('.ch-cover').innerHTML = m.src ? `<img src="${esc(m.src)}" alt="">` : '';
+}
+// the room is decorated with what plays next: crate, CDs, shelf and the wall show the upcoming covers
+function chillDecor() {
+  const q = player.queue || [], i = player.index;
+  const up = [...q.slice(i + 1), ...q.slice(0, Math.max(0, i))].filter((x) => x && x.id != null && x.has_cover !== false).slice(0, 16);
+  const urls = [...new Set(up.map((x) => sharpCover(coverUrl(x.id))))];
+  chill?.room?.setDecor(urls.length ? urls : [chillCover()]);
+}
 function chillMeta() {
   if (!chill) return;
   const tr = player.current;
-  chill.el.querySelector('.ch-title').textContent = tr?.title || '';
-  chill.el.querySelector('.ch-artist').textContent = tr ? artistName(tr) : '';
-  const src = chillCover();
-  chill.el.querySelector('.ch-cover').innerHTML = src ? `<img src="${esc(src)}" alt="">` : '';
-  if (src) chill.room?.setCover(src);
   chill.el.querySelector('[data-chill="toggle"]').innerHTML = icon(player.playing ? 'pause' : 'play');
+  if (!tr) return;
+  const m = { id: tr.id, title: tr.title || '', artist: artistName(tr), src: chillCover() };
+  if (!chill.room) { chill.first = m; chill.id = m.id; chillShow(m); return; }
+  chillDecor();
+  // a new song: the record change runs completely, the title switches once the new record spins
+  if (m.id !== chill.id && m.src) { chill.id = m.id; chill.meta[chill.room.next(m.src)] = m; }
 }
 async function openChill() {
   if (chill || !player.current) return;
@@ -3503,7 +3528,7 @@ async function openChill() {
     <div class="ch-np"><div class="ch-cover"></div><div class="ch-meta"><b class="ch-title"></b><span class="ch-artist"></span></div>
     <div class="ch-ctl"><button class="icon-btn" data-chill="prev">${icon('prev')}</button><button class="icon-btn ch-play" data-chill="toggle"></button><button class="icon-btn" data-chill="next">${icon('next')}</button></div></div></div>`;
   document.body.appendChild(el);
-  chill = { el, room: null, hide: 0, lock: null };
+  chill = { el, room: null, hide: 0, lock: null, meta: [], id: player.current.id };
   chillMeta();
   const wake = () => { el.classList.remove('calm'); clearTimeout(chill?.hide); if (chill) chill.hide = setTimeout(() => el.classList.add('calm'), 3500); };
   el.addEventListener('pointermove', wake);
@@ -3526,7 +3551,9 @@ async function openChill() {
     const { createTurntable } = await import('./room.js');
     if (!chill || chill.el !== el) return;
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4c8dff';
-    chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chillCover() }], center: true, follow: false, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
+    chill.meta = [chill.first];
+    chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chill.first?.src || chillCover() }], center: true, follow: false, manual: true, onTrack: (i) => chillShow(chill?.meta[i]), reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
+    chillMeta();
     el.classList.add('ready');
     chill.tick = setInterval(() => {
       const r = chill?.room;
@@ -4673,6 +4700,7 @@ async function renderSettings() {
       setRow(t('chill'), psw('chill', false), { hint: t('chillHint'), keys: 'chillscreen raum room zimmer vollbild fullscreen kamera camera plattenspieler' })),
     setCard('viz', 'viz', t('viz'),
       setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' }) +
+      setRow(t('miniViz'), pseg('miniViz', MINI_MODES, 'bars', (v) => t('mviz_' + v)), { hint: t('miniVizHint'), keys: 'mini player visualizer klein', wide: true }) +
       setRow(t('vizColor'), pseg('vizColor', ['accent', 'rainbow'], 'accent', (v) => t('vcol_' + v)), { keys: 'farbe color regenbogen rainbow akzent' }) +
       `<div class="rainbow-only" ${prefs.vizColor === 'rainbow' ? '' : 'hidden'}>${setRow(t('vizSpeed'), prng('vizSpeed', 0.2, 3, 0.1, 1, (v) => Number(v).toFixed(1) + '×'), { keys: 'regenbogen rainbow speed tempo' })}</div>` +
       setRow(t('vizSens'), prng('vizSens', 0.3, 2.5, 0.05, 1, pct), { hint: t('vizSensHint'), keys: 'empfindlichkeit sensitivity' }) +

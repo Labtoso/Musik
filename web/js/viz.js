@@ -331,6 +331,7 @@ export class MiniViz extends Visualizer {
     super(player);
     this.shared = big ? (big.shared = big.shared || { at: 0, smooth: big.smooth, peaks: big.peaks, real: false }) : null;
     this.big = big;
+    this.dim = { w: 0, h: 0, dpr: 1 };
   }
   attach(box) {
     if (this.box === box && this.canvas?.isConnected) return;
@@ -339,11 +340,31 @@ export class MiniViz extends Visualizer {
     this.canvas.className = 'miniviz';
     this.canvas.setAttribute('aria-hidden', 'true');
     box.prepend(this.canvas);
+    // the size is measured only when it changes, never per frame (no layout work while it runs)
+    this.ro?.disconnect();
+    this.ro = new ResizeObserver(([e]) => {
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      const w = Math.round(e.contentRect.width * dpr), h = Math.round(e.contentRect.height * dpr);
+      if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
+      this.dim = { w, h, dpr };
+      this.grad = null;
+    });
+    this.ro.observe(this.canvas);
+    this.g = this.canvas.getContext('2d');
   }
   setMode(mode) {
     this.mode = MINI_MODES.includes(mode) ? mode : 'off';
     this.box?.setAttribute('data-miniviz', this.mode);
     if (this.mode === 'off') this.stop();
+  }
+  size() {
+    return this.dim;
+  }
+  gradient(g, x0, y0, x1, y1) {
+    // one gradient per size and colour, not a new one every frame
+    const key = this.colors[0] + this.colors[1] + this.dim.w;
+    if (this.colors[2] != null || !this.grad || this.gradKey !== key) { this.grad = super.gradient(g, x0, y0, x1, y1); this.gradKey = key; }
+    return this.grad;
   }
   drawFrame() {
     // while the big player is open it does the reading; the mini player just copies it
@@ -357,23 +378,22 @@ export class MiniViz extends Visualizer {
         this.shared.smooth = this.smooth;
       }
     }
-    const { w, h, dpr } = this.size();
-    const g = this.canvas.getContext('2d');
+    const { w, h, dpr } = this.dim;
+    const g = this.g;
+    if (!w || !h || !g) return;
     g.clearRect(0, 0, w, h);
-    if (!w || !h) return;
     if (this.mode === 'bars') {
-      const n = Math.max(16, Math.min(56, Math.round(w / (9 * dpr))));
-      const gap = 3 * dpr;
+      const n = Math.max(24, Math.min(96, Math.round(w / (7 * dpr))));
+      const gap = 2 * dpr;
       const bw = (w - gap * (n - 1)) / n;
       g.fillStyle = this.gradient(g, 0, 0, w, 0);
       for (let i = 0; i < n; i++) {
-        const v = Math.sqrt(this.smooth[Math.floor((i / n) * 60)]);
-        const bh = v * h * 0.92;
-        if (bh < 3 * dpr) continue; // silence draws nothing, no dotted line along the bottom
-        const x = i * (bw + gap);
-        g.beginPath();
-        g.roundRect ? g.roundRect(x, h - bh, bw, bh, [bw / 2, bw / 2, 0, 0]) : g.rect(x, h - bh, bw, bh);
-        g.fill();
+        // mirrored around the middle like an equalizer strip: lows in the centre
+        const m = Math.abs(i - (n - 1) / 2) / (n / 2);
+        const v = Math.sqrt(this.smooth[Math.min(59, Math.floor(m * 60))]);
+        const bh = v * h;
+        if (bh < 1.5 * dpr) continue; // silence draws nothing
+        g.fillRect(i * (bw + gap), h - bh, bw, bh);
       }
     } else if (this.mode === 'wave') {
       const pts = 14;
