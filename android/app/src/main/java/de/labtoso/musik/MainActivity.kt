@@ -507,11 +507,15 @@ class MainActivity : ComponentActivity() {
         }
         // Visualizer: Android only hands out the spectrum with the record-audio permission (nothing is recorded)
         @JavascriptInterface fun vizStart() = main.post {
+            vizWanted = true
             if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) attachViz()
             else askAudio.launch(Manifest.permission.RECORD_AUDIO)
         }
-        @JavascriptInterface fun vizStop() = main.post { releaseViz() }
+        @JavascriptInterface fun vizStop() = main.post { vizWanted = false; releaseViz() }
         @JavascriptInterface fun vizBands(): String {
+            // a new song can bring a new audio session: follow it while a visualizer is shown
+            if (vizWanted && vizSession != PlaybackService.audioSession && PlaybackService.audioSession != 0 &&
+                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) main.post { attachViz() }
             val v = viz ?: return ""
             if (vizSession != PlaybackService.audioSession) return ""
             return runCatching {
@@ -540,6 +544,10 @@ class MainActivity : ComponentActivity() {
                 }
                 out.joinToString(",")
             }.getOrDefault("")
+        }
+        @JavascriptInterface fun setPlayOptions(json: String) {
+            // crossfade and same song volume, picked up by the PlaybackService
+            prefs.edit().putString("playopts", json).apply()
         }
         @JavascriptInterface fun setEq(json: String) {
             // PlaybackService listens for this key and applies it to the system equalizer
@@ -723,6 +731,7 @@ class MainActivity : ComponentActivity() {
         vizSession = if (viz != null) session else 0
     }
 
+    @Volatile private var vizWanted = false
     private fun releaseViz() {
         runCatching { viz?.release() }
         viz = null

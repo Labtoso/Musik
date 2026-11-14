@@ -123,6 +123,15 @@ fn genre_matches(picked: &str, tag: &str) -> bool {
     words.iter().any(|w| tag.contains(w))
 }
 
+/// Local songs a user took out of the taste profile, kept in the user's settings.
+pub fn excluded(db: &Connection, user_id: i64) -> HashSet<i64> {
+    db.query_row("SELECT data FROM user_settings WHERE user_id = ?", [user_id], |r| r.get::<_, String>(0))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("tasteExclude").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_i64())).collect()))
+        .unwrap_or_default()
+}
+
 fn norm<K: std::hash::Hash + Eq + Clone>(m: &HashMap<K, f64>) -> HashMap<K, f64> {
     let max = m.values().fold(0.0f64, |a, v| a.max(v.abs()));
     if max == 0.0 {
@@ -285,6 +294,10 @@ impl Recommender {
             .collect();
         let mut st = db.prepare("SELECT track_id FROM likes WHERE user_id = ?").unwrap();
         let likes: Vec<i64> = st.query_map([user_id], |r| r.get(0)).unwrap().filter_map(Result::ok).collect();
+        // songs the user left out of the taste profile (settings: tasteExclude) count for nothing
+        let left_out = excluded(db, user_id);
+        let events: Vec<Event> = events.into_iter().filter(|e| !left_out.contains(&e.track_id)).collect();
+        let likes: Vec<i64> = likes.into_iter().filter(|id| !left_out.contains(id)).collect();
 
         let mut track_aff: HashMap<i64, f64> = HashMap::new();
         let mut last_played = HashMap::new();

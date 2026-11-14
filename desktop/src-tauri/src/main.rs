@@ -1,6 +1,8 @@
 // Musik desktop: asks once for the server address, then shows the web app served by the server.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod discord;
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -349,7 +351,7 @@ fn main() {
             let handle = app.handle().clone();
             // Available on every page, also on the server's web app: switch back to the connect page.
             let init = format!(
-                "window.musikDesktop = {{ version: {:?}, frameless: true, changeServer: function () {{ location.href = {:?} + '?change=1'; }}, update: function () {{ location.href = {:?} + '?update=1'; }}, win: function (a) {{ location.href = 'musik-win://' + a; }}, offlineCall: {}, goOnline: function () {{ location.href = 'musik-win://goonline'; }} }};",
+                "window.musikDesktop = {{ version: {:?}, frameless: true, changeServer: function () {{ location.href = {:?} + '?change=1'; }}, update: function () {{ location.href = {:?} + '?update=1'; }}, win: function (a) {{ location.href = 'musik-win://' + a; }}, offlineCall: {}, goOnline: function () {{ location.href = 'musik-win://goonline'; }}, discord: function (j) {{ location.href = 'musik-win://discord?d=' + encodeURIComponent(j); }} }};",
                 app.package_info().version.to_string(),
                 home_url(),
                 home_url(),
@@ -393,6 +395,10 @@ fn main() {
                                     });
                                 }
                                 "goonline" => open_best(wh.clone(), w.clone()),
+                                "discord" => {
+                                    let d = query_param(url, "d");
+                                    std::thread::spawn(move || discord::update(&d));
+                                }
                                 _ => {}
                             }
                         }

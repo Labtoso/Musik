@@ -54,6 +54,18 @@ const GENRES: [(&str, u32); 20] = [
 // ---------- songs ----------
 
 /// The first named artist: "A, B & C feat. D" → "a".
+/// Catalog songs (artist|title keys) the user left out of the taste profile.
+pub fn excluded_keys(db: &Connection, user_id: i64) -> HashSet<String> {
+    db.query_row("SELECT data FROM user_settings WHERE user_id = ?", [user_id], |r| r.get::<_, String>(0))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v.get("tasteExclude").and_then(|a| a.as_array()).cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|x| Some(song_key(x.get("artist")?.as_str()?, x.get("title")?.as_str()?)))
+        .collect()
+}
+
 pub fn main_artist(a: &str) -> String {
     let l = a.to_lowercase();
     let mut cut = l.len();
@@ -244,7 +256,12 @@ pub fn taste(db: &Connection, st_rec: Option<&crate::recommend::Recommender>, us
         .filter_map(Result::ok)
         .collect();
     let mut repeat: HashMap<String, f64> = HashMap::new();
+    // songs the user took out of the taste profile (settings: tasteExclude) do not count
+    let left_out = excluded_keys(db, user_id);
     for (key, artist, ts, played, duration, kind, data) in rows {
+        if left_out.contains(&key) {
+            continue;
+        }
         let w = event_weight(&crate::recommend::Event { track_id: 0, ts, played, duration, kind });
         let decay = 0.5f64.powf((now - ts).max(0) as f64 / HALF_LIFE);
         *t.songs.entry(key.clone()).or_insert(0.0) += w * decay;
@@ -268,6 +285,9 @@ pub fn taste(db: &Connection, st_rec: Option<&crate::recommend::Recommender>, us
             continue;
         }
         let key = song_key(a, ti);
+        if left_out.contains(&key) {
+            continue;
+        }
         *t.songs.entry(key.clone()).or_insert(0.0) += 3.0;
         t.add_artist(a, 2.0);
         t.liked.insert(key.clone());

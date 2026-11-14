@@ -2,7 +2,25 @@
 // Data comes from player.spectrum(): WebAudio in the browser / desktop, the system visualizer on
 // Android. Songs from other platforms give no audio access, then a calm decorative motion runs.
 export const VIZ_MODES = ['off', 'bars', 'ring', 'wave'];
+export const MINI_MODES = ['off', 'bars', 'wave', 'glow'];
 const N = 64;
+
+/** Settings shared by both visualizers: how strong they react, which part of the sound counts most, colours. */
+export const vizTune = { sens: 1, bass: 1, mid: 1, high: 1, color: 'accent', speed: 1 };
+const weightAt = (i) => {
+  // smooth blend: lows up to band 14, mids around 28, highs from 44
+  const x = i / (N - 1);
+  const wb = Math.max(0, 1 - x / 0.28);
+  const wh = Math.max(0, (x - 0.55) / 0.45);
+  const wm = Math.max(0, 1 - wb - wh);
+  return wb * vizTune.bass + wm * vizTune.mid + wh * vizTune.high;
+};
+/** Rainbow or accent colours for this moment: [from, to] plus a hue offset for per bar colouring. */
+function palette(base) {
+  if (vizTune.color !== 'rainbow') return base;
+  const h = ((performance.now() / 1000) * 40 * vizTune.speed) % 360;
+  return [`hsl(${h} 90% 62%)`, `hsl(${(h + 70) % 360} 90% 62%)`, h];
+}
 
 export class Visualizer {
   constructor(player) {
@@ -41,7 +59,7 @@ export class Visualizer {
     this.running = true;
     const loop = () => {
       if (!this.running) return;
-      this.#draw();
+      this.drawFrame();
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
@@ -51,6 +69,25 @@ export class Visualizer {
     this.running = false;
     cancelAnimationFrame(this.raf);
     if (this.box) this.box.style.removeProperty('--pulse');
+  }
+
+  drawFrame() {
+    this.#draw();
+  }
+  /** Read and smooth the sound for this frame; also refreshes the colours. */
+  readFrame() {
+    if (this.frame++ % 30 === 0) {
+      const cs = getComputedStyle(document.documentElement);
+      this.base = [cs.getPropertyValue('--accent').trim() || '#4c8dff', cs.getPropertyValue('--accent2').trim() || cs.getPropertyValue('--accent').trim() || '#9b7bff'];
+    }
+    this.colors = palette(this.base || this.colors);
+    this.#read();
+  }
+  gradient(g, x0, y0, x1, y1) {
+    return this.#grad(g, x0, y0, x1, y1);
+  }
+  size() {
+    return this.#size();
   }
 
   #size() {
@@ -67,6 +104,15 @@ export class Visualizer {
   }
 
   #read() {
+    // the mini player and the big player read the same sound once per frame
+    const now = performance.now();
+    if (this.shared && this.shared.at > now - 8 && this.shared !== this) {
+      this.smooth.set(this.shared.smooth);
+      this.peaks.set(this.shared.peaks);
+      this.real = this.shared.real;
+      return;
+    }
+    if (this.shared) this.shared.at = now;
     const playing = this.player.playing;
     this.real = this.player.spectrum(this.bands);
     if (!this.real) {
@@ -90,6 +136,7 @@ export class Visualizer {
         this.bands[i] = playing ? Math.min(1, Math.max(0, v)) : 0;
       }
     }
+    for (let i = 0; i < N; i++) this.bands[i] = Math.min(1, this.bands[i] * vizTune.sens * weightAt(i));
     const up = this.calm ? 0.12 : 0.5;
     const down = this.calm ? 0.06 : 0.14;
     for (let i = 0; i < N; i++) {
@@ -103,8 +150,9 @@ export class Visualizer {
   #draw() {
     if (this.frame++ % 30 === 0) {
       const cs = getComputedStyle(document.documentElement);
-      this.colors = [cs.getPropertyValue('--accent').trim() || '#4c8dff', cs.getPropertyValue('--accent2').trim() || cs.getPropertyValue('--accent').trim() || '#9b7bff'];
+      this.base = [cs.getPropertyValue('--accent').trim() || '#4c8dff', cs.getPropertyValue('--accent2').trim() || cs.getPropertyValue('--accent').trim() || '#9b7bff'];
     }
+    this.colors = palette(this.base || this.colors);
     this.#read();
     const { w, h, dpr } = this.#size();
     const g = this.canvas.getContext('2d');
@@ -121,6 +169,11 @@ export class Visualizer {
 
   #grad(g, x0, y0, x1, y1) {
     const gr = g.createLinearGradient(x0, y0, x1, y1);
+    if (this.colors[2] != null) {
+      // rainbow: the whole spectrum of hues along the shape, slowly moving
+      for (let k = 0; k <= 6; k++) gr.addColorStop(k / 6, `hsl(${(this.colors[2] + k * 60) % 360} 90% 62%)`);
+      return gr;
+    }
     gr.addColorStop(0, this.colors[0]);
     gr.addColorStop(1, this.colors[1]);
     return gr;
@@ -270,4 +323,108 @@ export function toBands(bins, sampleRate, out) {
     out[i] = m / 255;
   }
   return out;
+}
+
+/** Small visualizer in the mini player: bars, a wave or a soft glow, behind the song name. */
+export class MiniViz extends Visualizer {
+  constructor(player, big) {
+    super(player);
+    this.shared = big ? (big.shared = big.shared || { at: 0, smooth: big.smooth, peaks: big.peaks, real: false }) : null;
+    this.big = big;
+  }
+  attach(box) {
+    if (this.box === box && this.canvas?.isConnected) return;
+    this.box = box;
+    this.canvas = document.createElement('canvas');
+    this.canvas.className = 'miniviz';
+    this.canvas.setAttribute('aria-hidden', 'true');
+    box.prepend(this.canvas);
+  }
+  setMode(mode) {
+    this.mode = MINI_MODES.includes(mode) ? mode : 'off';
+    this.box?.setAttribute('data-miniviz', this.mode);
+    if (this.mode === 'off') this.stop();
+  }
+  drawFrame() {
+    // while the big player is open it does the reading; the mini player just copies it
+    if (this.big?.running && this.shared) {
+      this.smooth.set(this.big.smooth);
+      this.colors = this.big.colors;
+    } else {
+      this.readFrame();
+      if (this.shared) {
+        this.shared.at = performance.now();
+        this.shared.smooth = this.smooth;
+      }
+    }
+    const { w, h, dpr } = this.size();
+    const g = this.canvas.getContext('2d');
+    g.clearRect(0, 0, w, h);
+    if (!w || !h) return;
+    if (this.mode === 'bars') {
+      const n = Math.max(16, Math.min(56, Math.round(w / (9 * dpr))));
+      const gap = 3 * dpr;
+      const bw = (w - gap * (n - 1)) / n;
+      g.fillStyle = this.gradient(g, 0, 0, w, 0);
+      for (let i = 0; i < n; i++) {
+        const v = Math.sqrt(this.smooth[Math.floor((i / n) * 60)]);
+        const bh = v * h * 0.92;
+        if (bh < 3 * dpr) continue; // silence draws nothing, no dotted line along the bottom
+        const x = i * (bw + gap);
+        g.beginPath();
+        g.roundRect ? g.roundRect(x, h - bh, bw, bh, [bw / 2, bw / 2, 0, 0]) : g.rect(x, h - bh, bw, bh);
+        g.fill();
+      }
+    } else if (this.mode === 'wave') {
+      const pts = 14;
+      const t = performance.now() / 1000;
+      const ys = [];
+      for (let p = 0; p <= pts; p++) {
+        const v = Math.sqrt(this.smooth[Math.floor((p / pts) * 56)]);
+        ys.push(h * (1 - (0.12 + v * 0.8 + Math.sin(t * 1.3 + p) * 0.03)));
+      }
+      const path = () => {
+        g.moveTo(0, ys[0]);
+        for (let p = 0; p < pts; p++) {
+          const x0 = (p / pts) * w;
+          const x1 = ((p + 1) / pts) * w;
+          const xm = (x0 + x1) / 2;
+          g.bezierCurveTo(xm, ys[p], xm, ys[p + 1], x1, ys[p + 1]);
+        }
+      };
+      g.beginPath();
+      g.moveTo(0, h);
+      g.lineTo(0, ys[0]);
+      path();
+      g.lineTo(w, h);
+      g.closePath();
+      g.globalAlpha = 0.45;
+      g.fillStyle = this.gradient(g, 0, 0, w, 0);
+      g.fill();
+      g.globalAlpha = 1;
+      g.lineWidth = 2 * dpr;
+      g.strokeStyle = this.gradient(g, 0, 0, w, 0);
+      g.beginPath();
+      path();
+      g.stroke();
+    } else if (this.mode === 'glow') {
+      // soft lights that swell with lows, mids and highs
+      const parts = [[0, 12], [14, 34], [36, 60]];
+      parts.forEach(([a, b], k) => {
+        let v = 0;
+        for (let i = a; i < b; i++) v += this.smooth[i];
+        v = Math.sqrt(v / (b - a));
+        const cx = w * (0.18 + k * 0.32);
+        const r = h * (0.5 + v * 1.6);
+        const col = this.colors[2] != null ? `hsl(${(this.colors[2] + k * 80) % 360} 90% 62%)` : this.colors[k % 2];
+        const gr = g.createRadialGradient(cx, h, 0, cx, h, r);
+        gr.addColorStop(0, col);
+        gr.addColorStop(1, 'rgba(0,0,0,0)');
+        g.globalAlpha = 0.25 + v * 0.6;
+        g.fillStyle = gr;
+        g.fillRect(0, 0, w, h);
+      });
+      g.globalAlpha = 1;
+    }
+  }
 }

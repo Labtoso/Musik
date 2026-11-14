@@ -997,26 +997,28 @@ async fn yt_song(State(st): State<St>, AuthQ(u): AuthQ, Query(q): Query<HashMap<
         Err(_) => return ApiError::new(500, "internal").into_response(),
     };
     // the bot looks up the next songs ahead; here the app asks with ?next= (title|artist per line)
-    proxy_audio(vid, headers).await
+    proxy_audio(vid, headers, q.get("q").cloned().unwrap_or_default()).await
 }
 
 /// The sound of one YouTube video: /api/ytaudio/{id}?t=
-async fn yt_audio(AuthQ(_): AuthQ, Path(vid): Path<String>, headers: axum::http::HeaderMap) -> Response {
+async fn yt_audio(AuthQ(_): AuthQ, Path(vid): Path<String>, Query(q): Query<HashMap<String, String>>, headers: axum::http::HeaderMap) -> Response {
     if vid.len() != 11 || !vid.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return ApiError::new(400, "bad_query").into_response();
     }
-    proxy_audio(vid, headers).await
+    proxy_audio(vid, headers, q.get("q").cloned().unwrap_or_default()).await
 }
 
 /// Passes the audio stream on, with Range so seeking works. The googlevideo link only works from
 /// this server's address, so the app can't fetch it itself.
-async fn proxy_audio(vid: String, headers: axum::http::HeaderMap) -> Response {
+async fn proxy_audio(vid: String, headers: axum::http::HeaderMap, q: String) -> Response {
     use axum::body::Body;
+    let vid2 = vid.clone();
     use axum::http::{header, StatusCode};
     let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(String::from);
     // the beginning was fetched ahead of time (next song): it plays at once, the rest follows behind it
     let from_start = range.as_deref().map(|r| r.trim() == "bytes=0-").unwrap_or(true);
-    if from_start {
+    let q2 = q.clone();
+    if from_start && crate::ytdl::is_default_q(&q) {
         if let Some(h) = crate::ytdl::head(&vid) {
             return head_then_rest(vid, h, range.is_some());
         }
@@ -1028,7 +1030,7 @@ async fn proxy_audio(vid: String, headers: axum::http::HeaderMap) -> Response {
                 eprintln!("yt-dlp {vid}: {e}");
                 ApiError::new(502, "youtube_unreachable")
             })?;
-            let mut req = ureq::get(&s.url);
+            let mut req = ureq::get(s.url_for(&q));
             for (k, v) in &s.headers {
                 req = req.set(k, v);
             }
@@ -1063,27 +1065,91 @@ async fn proxy_audio(vid: String, headers: axum::http::HeaderMap) -> Response {
         out.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
     }
     out.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    // where this answer starts and ends inside the file, for the chunked rest
+    let (pos, end) = match r.header("content-range").and_then(parse_content_range) {
+        Some(x) => x,
+        None => (0, r.header("content-length").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0).saturating_sub(1)),
+    };
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(8);
-    std::thread::spawn(move || {
-        let mut rd = r.into_reader();
-        let mut buf = vec![0u8; 64 * 1024];
-        loop {
-            match rd.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.blocking_send(Ok(buf[..n].to_vec())).is_err() {
-                        break; // the app stopped listening (skip, seek)
-                    }
-                }
-                Err(e) => {
-                    tx.blocking_send(Err(e)).ok();
-                    break;
-                }
-            }
-        }
-    });
+    std::thread::spawn(move || pump(&vid2, &q2, Some(r), pos, end, &tx));
     let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
     (status, out, Body::from_stream(stream)).into_response()
+}
+
+/// "bytes a-b/total" -> (a, b)
+fn parse_content_range(v: &str) -> Option<(u64, u64)> {
+    let r = v.trim().strip_prefix("bytes ")?.split('/').next()?;
+    let (a, b) = r.split_once('-')?;
+    Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+}
+
+/// Size of one request to YouTube. One long open request gets slowed down to playback speed by
+/// YouTube after a while, which left the player without sound for a moment; short ranges in a row
+/// always come at full speed (yt-dlp does the same).
+const CHUNK: u64 = 1024 * 1024;
+
+/// Sends bytes `pos..=end` of a song to the app: first what is left of `first` (up to one chunk),
+/// then chunk after chunk, each one tried again with a fresh link when it breaks off.
+fn pump(vid: &str, q: &str, first: Option<ureq::Response>, mut pos: u64, end: u64, tx: &tokio::sync::mpsc::Sender<Result<Vec<u8>, std::io::Error>>) {
+    let mut buf = vec![0u8; 64 * 1024];
+    // returns false when the app stopped listening
+    let mut send = |rd: &mut dyn Read, limit: u64, pos: &mut u64| -> Result<bool, std::io::Error> {
+        let stop = *pos + limit;
+        while *pos < stop {
+            let want = ((stop - *pos) as usize).min(buf.len());
+            let n = rd.read(&mut buf[..want])?;
+            if n == 0 {
+                break;
+            }
+            *pos += n as u64;
+            if tx.blocking_send(Ok(buf[..n].to_vec())).is_err() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+    if let Some(r) = first {
+        let mut rd = r.into_reader();
+        match send(&mut rd, CHUNK.min(end + 1 - pos.min(end + 1)), &mut pos) {
+            Ok(false) => return,
+            Ok(true) => {}
+            Err(_) => {} // carried on below from where it broke off
+        }
+    }
+    let mut fails = 0;
+    while end > 0 && pos <= end {
+        let to = (pos + CHUNK - 1).min(end);
+        let r = (|| -> Result<ureq::Response, String> {
+            let s = crate::ytdl::stream_with(vid, false)?;
+            let mut req = ureq::get(s.url_for(q));
+            for (k, v) in &s.headers {
+                req = req.set(k, v);
+            }
+            req.set("range", &format!("bytes={pos}-{to}")).call().map_err(|e| e.to_string())
+        })();
+        let before = pos;
+        let ok = match r {
+            Ok(r) => {
+                let mut rd = r.into_reader();
+                match send(&mut rd, to + 1 - pos, &mut pos) {
+                    Ok(false) => return,
+                    Ok(true) => pos > before,
+                    Err(_) => pos > before,
+                }
+            }
+            Err(_) => false,
+        };
+        if ok {
+            fails = 0;
+            continue;
+        }
+        fails += 1;
+        crate::ytdl::forget(vid);
+        if fails > 3 {
+            tx.blocking_send(Err(std::io::Error::other("youtube_unreachable"))).ok();
+            return;
+        }
+    }
 }
 
 fn head_then_rest(vid: String, h: std::sync::Arc<crate::ytdl::Head>, ranged: bool) -> Response {
@@ -1110,34 +1176,7 @@ fn head_then_rest(vid: String, h: std::sync::Arc<crate::ytdl::Head>, ranged: boo
         if start >= h.total {
             return;
         }
-        let rest = (|| -> Result<ureq::Response, String> {
-            let s = crate::ytdl::stream_with(&vid, false)?;
-            let mut req = ureq::get(&s.url);
-            for (k, v) in &s.headers {
-                req = req.set(k, v);
-            }
-            req.set("range", &format!("bytes={start}-")).call().map_err(|e| e.to_string())
-        })();
-        let Ok(r) = rest else {
-            tx.blocking_send(Err(std::io::Error::other("youtube_unreachable"))).ok();
-            return;
-        };
-        let mut rd = r.into_reader();
-        let mut buf = vec![0u8; 64 * 1024];
-        loop {
-            match rd.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.blocking_send(Ok(buf[..n].to_vec())).is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    tx.blocking_send(Err(e)).ok();
-                    break;
-                }
-            }
-        }
+        pump(&vid, "", None, start, h.total - 1, &tx);
     });
     let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
     let status = if ranged { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK };
@@ -1174,18 +1213,25 @@ async fn yt_prefetch(State(st): State<St>, Auth(u, _): Auth, Json(b): Json<Value
     }
     // three at a time, each one finds its video and then its stream
     let todo = std::sync::Arc::new(std::sync::Mutex::new(songs));
+    let found = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut workers = Vec::new();
     for _ in 0..3 {
-        let (todo, st) = (todo.clone(), st.clone());
-        std::thread::spawn(move || loop {
+        let (todo, st, found) = (todo.clone(), st.clone(), found.clone());
+        workers.push(std::thread::spawn(move || loop {
             let Some((t, a, d)) = todo.lock().unwrap().pop() else { break };
             if let Ok(v) = find_video(&st, u.id, &t, &a, d, "", &[], false) {
                 if !v.is_empty() {
+                    found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     crate::ytdl::prefetch(v);
                 }
             }
-        });
+        }));
     }
-    Ok(Json(json!({ "ok": true })))
+    // the playlist's "preload" button waits, so it can count along
+    if b["wait"].as_bool().unwrap_or(false) {
+        tokio::task::spawn_blocking(move || workers.into_iter().for_each(|w| drop(w.join()))).await.ok();
+    }
+    Ok(Json(json!({ "ok": true, "found": found.load(std::sync::atomic::Ordering::Relaxed) })))
 }
 /// ?q= → YouTube videos (no key needed)
 async fn yt_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
@@ -1912,7 +1958,7 @@ async fn public_song(State(st): State<St>, Path((token, k)): Path<(String, usize
             _ => return nf().into_response(),
         }
     };
-    proxy_audio(vid, headers).await
+    proxy_audio(vid, headers, String::new()).await
 }
 
 /// Save a shared playlist / album / song into the own library: as a playlist when every song

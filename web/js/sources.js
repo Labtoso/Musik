@@ -61,8 +61,9 @@ export function extTrack(it) {
     id,
     ext: { source: src, player: playerOf(src), id: it.ext_id, url: it.url || '' },
     title: it.title,
-    artist: it.artist || '',
-    artists: it.artists || undefined,
+    // YouTube channel names like "Away - Topic" are not part of the artist
+    artist: String(it.artist || '').replace(/\s*[-–]\s*Topic\b/gi, '').trim(),
+    artists: it.artists ? it.artists.map((a) => (typeof a === 'string' ? a.replace(/\s*[-–]\s*Topic\b/gi, '').trim() : a?.name ? { ...a, name: a.name.replace(/\s*[-–]\s*Topic\b/gi, '').trim() } : a)) : undefined,
     album: it.album || '',
     album_id: it.album_id || undefined,
     duration: it.duration || 0,

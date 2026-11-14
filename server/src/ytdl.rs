@@ -24,6 +24,23 @@ pub struct Stream {
     pub url: String,
     pub headers: Vec<(String, String)>,
     until: Instant,
+    /// every audio format of the video: (bitrate, link), for the quality setting
+    pub alts: Vec<(i64, String)>,
+}
+
+/// Default quality: the m4a every player can play. "low" saves data, "high" / "veryhigh" take the best there is.
+pub fn is_default_q(q: &str) -> bool {
+    !matches!(q, "low" | "high" | "veryhigh")
+}
+impl Stream {
+    pub fn url_for(&self, q: &str) -> &str {
+        let pick = match q {
+            "low" => self.alts.iter().min_by_key(|a| a.0),
+            "high" | "veryhigh" => self.alts.iter().max_by_key(|a| a.0),
+            _ => None,
+        };
+        pick.map(|a| a.1.as_str()).unwrap_or(&self.url)
+    }
 }
 static STREAMS: OnceLock<Mutex<HashMap<String, Stream>>> = OnceLock::new();
 
@@ -317,7 +334,17 @@ fn direct(vid: &str) -> Result<Stream, String> {
         };
         match pick_audio(&json) {
             Some(url) => {
-                return Ok(Stream { until: expires(&url), url, headers: vec![("User-Agent".into(), ua.to_string())] });
+                let alts = json["streamingData"]["adaptiveFormats"]
+                    .as_array()
+                    .map(|f| {
+                        f.iter()
+                            .filter(|f| f["mimeType"].as_str().map(|m| m.starts_with("audio/")).unwrap_or(false))
+                            .filter(|f| f["audioTrack"].is_null() || f["audioTrack"]["audioIsDefault"].as_bool().unwrap_or(true))
+                            .filter_map(|f| Some((f["bitrate"].as_i64().unwrap_or(0), f["url"].as_str()?.to_string())))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                return Ok(Stream { until: expires(&url), url, headers: vec![("User-Agent".into(), ua.to_string())], alts });
             }
             None => last = format!("{last}{name}: {}; ", json["playabilityStatus"]["reason"].as_str().or(json["playabilityStatus"]["status"].as_str()).unwrap_or("no audio")),
         }
@@ -346,7 +373,7 @@ fn via_ytdlp(vid: &str) -> Result<Stream, String> {
         .as_object()
         .map(|h| h.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string()))).collect())
         .unwrap_or_default();
-    Ok(Stream { until: expires(&u), url: u, headers })
+    Ok(Stream { until: expires(&u), url: u, headers, alts: vec![] })
 }
 
 /// Lookups of the same video wait for each other instead of running twice.

@@ -4,6 +4,7 @@ mod db;
 mod ext;
 mod library;
 mod offline;
+mod presence;
 mod recommend;
 mod spotify;
 mod taste;

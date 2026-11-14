@@ -24,9 +24,35 @@ import kotlin.math.ln
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var eq: Equalizer? = null
+    /** "Same song volume": a compressor and limiter on the player's audio session (Android 9+). */
+    private var dyn: android.media.audiofx.DynamicsProcessing? = null
+    private var crossfade = 0.0
+    private var userVol = 1f
+    private var lastK = 1f
+    private var fadeIn = false
+    private val ui = android.os.Handler(android.os.Looper.getMainLooper())
+    /** Crossfade: songs fade out at their end and in at their start (only when one runs into the next). */
+    private val fadeTick = object : Runnable {
+        override fun run() {
+            val p = PlaybackService.player ?: return
+            val cf = crossfade * 1000
+            val dur = p.duration
+            var k = 1f
+            if (cf > 0 && dur > 0 && dur != C.TIME_UNSET && dur > cf * 3 && p.repeatMode != androidx.media3.common.Player.REPEAT_MODE_ONE) {
+                val pos = p.currentPosition.toDouble()
+                k = minOf(1.0, (dur - pos) / cf, if (fadeIn) pos / cf else 1.0).coerceAtLeast(0.0).toFloat()
+            }
+            if (kotlin.math.abs(k - lastK) > 0.01f) {
+                lastK = k
+                p.volume = userVol * k
+            }
+            if (cf > 0) ui.postDelayed(this, 80)
+        }
+    }
     private val prefs by lazy { getSharedPreferences("musik", Context.MODE_PRIVATE) }
     private val eqListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "eq") applyEq()
+        if (key == "playopts") applyOpts()
         if (key == "play_pauseOnDisconnect") (session?.player as? ExoPlayer)?.setHandleAudioBecomingNoisy(prefs.getBoolean(key, true))
     }
     /** When headphones or a Bluetooth device went away while music was playing (0 = not the case). */
@@ -72,8 +98,16 @@ class PlaybackService : MediaSessionService() {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 lostAt = if (!playWhenReady && reason == androidx.media3.common.Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) System.currentTimeMillis() else 0
             }
+            override fun onVolumeChanged(volume: Float) {
+                // a change from the app, not from the fade: remember it as the volume to fade from
+                if (kotlin.math.abs(volume - userVol * lastK) > 0.002f && lastK > 0.05f) userVol = (volume / lastK).coerceIn(0f, 1f)
+            }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                fadeIn = reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) return
+                applyOpts()
                 if (eq == null && audioSession > 0) eq = runCatching { Equalizer(1000, audioSession) }.getOrNull()
                 applyEq()
             }
@@ -81,6 +115,7 @@ class PlaybackService : MediaSessionService() {
         prefs.registerOnSharedPreferenceChangeListener(eqListener)
         (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceCallback, android.os.Handler(android.os.Looper.getMainLooper()))
         applyEq()
+        applyOpts()
         val open = PendingIntent.getActivity(
             this,
             0,
@@ -104,6 +139,37 @@ class PlaybackService : MediaSessionService() {
                 }
             })
             .build()
+    }
+
+    /** Crossfade and same song volume from the app's settings. */
+    private fun applyOpts() {
+        val o = runCatching { JSONObject(prefs.getString("playopts", null) ?: "{}") }.getOrNull() ?: JSONObject()
+        crossfade = o.optDouble("crossfade", 0.0)
+        ui.removeCallbacks(fadeTick)
+        if (crossfade > 0) ui.post(fadeTick)
+        else if (lastK != 1f) {
+            lastK = 1f
+            PlaybackService.player?.volume = userVol
+        }
+        val norm = o.optBoolean("normalize", false)
+        if (android.os.Build.VERSION.SDK_INT < 28 || audioSession <= 0) return
+        runCatching {
+            if (!norm) {
+                dyn?.enabled = false
+                return
+            }
+            val d = dyn ?: android.media.audiofx.DynamicsProcessing(
+                0, audioSession,
+                android.media.audiofx.DynamicsProcessing.Config.Builder(
+                    android.media.audiofx.DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, 2,
+                    false, 0, true, 1, false, 0, true
+                ).build()
+            ).also { dyn = it }
+            // quiet songs come up, loud ones get held back, a limiter keeps peaks clean
+            d.setMbcBandAllChannelsTo(0, android.media.audiofx.DynamicsProcessing.MbcBand(true, 20000f, 10f, 400f, 4f, -24f, 12f, -90f, 1f, 0f, 5f))
+            d.setLimiterAllChannelsTo(android.media.audiofx.DynamicsProcessing.Limiter(true, true, 0, 1f, 60f, 10f, -2f, 0f))
+            d.enabled = true
+        }
     }
 
     /** Maps the app's 10 bands (31 Hz to 16 kHz) plus preamp onto the bands this device offers. */
@@ -163,6 +229,8 @@ class PlaybackService : MediaSessionService() {
         prefs.unregisterOnSharedPreferenceChangeListener(eqListener)
         runCatching { (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceCallback) }
         eq?.release()
+        ui.removeCallbacks(fadeTick)
+        runCatching { dyn?.release() }
         eq = null
         session?.run {
             player.release()

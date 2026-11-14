@@ -1,7 +1,7 @@
 // Queue + playback. Two engines with the same interface:
 //  - HtmlEngine: <audio> element (browser, desktop)
 //  - NativeEngine: Android bridge (ExoPlayer service, keeps playing in background)
-import { streamUrl, coverUrl, post, get, ytSongUrl, ytAudioUrl, audioOut, extCovers } from './api.js';
+import { api, streamUrl, coverUrl, post, get, ytSongUrl, ytAudioUrl, audioOut, extCovers, audioPrefs } from './api.js';
 import { extTrack } from './sources.js';
 import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showStage } from './engines.js';
 import { toBands } from './viz.js';
@@ -150,7 +150,10 @@ class HtmlEngine extends EventTarget {
       this.analyser.fftSize = 2048;
       this.analyser.smoothingTimeConstant = 0.72;
       this.fft = new Uint8Array(this.analyser.frequencyBinCount);
-      [src, this.pre, ...this.filters, this.analyser].reduce((a, b) => (a.connect(b), b)).connect(this.ctx.destination);
+      this.comp = this.ctx.createDynamicsCompressor();
+      this.makeup = this.ctx.createGain();
+      [src, this.pre, ...this.filters, this.comp, this.makeup, this.analyser].reduce((a, b) => (a.connect(b), b)).connect(this.ctx.destination);
+      this.#normalize();
       this.audio.addEventListener('play', () => this.ctx.state === 'suspended' && this.ctx.resume());
       return true;
     } catch {
@@ -199,6 +202,10 @@ class HtmlEngine extends EventTarget {
     const it = this.items[i];
     if (!it) return;
     this.index = i;
+    // fade in only when one song runs into the next, not when the user picks a song
+    this.fadeIn = reason === 'ended' && !pos && this.opts?.crossfade > 0;
+    this.fadeK = this.fadeIn ? 0 : 1;
+    this.#applyVol();
     // songs from Spotify and the Deezer catalog: names and covers from there, the whole song from YouTube
     const viaYt = it.ext && !it.url && (it.ext.player === 'ytfind' || it.ext.source === 'deezer' || !!it._ytSkip?.length);
     const kind = viaYt ? 'youtube' : it.ext?.player;
@@ -333,8 +340,47 @@ class HtmlEngine extends EventTarget {
   }
   setVolume(v) {
     this.volume = Math.max(0, Math.min(1, v));
-    this.audio.volume = this.volume;
-    this.active?.setVolume?.(this.volume);
+    this.#applyVol();
+  }
+  /** Volume times the fade at the start and end of a song (crossfade setting). */
+  #applyVol() {
+    const f = this.fadeK ?? 1;
+    this.audio.volume = Math.max(0, Math.min(1, this.volume * f));
+    this.active?.setVolume?.(this.volume * f);
+  }
+  /** { crossfade: seconds, normalize: bool } */
+  setOptions(o) {
+    this.opts = o;
+    if (o.normalize && !this.ctx && !this.#graph()) return;
+    this.#normalize();
+    clearInterval(this.fadeTimer);
+    this.fadeK = 1;
+    this.#applyVol();
+    if (o.crossfade > 0) {
+      // songs fade out at their end and in at their start, so changes are soft
+      this.fadeTimer = setInterval(() => {
+        const cf = this.opts.crossfade;
+        const pos = this.position;
+        const dur = this.active ? this.active.duration || 0 : this.audio.duration || 0;
+        if (!dur || dur < cf * 3 || this.repeat === 'one') return this.fadeK !== 1 && ((this.fadeK = 1), this.#applyVol());
+        const k = Math.min(1, (dur - pos) / cf, this.fadeIn ? pos / cf : 1);
+        if (Math.abs(k - (this.fadeK ?? 1)) < 0.01) return;
+        this.fadeK = Math.max(0, k);
+        this.#applyVol();
+      }, 60);
+    }
+  }
+  /** Same loudness for every song: a gentle compressor with make-up gain in the WebAudio chain. */
+  #normalize() {
+    if (!this.ctx || !this.comp) return;
+    const on = !!this.opts?.normalize;
+    const c = this.comp;
+    c.threshold.value = on ? -24 : 0;
+    c.knee.value = on ? 24 : 0;
+    c.ratio.value = on ? 4 : 1;
+    c.attack.value = 0.01;
+    c.release.value = 0.4;
+    this.makeup.gain.value = on ? 1.6 : 1;
   }
   setRepeat(mode) {
     this.repeat = mode;
@@ -473,6 +519,24 @@ export function warmSongs(tracks) {
     songs: fresh.filter((t) => !viaVideo(t.ext)).map((t) => ({ title: t.title, artist: t.artist || '', duration: t.duration || 0 }))
   }).catch(() => fresh.forEach((t) => warmed.delete(String(t.id))));
 }
+/** The "preload" button of a playlist: every song is looked up and its start fetched ahead, 8 at a time. */
+export async function preloadSongs(tracks, progress = () => {}) {
+  const list = tracks.filter((t) => streams(t)).slice(0, 300);
+  let done = 0;
+  progress(0, list.length);
+  for (let i = 0; i < list.length; i += 8) {
+    const part = list.slice(i, i + 8);
+    await api('POST', '/api/ytprefetch', {
+      wait: true,
+      ids: part.filter((t) => viaVideo(t.ext)).map((t) => t.ext.id),
+      songs: part.filter((t) => !viaVideo(t.ext)).map((t) => ({ title: t.title, artist: t.artist || '', duration: t.duration || 0 }))
+    }, { timeout: 90000 }).catch(() => null);
+    part.forEach((t) => warmed.add(String(t.id)));
+    done += part.length;
+    progress(done, list.length);
+  }
+  return list.length;
+}
 export class Player extends EventTarget {
   constructor() {
     super();
@@ -508,6 +572,7 @@ export class Player extends EventTarget {
     if (!this.htmlEngine) {
       this.htmlEngine = new HtmlEngine();
       if (this.eq) this.htmlEngine.setEq(this.eq);
+      if (this.opts) this.htmlEngine.setOptions(this.opts);
       this.#bind(this.htmlEngine);
     }
     return this.htmlEngine;
@@ -546,6 +611,20 @@ export class Player extends EventTarget {
     e.addEventListener('index', mine((ev) => this.#onIndex(ev.detail.index, ev.detail.reason)));
   }
 
+  /** Crossfade, same loudness and quality from the settings, for the browser and the Android player. */
+  setOptions(o) {
+    this.opts = o;
+    // automatic: less data on a slow or saving connection, like Spotify
+    const c = navigator.connection;
+    const slow = c && (c.saveData || /2g|3g/.test(c.effectiveType || ''));
+    audioPrefs.q = o.streamQ === 'auto' || !o.streamQ ? (slow ? 'low' : 'auto') : o.streamQ;
+    this.htmlEngine?.setOptions(o);
+    if (this.native) {
+      try {
+        window.MusikAndroid.setPlayOptions?.(JSON.stringify(o));
+      } catch {}
+    }
+  }
   /** Equalizer settings { on, pre, gains[10] } for the browser and the Android player. */
   setEq(eq) {
     this.eq = eq;

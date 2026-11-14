@@ -73,7 +73,7 @@ function tube(a, b, r, mat) {
   return m;
 }
 
-export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, tracks = [], onTrack = () => {} } = {}) {
+export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, tracks = [], onTrack = () => {}, center = false, follow = true } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -367,14 +367,18 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   // coffee mug and cassettes next to the deck
   const mug = new THREE.Group(); mug.position.set(-3.7, TOP, 1.6); root.add(mug);
   const ceramic = new THREE.MeshStandardMaterial({ color: 0xece6dc, roughness: 0.35 });
-  const cupM = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.38, 0.95, 40, 1, true), ceramic); cupM.position.y = 0.48; cupM.castShadow = true; mug.add(cupM);
-  const coffee = new THREE.Mesh(new THREE.CircleGeometry(0.4, 32), new THREE.MeshStandardMaterial({ color: 0x2a1609, roughness: 0.15 })); coffee.rotation.x = -Math.PI / 2; coffee.position.y = 0.82; mug.add(coffee);
-  const mugBase = new THREE.Mesh(new THREE.CircleGeometry(0.38, 32), ceramic); mugBase.rotation.x = -Math.PI / 2; mugBase.position.y = 0.01; mug.add(mugBase);
-  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.05, 10, 24, Math.PI * 1.3), ceramic); handle.position.set(0.44, 0.5, 0); handle.rotation.z = -Math.PI * 0.65; mug.add(handle);
+  // closed lathe profile: thick rim, inner wall and a real bottom, so it reads as a mug from every angle
+  const prof = [[0, 0], [0.34, 0], [0.37, 0.02], [0.385, 0.06], [0.42, 0.9], [0.423, 0.935], [0.412, 0.955], [0.395, 0.95], [0.38, 0.92], [0.355, 0.14], [0.33, 0.11], [0, 0.11]].map(([x, y]) => new THREE.Vector2(x, y));
+  const cupM = new THREE.Mesh(new THREE.LatheGeometry(prof, 56), ceramic); cupM.castShadow = true; cupM.receiveShadow = true; mug.add(cupM);
+  const coffee = new THREE.Mesh(new THREE.CircleGeometry(0.372, 40), new THREE.MeshPhysicalMaterial({ color: 0x2a1609, roughness: 0.12, clearcoat: 1 })); coffee.rotation.x = -Math.PI / 2; coffee.position.y = 0.8; mug.add(coffee);
+  // the handle: a vertical C on the side, both ends sitting in the wall
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.055, 14, 32, Math.PI), ceramic); handle.position.set(0.4, 0.5, 0); handle.rotation.z = -Math.PI / 2; handle.castShadow = true; mug.add(handle);
+  // steam: soft round wisps that rise and fade (no flat panels)
+  const puff = canvasTex(64, 64, (g, w) => { const r = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.5, 'rgba(255,255,255,.35)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, w, w); });
   const steam = [];
-  for (let i = 0; i < 3; i++) {
-    const st = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 1.2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.05, depthWrite: false, side: THREE.DoubleSide }));
-    st.position.set((i - 1) * 0.12, 1.5, 0); mug.add(st); steam.push(st);
+  for (let i = 0; i < 6; i++) {
+    const st = new THREE.Sprite(new THREE.SpriteMaterial({ map: puff, transparent: true, opacity: 0, depthWrite: false }));
+    st.position.set(0, 1, 0); mug.add(st); steam.push(st);
   }
   const tapes = new THREE.Group(); tapes.position.set(-4.2, TOP, -1.6); tapes.rotation.y = 0.5; root.add(tapes);
   for (let i = 0; i < 4; i++) {
@@ -492,13 +496,15 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     renderer.setSize(W, H, false);
     camera.aspect = W / H;
     wide = W / H > 1.15;
-    if (wide) camera.setViewOffset(W, H, -W * 0.2, 0, W, H); else camera.clearViewOffset();
+    if (wide && !center) camera.setViewOffset(W, H, -W * 0.2, 0, W, H); else camera.clearViewOffset();
     camera.updateProjectionMatrix();
   }
+  const onMove = (e) => { tx = (e.clientX / innerWidth) * 2 - 1; ty = (e.clientY / innerHeight) * 2 - 1; };
+  const onScroll = () => { scrollT = Math.min(1, scrollY / innerHeight); };
   addEventListener('resize', resize);
   resize();
-  addEventListener('pointermove', (e) => { tx = (e.clientX / innerWidth) * 2 - 1; ty = (e.clientY / innerHeight) * 2 - 1; }, { passive: true });
-  addEventListener('scroll', () => { scrollT = Math.min(1, scrollY / innerHeight); }, { passive: true });
+  addEventListener('pointermove', onMove, { passive: true });
+  if (follow) addEventListener('scroll', onScroll, { passive: true });
 
   // ── records
   const covers = tracks.map(() => null);
@@ -506,6 +512,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const texFor = (i) => texs[i] || vinylMat.map;
   tracks.forEach((tr, i) => {
     const im = new Image();
+    im.crossOrigin = 'anonymous';
     im.onload = () => {
       covers[i] = im; texs[i] = vinylTexture(accentTo, true, im);
       if (i === cur) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
@@ -710,7 +717,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     if (recQ) vinyl.quaternion.copy(recQ); else vinyl.quaternion.copy(qFlat(-angle));
     for (let i = 0; i < DUST; i++) { const d = dustSeed[i]; dustPos[i * 3] = d[0] + Math.sin(t * 0.07 + d[3]) * 0.8; dustPos[i * 3 + 1] = d[1] + Math.sin(t * 0.05 + d[3] * 2) * 0.6; dustPos[i * 3 + 2] = d[2] + Math.cos(t * 0.06 + d[3]) * 0.5; }
     dustGeo.attributes.position.needsUpdate = true;
-    steam.forEach((st, i) => { const k = ((t * 0.25 + i / 3) % 1); st.position.y = 1.1 + k * 1.4; st.material.opacity = Math.sin(k * Math.PI) * 0.07; st.rotation.y = t * 0.3 + i; st.scale.x = 1 + k; });
+    steam.forEach((st, i) => { const k = ((t * 0.18 + i / steam.length) % 1); st.position.set(Math.sin(t * 0.9 + i * 2.1) * 0.08 * k, 0.95 + k * 1.1, Math.cos(t * 0.7 + i) * 0.06 * k); st.material.opacity = Math.sin(k * Math.PI) * 0.09; const sc = 0.25 + k * 0.55; st.scale.set(sc, sc * 1.3, 1); });
     needles.forEach((n, i) => { n.rotation.z = -0.8 + Math.min(1.5, eS * 2.4 + 0.15 + Math.sin(t * (7 + i * 3)) * 0.06 * (spin > 0.5 ? 1 : 0)) * spin; });
     neon.material.opacity = 0.92 + Math.sin(t * 31) * 0.02 - Math.max(0, Math.sin(t * 1.7) - 0.99) * 30;
     woofer.position.z = eS * 0.03;
@@ -739,14 +746,30 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     renderer.render(scene, camera);
     raf = visible ? requestAnimationFrame(frame) : 0;
   }
-  new IntersectionObserver(([e]) => {
+  const io = new IntersectionObserver(([e]) => {
     visible = e.isIntersecting;
     if (visible && !raf) raf = requestAnimationFrame(frame);
-  }).observe(canvas);
+  });
+  io.observe(canvas);
   raf = requestAnimationFrame(frame);
 
   return {
     setAccent(hex) { accentTo.set(hex); },
-    setEnergy(v) { energy = v; }
+    setEnergy(v) { energy = v; },
+    // swap the record (label and sleeve) for another cover, e.g. the song that plays now
+    setCover(url, i = 0) {
+      if (!url || !tracks[i] || tracks[i].cover === url) return;
+      tracks[i].cover = url;
+      loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; coverTex[i] = t; });
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
+      im.src = url;
+    },
+    dispose() {
+      cancelAnimationFrame(raf); raf = 0; visible = false; io.disconnect();
+      removeEventListener('resize', resize); removeEventListener('pointermove', onMove); removeEventListener('scroll', onScroll);
+      renderer.dispose(); renderer.forceContextLoss();
+    }
   };
 }

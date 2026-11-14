@@ -1,9 +1,9 @@
 import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
 import { LOGOS } from './logos.js';
-import { Player, EQ_FREQS, warmSongs } from './player.js';
+import { Player, EQ_FREQS, warmSongs, preloadSongs } from './player.js';
 import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong } from './sources.js';
 import { placeStage } from './engines.js';
-import { Visualizer, VIZ_MODES } from './viz.js';
+import { Visualizer, MiniViz, VIZ_MODES, MINI_MODES, vizTune } from './viz.js';
 import { t, setLang, getLang } from './i18n.js';
 import { icon } from './icons.js';
 import { colorFromUrl } from './dyncolor.js';
@@ -240,6 +240,14 @@ const glassPanes = (() => {
   }).observe(document.body, { childList: true, subtree: true });
   return { scan };
 })();
+// the light on the glass rims turns with the pointer (PC) or with the tilt of the phone, like real glass catching a lamp
+(() => {
+  let raf = 0, ang = 135;
+  const set = (a) => { ang = a; if (!raf) raf = requestAnimationFrame(() => { raf = 0; document.documentElement.style.setProperty('--lg-a', ang.toFixed(1) + 'deg'); }); };
+  const on = () => document.documentElement.dataset.theme === 'glass';
+  addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && on()) set(135 + ((e.clientX / innerWidth) - 0.5) * 70 + ((e.clientY / innerHeight) - 0.5) * 30); }, { passive: true });
+  addEventListener('deviceorientation', (e) => { if (on() && e.gamma != null) set(135 + Math.max(-40, Math.min(40, e.gamma)) * 1.2 + Math.max(-30, Math.min(30, (e.beta || 45) - 45)) * 0.6); }, { passive: true });
+})();
 // ---------- tab bar with a glass blob that can be dragged from tab to tab ----------
 const navBlob = (() => {
   let nav = null, blob = null, x = 0, v = 0, target = 0, w = 0, raf = 0, last = 0, drag = null, hover = -1;
@@ -276,7 +284,7 @@ const navBlob = (() => {
   const lens = () => {
     const h = blob.offsetHeight;
     if (!w || !h || !LENS_OK) return document.documentElement.classList.remove('lg-refract');
-    lensFilter('lg-lens', w, h, h / 2, Math.min(11, h * 0.22), 15, true);
+    lensFilter('lg-lens', w, h, h / 2, Math.min(11, h * 0.22), 15);
     document.documentElement.classList.add('lg-refract');
   };
   const place = (animate = true) => {
@@ -391,6 +399,19 @@ applyPrefs();
 
 let player = null;
 let viz = null;
+let miniViz = null;
+// visualizer tuning from the settings: sensitivity, lows / mids / highs, accent or rainbow colours
+function applyVizTune() {
+  Object.assign(vizTune, {
+    sens: Number(prefs.vizSens ?? 1),
+    bass: Number(prefs.vizBass ?? 1),
+    mid: Number(prefs.vizMid ?? 1),
+    high: Number(prefs.vizHigh ?? 1),
+    color: prefs.vizColor === 'rainbow' ? 'rainbow' : 'accent',
+    speed: Number(prefs.vizSpeed ?? 1)
+  });
+}
+applyVizTune();
 let sameOrigin = null;
 // ---------- offline: the apps run a small server on the device that keeps copies of playlists ----------
 let offlineMode = false; // this page comes from that server on the device
@@ -446,7 +467,7 @@ function artistRefs(tr) {
   }
   const src = tr.ext.source;
   if (tr.artists?.length) return tr.artists.map((a) => ({ name: a.name, href: src === 'spotify' && a.id ? `#/spartist?id=${encodeURIComponent(a.id)}` : findArtistHref(a.name, src) }));
-  return String(tr.artist || '').split(/,\s+/).filter(Boolean).map((n) => ({ name: n, href: findArtistHref(n, src) }));
+  return String(tr.artist || '').replace(/\s*[-–]\s*Topic\b/gi, '').split(/,\s+/).map((n) => n.trim()).filter(Boolean).map((n) => ({ name: n, href: findArtistHref(n, src) }));
 }
 function artistLinks(tr) {
   const refs = artistRefs(tr);
@@ -458,7 +479,7 @@ function albumLink(tr) {
   return href ? `<a class="alink" href="${href}">${esc(tr.album)}</a>` : esc(tr.album);
 }
 function artistName(tr) {
-  return tr.artist || tr.album_artist || t('unknownArtist');
+  return String(tr.artist || tr.album_artist || '').replace(/\s*[-–]\s*Topic\b/gi, '').trim() || t('unknownArtist');
 }
 /** The sharpest version a platform offers of a cover, for the places where it is shown large. */
 function sharpCover(u) {
@@ -538,9 +559,14 @@ function dialog({ title, text = '', fields = [], ok = t('save'), danger = false 
 }
 
 // ---------- context menu ----------
+let menuClosed = { el: null, at: 0 };
 function menu(anchor, items) {
+  // a second press on the button of an open menu just closes it
+  const el = anchor instanceof Element ? anchor : null;
+  if (el && menuClosed.el === el && Date.now() - menuClosed.at < 500) return (menuClosed = { el: null, at: 0 });
   closeMenu();
   const m = document.createElement('div');
+  m._anchor = el;
   m.className = 'menu';
   // no separator at the start, the end or twice in a row
   items = items.filter(Boolean).filter((it, i, a) => it !== '-' || (i > 0 && i < a.length - 1 && a[i - 1] !== '-'));
@@ -567,7 +593,9 @@ function menu(anchor, items) {
   m.style.top = y + 'px';
   setTimeout(() => addEventListener('mousedown', outside), 0);
   function outside(e) {
-    if (!m.contains(e.target)) closeMenu();
+    if (m.contains(e.target)) return;
+    if (m._anchor && m._anchor.contains(e.target)) menuClosed = { el: m._anchor, at: Date.now() };
+    closeMenu();
   }
   m._outside = outside;
 }
@@ -626,6 +654,7 @@ function trackMenu(anchor, tr, ctx = {}) {
     },
     tr.album && tr.album_id && tr.ext?.source === 'spotify' && { label: t('goAlbum'), icon: 'album', run: () => go(`#/spalbum?id=${encodeURIComponent(tr.album_id)}`) },
     ctx.queueIndex != null && { label: t('removeQueue'), icon: 'close', run: () => player.removeAt(ctx.queueIndex) },
+    !tr._off && { label: tasteExcluded(tr) ? t('tasteInclude') : t('tasteExclude'), icon: 'eyeOff', run: () => setTasteExcluded(tr, !tasteExcluded(tr)) },
     ctx.playlistId && {
       label: t('removePlaylist'),
       icon: 'close',
@@ -641,6 +670,70 @@ function trackMenu(anchor, tr, ctx = {}) {
   menu(anchor, items);
 }
 
+// ---------- taste profile: songs left out of it (like Spotify's "exclude from your taste profile") ----------
+const tasteKey = (tr) => norm(`${artistName(tr).split(',')[0]}|${tr.title}`);
+const tasteList = () => (Array.isArray(settings.tasteExclude) ? settings.tasteExclude : []);
+const tasteExcluded = (tr) => tasteList().some((x) => (x.id != null && !tr.ext && x.id === tr.id) || x.key === tasteKey(tr));
+async function setTasteExcluded(tr, on) {
+  const key = tasteKey(tr);
+  const rest = tasteList().filter((x) => x.key !== key && !(x.id != null && !tr.ext && x.id === tr.id));
+  const list = on ? [{ id: tr.ext ? null : tr.id, key, title: tr.title, artist: artistName(tr) }, ...rest].slice(0, 500) : rest;
+  try {
+    await saveSettings({ tasteExclude: list });
+    toast(on ? t('tasteExcluded') : t('tasteIncluded'));
+    dropHome();
+  } catch (err) {
+    toast(errorText(err));
+  }
+  const box = $('#tastelist');
+  if (box) box.innerHTML = tasteListHtml();
+}
+const tasteListHtml = () => {
+  const l = tasteList();
+  return l.length
+    ? l.map((x) => `<div class="tl-row"><div><b>${esc(x.title)}</b><small>${esc(x.artist || '')}</small></div><button class="btn small" data-tasteinc="${esc(x.key)}">${t('tasteInclude')}</button></div>`).join('')
+    : `<p class="muted small">${t('tasteNone')}</p>`;
+};
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tasteinc]');
+  if (!b) return;
+  const x = tasteList().find((y) => y.key === b.dataset.tasteinc);
+  if (x) setTasteExcluded({ id: x.id, ext: x.id == null ? {} : null, title: x.title, artist: x.artist }, false);
+});
+// ---------- Discord: "Listening to Musik" with the song and a button to the download page (desktop app) ----------
+let discordT = 0, discordLast = '';
+function discordSync() {
+  clearTimeout(discordT);
+  discordT = setTimeout(() => {
+    const D = window.musikDesktop;
+    if (!D?.discord) return;
+    const client = String(prefs.discordId || '').trim();
+    const tr = player?.current;
+    let msg;
+    if (!prefs.discord || !client || !tr || !player.playing) msg = { client, clear: true };
+    else {
+      const cover = tr.ext ? extCovers.get(tr.id) || '' : '';
+      const dur = player.duration || tr.duration || 0;
+      const start = Date.now() - Math.round((player.position || 0) * 1000);
+      msg = { client, title: tr.title, artist: artistName(tr), album: tr.album || 'Musik', cover: /^https:\/\//.test(cover) ? cover : '', start, end: dur ? start + Math.round(dur * 1000) : undefined, url: 'https://musik.labtoso.de', label: t('discordBtn') };
+    }
+    const key = JSON.stringify({ ...msg, start: msg.start && Math.round(msg.start / 3000), end: undefined });
+    if (key === discordLast) return;
+    discordLast = key;
+    D.discord(JSON.stringify(msg));
+  }, 800);
+}
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'discordid') return;
+  prefs.discordId = e.target.value.replace(/\D/g, '');
+  e.target.value = prefs.discordId;
+  savePrefs();
+  discordLast = '';
+  discordSync();
+});
+function saveTaste() {
+  if (conn.token) saveSettings({ mixStream: Number(prefs.mixStream ?? 0.3) }).catch(() => {});
+}
 async function startRadio(tr) {
   try {
     const list = await get(`/api/recommend/radio/${tr.id}?limit=40`);
@@ -702,7 +795,7 @@ function fmtDate(ms) {
   const d = new Date(ms > 1e11 ? ms : ms * 1000);
   return d.toLocaleDateString(getLang() === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
-function trackList(tracks, { numbers = false, album = true, reasons = false, playlistId = null } = {}) {
+function trackList(tracks, { numbers = false, album = true, reasons = false, playlistId = null, reorder = false } = {}) {
   if (!tracks.length) return `<p class="muted empty">${t('empty')}</p>`;
   const id = 'tl' + Math.random().toString(36).slice(2, 8);
   state.lists = state.lists || {};
@@ -715,7 +808,7 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
   const w = { year: '52px', genre: 'minmax(0, 1fr)', added: '104px' };
   const full = ['40px', 'minmax(0, 3fr)', showAlb && 'minmax(0, 2fr)', ...extra.map((k) => w[k]), '36px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
   const mid = ['40px', 'minmax(0, 1fr)', '36px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
-  return `<div class="tracks ${c.has('cover') ? '' : 'nocover'}" style="--cols:${full};--cols-mid:${mid}" data-list="${id}" ${playlistId ? `data-playlist="${playlistId}"` : ''}>${tracks
+  return `<div class="tracks ${c.has('cover') ? '' : 'nocover'}" style="--cols:${full};--cols-mid:${mid}" data-list="${id}" ${playlistId ? `data-playlist="${playlistId}"` : ''} ${reorder ? 'data-reorder' : ''}>${tracks
     .map((tr, i) => {
       const reason = reasons && tr.reason ? `<span class="reason">${esc(t('reason_' + tr.reason, { artist: artistName(tr) }))}</span>` : '';
       const src = tr.ext?.source || tr._src;
@@ -727,7 +820,7 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
       const lead = numbers || !c.has('cover') ? `<span class="num">${(numbers && tr.track_no) || i + 1}</span>` : coverImg(tr.id, 'sm');
       const sub = [c.has('artist') ? artistLinks(tr) : '', reason].filter(Boolean).join(' · ');
       const xc = { year: tr.year || '', genre: esc(tr.genre || ''), added: tr.added ? fmtDate(tr.added) : '' };
-      return `<div class="row ${tr.id === cur ? 'current' : ''} ${tr._off ? 'off' : ''}" data-i="${i}" data-id="${esc(String(tr.id))}">
+      return `<div class="row ${tr.id === cur ? 'current' : ''} ${tr._off ? 'off' : ''}" data-i="${i}" data-id="${esc(String(tr.id))}" ${reorder ? 'draggable="true"' : ''}>
         <div class="lead">${lead}<button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
         <div class="main"><div class="title">${esc(tr.title)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>
         ${showAlb ? `<div class="alb">${albumLink(tr)}</div>` : ''}
@@ -847,10 +940,25 @@ document.addEventListener('click', (e) => {
   if (w) return window.musikDesktop?.win?.(w.dataset.win);
   const h = e.target.closest('[data-hist]');
   if (h) return history.go(Number(h.dataset.hist));
-  if (e.target.closest('[data-tbsearch]')) {
-    go('#/search');
-    setTimeout(() => $('#q')?.focus(), 60);
-  }
+});
+// desktop title bar: type right there, like Spotify; the search page follows without taking the focus
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'tbq') return;
+  const v = e.target.value;
+  const feed = () => {
+    const q = $('#q');
+    if (!q) return false;
+    q.value = v;
+    q.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  };
+  if (state.route === 'search' && feed()) return;
+  go('#/search?q=' + encodeURIComponent(v));
+  let n = 0;
+  const wait = setInterval(() => (feed() || ++n > 40) && clearInterval(wait), 50);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.id === 'tbq' && e.key === 'Enter') $('#q')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 });
 
 // ---------- profile panel (tap the picture) ----------
@@ -931,6 +1039,8 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-editprofile]') && (await profileDialog())) renderSettings();
 });
 function openProfile() {
+  // already open: another press does not slide it in again
+  if (document.querySelector('.profile-wrap:not(.closing)')) return;
   closeProfile();
   const name = (conn.user && conn.user.name) || '';
   const initial = avatarInner();
@@ -965,6 +1075,7 @@ function closeProfile() {
   const w = $('.profile-wrap');
   if (!w) return;
   w.classList.remove('open');
+  w.classList.add('closing');
   setTimeout(() => w.remove(), 200);
 }
 document.addEventListener('click', (e) => {
@@ -1051,7 +1162,8 @@ async function favouriteArtists(h) {
   };
   (h?.topArtists || []).forEach((a, i) => add(a, 12 - i));
   (follows || []).forEach((f, i) => add(f.name, Math.max(2, 8 - i)));
-  extHistory().forEach((x, i) => add(x.artist, Math.max(1, 6 - i / 10)));
+  const skip = new Set(tasteList().map((x) => x.key));
+  extHistory().forEach((x, i) => !skip.has(tasteKey(x)) && add(x.artist, Math.max(1, 6 - i / 10)));
   if (score.size < 3) {
     const imps = await get('/api/imports').catch(() => []);
     for (const im of imps.slice(0, 3)) {
@@ -1148,9 +1260,9 @@ async function reloadHome() {
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('[data-homereload]');
   if (!b) return;
-  b.classList.add('spin');
+  b.classList.add('spinning');
   await Promise.all([reloadHome().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
-  document.querySelector('[data-homereload]')?.classList.remove('spin');
+  document.querySelector('[data-homereload]')?.classList.remove('spinning');
 });
 // phone: pull the start page down to load it again, with the round arrow a browser shows
 (() => {
@@ -1216,10 +1328,10 @@ document.addEventListener('click', async (e) => {
     if (pull < NEED) return pull && set(0, true);
     busy = true;
     set(NEED, true);
-    ind.classList.add('spin');
+    ind.classList.add('spinning');
     navigator.vibrate?.(8);
     await Promise.all([reloadHome().catch(() => {}), new Promise((r) => setTimeout(r, 650))]);
-    ind.classList.remove('spin');
+    ind.classList.remove('spinning');
     ind.style.transition = 'transform .25s ease-in, opacity .25s';
     ind.style.transform = 'translate(-50%, 34px) scale(0.3)';
     ind.style.opacity = '0';
@@ -1265,6 +1377,8 @@ function laterSection(make) {
     .catch(() => {});
   return `<div id="${id}"></div>`;
 }
+// always first on the start page, like Spotify: the liked songs
+const likedTile = () => `<a class="qt" href="#/likes"><div class="cover liked">${icon('heartFill')}</div><span>${t('likes')}</span></a>`;
 async function buildHome() {
   fyLoad = null;
   const [h, lib, fol] = await Promise.all([get('/api/home'), get('/api/library'), loadFollows(true)]);
@@ -1272,6 +1386,7 @@ async function buildHome() {
   if (!lib.tracks) {
     // no own files yet: suggestions from Spotify / YouTube listening instead of an empty page
     let html = pageHead(greeting(), homeReloadBtn());
+    html += `<div class="quick">${likedTile()}</div>`;
     const mixPart = await catalogMixSection(null);
     html += mixPart;
     if (recentExt.length) html += section(t('recent'), trackCards(recentExt, 'recentext'));
@@ -1295,8 +1410,8 @@ async function buildHome() {
     quick.push(x);
   }
   let html = pageHead(greeting(), homeReloadBtn());
-  html += `<div class="quick"><button class="qt" data-playmix><div class="cover accent">${icon('mix')}</div><span>${t('mixForYou')}</span></button>${quick
-    .slice(0, 7)
+  html += `<div class="quick">${likedTile()}<button class="qt" data-playmix><div class="cover accent">${icon('mix')}</div><span>${t('mixForYou')}</span></button>${quick
+    .slice(0, 6)
     .map((a) => `<a class="qt" href="${albumHref(a.album, a.artist)}">${coverImg(a.cover_id)}<span>${esc(a.album)}</span></a>`)
     .join('')}</div>`;
   if (ownMix) html += `<div class="hero">
@@ -1328,7 +1443,7 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-playmix]')) {
     try {
       if (!state.homeMixExt && state.homeMix && state.homeMix.length < 8) await catalogMixSection(fyLoad?.h ?? null);
-      const mix = state.homeMixExt?.length ? state.homeMixExt : await get('/api/recommend/mix?limit=60');
+      const mix = state.homeMixExt?.length ? state.homeMixExt : await blendedMix();
       if (!mix.length) return toast(t('coldHint'));
       player.playList(mix, 0);
     } catch (err) {
@@ -1337,6 +1452,33 @@ document.addEventListener('click', async (e) => {
   }
   if (e.target.closest('[data-upload]')) pickUpload();
 });
+
+/** Your mix: own songs and streaming songs in the share set in the settings (Mix slider). */
+async function blendedMix() {
+  const share = Math.min(1, Math.max(0, Number(prefs.mixStream ?? 0.3)));
+  const streaming = navigator.onLine !== false;
+  const [own, ext] = await Promise.all([
+    share < 1 || !streaming ? get('/api/recommend/mix?limit=60').catch(() => []) : [],
+    share > 0 && streaming
+      ? favouriteArtists(null).then((names) => (names.length ? get('/api/catalog/foryou?artists=' + encodeURIComponent(names.join('|'))) : null)).then((r) => {
+          const rows = (r?.rows || []).map((row) => row.tracks.map(extTrack));
+          const out = [];
+          for (let k = 0; k < 20; k++) for (const row of rows) if (row[k]) out.push(row[k]);
+          const skip = new Set(tasteList().map((x) => x.key));
+          return out.filter((x) => !skip.has(tasteKey(x)));
+        }).catch(() => [])
+      : []
+  ]);
+  if (!ext.length) return own;
+  if (!own.length) return ext.slice(0, 60);
+  const out = [];
+  let a = 0, b = 0;
+  while (out.length < 60 && (a < own.length || b < ext.length)) {
+    const wantExt = b < ext.length && (a >= own.length || (b + 1) / (out.length + 1) <= share + 1e-9);
+    out.push(wantExt ? ext[b++] : own[a++]);
+  }
+  return out;
+}
 
 // ---------- search, laid out like Spotify: top result, songs, artists, albums, playlists, catalog ----------
 const RECENT_KEY = 'musik.recent';
@@ -1759,7 +1901,7 @@ views.calbum = async (params) => {
   if (r.cover) extCovers.set(cid, r.cover);
   state.detail = { calbum: tracks };
   let html = detailHeader({ coverId: cid, kind: t('album'), title: r.name, sub: `${esc(tracks[0]?.artist || '')} · ${songCount(tracks.length)}`, actions: tracks.length ? listActions('calbum') : '' });
-  html += section(t('tracks'), trackList(tracks, { numbers: true }), `<span class="muted small">${t('catalogHint')}</span>`);
+  html += section(t('tracks'), trackList(tracks, { numbers: true }));
   return html;
 };
 views.cplaylist = async (params) => {
@@ -1770,7 +1912,7 @@ views.cplaylist = async (params) => {
   state.detail = { cplaylist: tracks };
   state.spPending = { source: 'deezer', name: r.name, cover: r.cover || '', items: r.items || [], url: 'https://www.deezer.com/playlist/' + params.get('id') };
   const total = tracks.reduce((n, x) => n + (x.duration || 0), 0);
-  return detailHeader({ coverId: cid, kind: t('playlist'), title: r.name, sub: `${songCount(tracks.length)}${total ? ', ' + fmtLong(total) : ''}`, actions: tracks.length ? listActions('cplaylist') + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>` : '' }) + trackList(tracks);
+  return detailHeader({ coverId: cid, kind: t('playlist'), title: r.name, sub: `${songCount(tracks.length)}${total ? ', ' + fmtLong(total) : ''}`, actions: tracks.length ? listActions('cplaylist') + `<button class="icon-btn lg" data-preload="cplaylist" title="${t('preload')}">${icon('bolt')}</button>` + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>` : '' }) + trackList(tracks);
 };
 views.spartist = async (params) => {
   const id = params.get('id') || '';
@@ -1821,7 +1963,7 @@ views.spplaylist = async (params) => {
     kind: t('playlist'),
     title: r.name,
     sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge('spotify')} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(tracks.length)}, ${fmtLong(total)}`,
-    actions: listActions('sppl') + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>`
+    actions: listActions('sppl') + `<button class="icon-btn lg" data-preload="sppl" title="${t('preload')}">${icon('bolt')}</button>` + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>`
   }) + trackList(tracks);
 };
 document.addEventListener('click', async (e) => {
@@ -1868,10 +2010,9 @@ views.library = async (params) => {
     const sort = params.get('sort') || 'artist';
     const r = await get(`/api/tracks?limit=1000&sort=${sort}`);
     state.libTracks = r.items;
-    body = `<div class="toolbar"><button class="btn primary" data-playlib>${icon('play')}${t('playAll')}</button><button class="btn" data-shufflelib>${icon('shuffle')}${t('shuffle')}</button>
-      <span class="muted">${songCount(r.total)}</span>
-</div>
-      <div class="sortrow"><span class="muted small">${t('sortBy')}</span>${['artist', 'title', 'album', 'added'].map((s) => `<a class="chip ${s === sort ? 'on' : ''}" href="#/library?tab=tracks&sort=${s}">${{ artist: t('artist'), title: t('sortTitle'), album: t('album'), added: t('added') }[s]}</a>`).join('')}</div>
+    const SORTS = { artist: t('artist'), title: t('sortTitle'), album: t('album'), added: t('added') };
+    // one quiet row like Spotify: sort on the left, count, shuffle and a round play button on the right
+    body = `<div class="libbar"><button class="sortbtn" data-libsort="${sort}">${icon('sort')}<span>${SORTS[sort] || SORTS.artist}</span></button><span class="muted small">${songCount(r.total)}</span><span class="grow"></span><button class="icon-btn lg" data-shufflelib title="${t('shuffle')}">${icon('shuffle')}</button><button class="playround" data-playlib title="${t('playAll')}">${icon('play')}</button></div>
       ${trackList(r.items)}`;
   } else if (tab === 'albums') {
     state.cache.albums = await get('/api/albums');
@@ -1886,20 +2027,25 @@ views.library = async (params) => {
       .join('')}</div>`;
   } else if (tab === 'imported') {
     const list = (await get('/api/imports')).filter((im) => !im.kept);
-    body = `<div class="toolbar"><a class="btn primary" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/sources">${t('manageSources')}</a></div>
+    body = `<div class="libbar"><a class="sortbtn" href="#/add">${icon('download')}<span>${t('importAdd')}</span></a></div>
       ${list.length ? `<div class="cards libgrid"> ${list.map((im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${im.art ? coverImg(artKey('import', im.id, im.art), 'lg') : im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`).join('')}</div>` : `<p class="muted empty">${t('importNone')}</p>`}`;
   } else {
     const [lists, imps] = await Promise.all([get('/api/playlists'), get('/api/imports').catch(() => [])]);
     const kept = imps.filter((im) => im.kept);
     for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
-    body = `<div class="toolbar"><button class="btn" data-newpl>${icon('plus')}${t('newPlaylist')}</button></div>
-      <div class="cards libgrid"><a class="card" href="#/likes"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
+    body = `<div class="cards libgrid"><a class="card" href="#/likes"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
       ${lists.map((p) => `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`).join('')}${kept.map((im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`).join('')}</div>`;
   }
   return `${pageHead(t('yourLibrary'), `<button class="icon-btn" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button>`)}<div class="tabs">${LIB_TABS.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
 };
 document.addEventListener('change', (e) => {
   if (e.target.id === 'sort') go(`#/library?tab=tracks&sort=${e.target.value}`);
+});
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-libsort]');
+  if (!b) return;
+  const SORTS = { artist: t('artist'), title: t('sortTitle'), album: t('album'), added: t('added') };
+  menu(b, Object.entries(SORTS).map(([k, label]) => ({ label: (k === b.dataset.libsort ? '✓ ' : '') + label, icon: 'sort', run: () => go(`#/library?tab=tracks&sort=${k}`) })));
 });
 document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-playlib]') && state.libTracks) player.playList(state.libTracks, 0);
@@ -1990,7 +2136,7 @@ views.likes = async () => {
   const tracks = [...[...extLikes.values()].map(histTrack), ...local];
   state.detail = { likes: tracks };
   return (
-    detailHeader({ coverId: null, kind: t('playlist'), title: t('likes'), sub: songCount(tracks.length), actions: listActions('likes') }).replace(
+    detailHeader({ coverId: null, kind: t('playlist'), title: t('likes'), sub: songCount(tracks.length), actions: listActions('likes') + `<button class="icon-btn lg" data-preload="likes" title="${t('preload')}">${icon('bolt')}</button>` }).replace(
       'cover xl ph',
       'cover xl ph accent'
     ) + trackList(tracks)
@@ -2011,10 +2157,189 @@ views.playlist = async (params, id) => {
       title: pl.name,
       sub: `${pl.description ? `<span class="pl-desc">${esc(pl.description)}</span>` : ''}${who}${songCount(pl.tracks.length)} · ${fmtTime(pl.tracks.reduce((s, x) => s + x.duration, 0))}`,
       edit: pl.mine !== false ? `playlist:${pl.id}` : '',
-      actions: listActions('pl') + (offline.ok() && !offlineMode ? `<button class="btn offbtn" data-offpl="${pl.id}">${icon('download')}<span>${t('offDownload')}</span></button>` : '') + `<button class="btn" data-plshare="${pl.id}" title="${t('share')}">${icon('share')}${t('share')}</button>` + `<button class="icon-btn" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
-    }) + members + trackList(pl.tracks, { playlistId: pl.id })
+      // like Spotify: one big play button, the rest as quiet icons
+      actions: `<button class="btn primary" data-playkey="pl">${icon('play')}${t('playAll')}</button>` +
+        `<button class="icon-btn lg" data-shufflekey="pl" title="${t('shuffle')}">${icon('shuffle')}</button>` +
+        `<button class="icon-btn lg" data-pladd="${pl.id}" title="${t('addSongs')}">${icon('plus')}</button>` +
+        `<button class="icon-btn lg" data-preload="pl" title="${t('preload')}">${icon('bolt')}</button>` +
+        (offline.ok() && !offlineMode ? `<button class="icon-btn lg offbtn" data-offpl="${pl.id}" title="${t('offDownload')}">${icon('download')}<span class="sr"></span></button>` : '') +
+        `<button class="icon-btn lg" data-plshare="${pl.id}" title="${t('share')}">${icon('share')}</button>` +
+        (pl.mine !== false && pl.tracks.length > 1 ? `<button class="icon-btn lg mobile-only" data-pledit="${pl.id}" title="${t('reorder')}">${icon('sort')}</button>` : '') +
+        `<button class="icon-btn lg" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
+    }) + members + trackList(pl.tracks, { playlistId: pl.id, reorder: pl.mine !== false })
   );
 };
+// ---------- playlist tools: preload, add songs, drag to reorder (PC) and an edit mode (phone) ----------
+document.addEventListener('click', async (e) => {
+  const pre = e.target.closest('[data-preload]');
+  if (pre) {
+    if (pre.classList.contains('busy')) return;
+    const list = state.detail?.[pre.dataset.preload] || [];
+    pre.classList.add('busy');
+    const n = await preloadSongs(list, (d, total) => {
+      pre.style.setProperty('--p', total ? (d / total) * 100 + '%' : '0%');
+      pre.title = t('preloading', { n: d, total });
+    });
+    pre.classList.remove('busy');
+    pre.classList.add('on');
+    pre.title = t('preload');
+    toast(n ? t('preloaded', { n }) : t('preloadNothing'));
+    return;
+  }
+  const add = e.target.closest('[data-pladd]');
+  if (add) return addSongsDialog(Number(add.dataset.pladd));
+  const ed = e.target.closest('[data-pledit]');
+  if (ed) return reorderDialog(Number(ed.dataset.pledit));
+});
+/** Search and add songs right inside the playlist, like Spotify's "Let's find something for your playlist". */
+function addSongsDialog(id) {
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-wrap';
+  wrap.innerHTML = `<div class="modal addsongs"><div class="modal-head"><h2>${t('addSongs')}</h2><button class="icon-btn" data-x>${icon('close')}</button></div>
+    <div class="searchbar">${icon('search')}<input type="search" placeholder="${t('addSongsPh')}" autocomplete="off"></div><div class="as-list"><p class="muted small">${t('addSongsHint')}</p></div></div>`;
+  document.body.appendChild(wrap);
+  const input = wrap.querySelector('input');
+  const box = wrap.querySelector('.as-list');
+  let found = [];
+  let seq = 0;
+  let timer = 0;
+  const close = () => (wrap.remove(), render());
+  wrap.addEventListener('click', async (e) => {
+    if (e.target === wrap || e.target.closest('[data-x]')) return close();
+    const b = e.target.closest('[data-asadd]');
+    if (!b || b.disabled) return;
+    const tr = found[Number(b.dataset.asadd)];
+    b.disabled = true;
+    try {
+      await post(`/api/playlists/${id}/tracks`, { trackIds: [tr.id] });
+      b.innerHTML = icon('check');
+      b.classList.add('on');
+    } catch (err) {
+      b.disabled = false;
+      toast(errorText(err));
+    }
+  });
+  const search = async (q) => {
+    const my = ++seq;
+    if (!q.trim()) return (box.innerHTML = `<p class="muted small">${t('addSongsHint')}</p>`);
+    box.innerHTML = `<p class="muted small">${t('searching')}</p>`;
+    const [mine, cat] = await Promise.all([
+      get('/api/tracks?limit=20&q=' + encodeURIComponent(q)).then((r) => r.items || []).catch(() => []),
+      (spotify.connected() ? searchSpotifyAll(q).then((r) => (r?.tracks || []).map(extTrack)) : Promise.reject())
+        .catch(() => get('/api/catalog/search?q=' + encodeURIComponent(q)).then((c) => (c.tracks || []).map(extTrack)))
+        .catch(() => [])
+    ]);
+    if (my !== seq) return;
+    const seen = new Set();
+    found = [...mine, ...cat].filter((x) => {
+      const k = norm(`${artistName(x)} ${x.title}`);
+      return !seen.has(k) && seen.add(k);
+    }).slice(0, 30);
+    box.innerHTML = found.length
+      ? found.map((x, i) => `<div class="as-row">${coverImg(x.id, 'sm')}<div class="main"><div class="title">${esc(x.title)}</div><div class="sub">${esc(artistName(x))}</div></div><button class="btn sm" data-asadd="${i}">${t('add')}</button></div>`).join('')
+      : `<p class="muted small">${t('noResults')}</p>`;
+  };
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => search(input.value), 300);
+  });
+  setTimeout(() => input.focus(), 50);
+}
+/** Phone: an edit list with handles to drag songs into a new order, like Spotify's "Edit playlist". */
+async function reorderDialog(id) {
+  const pl = await get(`/api/playlists/${id}`);
+  let order = pl.tracks.slice();
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-wrap';
+  const rows = () => order.map((x, i) => `<div class="ro-row" data-ri="${i}"><button class="icon-btn sm" data-rorm="${i}" title="${t('remove')}">${icon('minus')}</button>${coverImg(x.id, 'sm')}<div class="main"><div class="title">${esc(x.title)}</div><div class="sub">${esc(artistName(x))}</div></div><span class="ro-grip" data-grip="${i}">${icon('drag')}</span></div>`).join('');
+  wrap.innerHTML = `<div class="modal reorder"><div class="modal-head"><button class="icon-btn" data-x>${icon('close')}</button><h2>${t('reorder')}</h2><button class="btn primary sm" data-ok>${t('save')}</button></div><div class="ro-list">${rows()}</div></div>`;
+  document.body.appendChild(wrap);
+  const list = wrap.querySelector('.ro-list');
+  wrap.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-x]')) return wrap.remove();
+    const rm = e.target.closest('[data-rorm]');
+    if (rm) {
+      order.splice(Number(rm.dataset.rorm), 1);
+      list.innerHTML = rows();
+      return;
+    }
+    if (e.target.closest('[data-ok]')) {
+      await put(`/api/playlists/${id}`, { trackIds: order.map((x) => x.id) }).catch((err) => toast(errorText(err)));
+      wrap.remove();
+      render();
+    }
+  });
+  // drag by the handle: the row follows the finger, the others make room
+  list.addEventListener('pointerdown', (e) => {
+    const g = e.target.closest('[data-grip]');
+    if (!g) return;
+    e.preventDefault();
+    const row = g.closest('.ro-row');
+    const from = Number(row.dataset.ri);
+    const h = row.offsetHeight;
+    const y0 = e.clientY;
+    let to = from;
+    row.classList.add('lifted');
+    g.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      const dy = ev.clientY - y0;
+      row.style.transform = `translateY(${dy}px)`;
+      to = Math.max(0, Math.min(order.length - 1, from + Math.round(dy / h)));
+      list.querySelectorAll('.ro-row').forEach((r) => {
+        const i = Number(r.dataset.ri);
+        if (r === row) return;
+        const shift = from < to && i > from && i <= to ? -h : from > to && i < from && i >= to ? h : 0;
+        r.style.transform = shift ? `translateY(${shift}px)` : '';
+      });
+    };
+    const up = () => {
+      g.removeEventListener('pointermove', move);
+      g.removeEventListener('pointerup', up);
+      g.removeEventListener('pointercancel', up);
+      const [x] = order.splice(from, 1);
+      order.splice(to, 0, x);
+      list.innerHTML = rows();
+    };
+    g.addEventListener('pointermove', move);
+    g.addEventListener('pointerup', up);
+    g.addEventListener('pointercancel', up);
+  });
+}
+// PC: drag a song in a playlist to a new place
+let plDrag = null;
+document.addEventListener('dragstart', (e) => {
+  const row = e.target.closest?.('.tracks[data-reorder] .row');
+  if (!row) return;
+  plDrag = { list: row.parentElement, from: Number(row.dataset.i) };
+  row.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', row.dataset.id);
+});
+document.addEventListener('dragover', (e) => {
+  if (!plDrag) return;
+  const row = e.target.closest?.('.row');
+  if (!row || row.parentElement !== plDrag.list) return;
+  e.preventDefault();
+  const r = row.getBoundingClientRect();
+  plDrag.list.querySelectorAll('.row').forEach((x) => x.classList.remove('drop-above', 'drop-below'));
+  const below = e.clientY > r.top + r.height / 2;
+  row.classList.add(below ? 'drop-below' : 'drop-above');
+  plDrag.to = Number(row.dataset.i) + (below ? 1 : 0);
+});
+document.addEventListener('dragend', async () => {
+  if (!plDrag) return;
+  const { list, from, to } = plDrag;
+  plDrag = null;
+  list.querySelectorAll('.row').forEach((x) => x.classList.remove('drop-above', 'drop-below', 'dragging'));
+  if (to == null || to === from || to === from + 1) return;
+  const id = Number(list.dataset.playlist);
+  const tracks = state.lists?.[list.dataset.list] || [];
+  const ids = tracks.map((x) => x.id);
+  const [x] = ids.splice(from, 1);
+  ids.splice(to > from ? to - 1 : to, 0, x);
+  await put(`/api/playlists/${id}`, { trackIds: ids }).catch((err) => toast(errorText(err)));
+  render();
+});
 // download switch on a playlist: on = copy kept on this device, off = copy removed
 let offTimer = 0;
 async function paintOffline() {
@@ -2126,7 +2451,7 @@ function sourcesForm() {
     <div class="stack wizard-actions"><a class="btn primary" href="#/add">${icon('download')}${t('importAdd')}</a></div>`;
 }
 // ---------- first start: a setup assistant that asks one thing after another ----------
-const WIZ = ['hello', 'look', 'genres', 'artists', 'sources', 'how', 'done'];
+const WIZ = ['hello', 'look', 'genres', 'artists', 'how', 'done'];
 // genres of the public catalog, so the picked ones give real artists right away
 const GENRES = { pop: 132, rap: 116, rock: 152, alt: 85, dance: 113, electro: 106, rnb: 165, soul: 169, metal: 464, jazz: 129, classic: 98, latin: 197, reggae: 144, folk: 466, country: 84, blues: 153, film: 173, asia: 16, africa: 2, kids: 95 };
 const ACCENTS = ['cover', 'blue', 'green', 'purple', 'orange', 'pink', 'red', 'teal'];
@@ -2496,7 +2821,7 @@ views.imported = async (params, id) => {
       title: r.name,
       sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge(r.source)} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(r.items.length)}${dur ? ', ' + fmtLong(dur) : ''} · ${t('importedOf', { local, total: r.items.length })}`,
       edit: `import:${r.id}`,
-      actions: listActions('imp') + (r.kept ? '' : `<button class="btn" data-saveimp="${r.id}" title="${t('saveAsPlaylist')}">${icon('plus')}${t('saveAsPlaylist')}</button>`) + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
+      actions: listActions('imp') + `<button class="icon-btn lg" data-preload="imp" title="${t('preload')}">${icon('bolt')}</button>` + (r.kept ? '' : `<button class="btn" data-saveimp="${r.id}" title="${t('saveAsPlaylist')}">${icon('plus')}${t('saveAsPlaylist')}</button>`) + shareBtn('import', r.id, r.name) + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
     }) + trackList(tracks)
   );
 };
@@ -2798,7 +3123,7 @@ async function render() {
     if (state.route === 'search') {
       const q = $('#q');
       if (q) {
-        if (!matchMedia('(hover: none)').matches) q.focus();
+        if (!matchMedia('(hover: none)').matches && document.activeElement?.id !== 'tbq') q.focus();
         runSearch(q.value).catch(() => {});
       }
     }
@@ -2967,6 +3292,7 @@ function bindPlayer() {
       }
     } else if (a === 'open-fs') openFs(true);
     else if (a === 'close-fs') openFs(false);
+    else if (a === 'chill') openChill();
     else if (a === 'menu' && player.current) trackMenu(b, player.current, {});
     e.stopPropagation();
   });
@@ -3009,6 +3335,15 @@ function bindPlayer() {
   player.addEventListener('change', renderPlayer);
   player.addEventListener('change', () => rememberPlay(player.current));
   player.addEventListener('state', renderState);
+  player.addEventListener('state', miniVizSync);
+  player.addEventListener('change', () => chill && setTimeout(chillMeta, 50));
+  player.addEventListener('change', () => setTimeout(presenceTick, 800));
+  player.addEventListener('change', discordSync);
+  player.addEventListener('state', discordSync);
+  player.addEventListener('state', () => { clearTimeout(window.__presT); window.__presT = setTimeout(presenceTick, 600); });
+  player.addEventListener('state', () => chill && chillMeta());
+  player.addEventListener('change', miniVizSync);
+  document.addEventListener('visibilitychange', miniVizSync);
   player.addEventListener('time', renderTime);
   player.addEventListener('time', syncLyrics);
   player.addEventListener('error', () => toast(player.lastError && t(player.lastError) !== player.lastError ? t(player.lastError) : t('error')));
@@ -3026,6 +3361,28 @@ function bindPlayer() {
     }
   });
 }
+/** The small visualizer in the mini player: runs while a song plays and the big player is closed. */
+function miniVizSync() {
+  if (!player) return;
+  if (!viz) viz = new Visualizer(player);
+  if (!miniViz) miniViz = new MiniViz(player, viz);
+  const box = $('#mini');
+  if (!box) return;
+  miniViz.attach(box);
+  const mode = prefs.miniViz || 'bars';
+  miniViz.setMode(mode);
+  const run = mode !== 'off' && player.playing && !document.hidden && !$('#fs').classList.contains('open');
+  if (run) {
+    // Android asks once for the audio permission its visualizer needs: only after the big visualizer was used
+    if (!miniViz.running && !viz.running && prefs.vizAsked) player.startViz();
+    miniViz.start();
+  } else {
+    miniViz.stop();
+    if (!viz.running) player.stopViz();
+    // let the bars fall instead of freezing
+    if (mode !== 'off' && miniViz.canvas) miniViz.canvas.getContext('2d').clearRect(0, 0, miniViz.canvas.width, miniViz.canvas.height);
+  }
+}
 function vizSync() {
   if (!player) return;
   if (!viz) viz = new Visualizer(player);
@@ -3033,12 +3390,14 @@ function vizSync() {
   const on = $('#fs').classList.contains('open') && (prefs.viz || 'off') !== 'off';
   viz.setMode(on ? prefs.viz : 'off');
   if (on) {
-    player.startViz();
+    if (!prefs.vizAsked) (prefs.vizAsked = true), savePrefs();
+    if (!viz.running) player.startViz();
     viz.start();
   } else {
-    player.stopViz();
     viz.stop();
+    if (!miniViz?.running) player.stopViz();
   }
+  miniVizSync();
 }
 function setViz(mode) {
   prefs.viz = mode;
@@ -3063,6 +3422,85 @@ function openFs(open) {
   setTimeout(placeStage, 350);
   if (open) history.pushState({ fs: 1 }, '');
 }
+// ---------- chillscreen: the room from the website, with its camera moves, around the song that plays ----------
+let chill = null;
+function chillSync() {
+  const b = $('#fs-chill');
+  if (b) b.hidden = !prefs.chill;
+  if (!prefs.chill && chill) closeChill();
+}
+const chillCover = () => $('#fs-cover img')?.src || $('#np-cover img')?.src || '';
+function chillMeta() {
+  if (!chill) return;
+  const tr = player.current;
+  chill.el.querySelector('.ch-title').textContent = tr?.title || '';
+  chill.el.querySelector('.ch-artist').textContent = tr ? artistName(tr) : '';
+  const src = chillCover();
+  chill.el.querySelector('.ch-cover').innerHTML = src ? `<img src="${esc(src)}" alt="">` : '';
+  if (src) chill.room?.setCover(src);
+  chill.el.querySelector('[data-chill="toggle"]').innerHTML = icon(player.playing ? 'pause' : 'play');
+}
+async function openChill() {
+  if (chill || !player.current) return;
+  const el = document.createElement('div');
+  el.className = 'chill';
+  el.innerHTML = `<canvas></canvas><div class="ch-ui"><button class="icon-btn ch-close" data-chill="close" title="${t('close')}">${icon('close')}</button>
+    <div class="ch-np"><div class="ch-cover"></div><div class="ch-meta"><b class="ch-title"></b><span class="ch-artist"></span></div>
+    <div class="ch-ctl"><button class="icon-btn" data-chill="prev">${icon('prev')}</button><button class="icon-btn ch-play" data-chill="toggle"></button><button class="icon-btn" data-chill="next">${icon('next')}</button></div></div></div>`;
+  document.body.appendChild(el);
+  chill = { el, room: null, hide: 0, lock: null };
+  chillMeta();
+  const wake = () => { el.classList.remove('calm'); clearTimeout(chill?.hide); if (chill) chill.hide = setTimeout(() => el.classList.add('calm'), 3500); };
+  el.addEventListener('pointermove', wake);
+  el.addEventListener('pointerdown', wake);
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-chill]');
+    if (!b) return;
+    const k = b.dataset.chill;
+    if (k === 'close') closeChill();
+    else if (k === 'toggle') player.toggle();
+    else if (k === 'next') player.next();
+    else if (k === 'prev') player.prev();
+  });
+  wake();
+  requestAnimationFrame(() => el.classList.add('open'));
+  history.pushState({ chill: 1 }, '');
+  try { await el.requestFullscreen?.({ navigationUI: 'hide' }); } catch {}
+  try { chill.lock = await navigator.wakeLock?.request('screen'); } catch {}
+  try {
+    const { createTurntable } = await import('./room.js');
+    if (!chill || chill.el !== el) return;
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4c8dff';
+    chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chillCover() }], center: true, follow: false, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
+    el.classList.add('ready');
+    chill.tick = setInterval(() => {
+      const r = chill?.room;
+      if (!r) return;
+      r.setAccent(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || accent);
+      // the speakers move with the music: real bands when the visualizer runs, otherwise a calm beat
+      const live = [viz, miniViz].find((v) => v?.running);
+      const e = live ? Array.from(live.smooth.slice(0, 10)).reduce((s, v) => s + v, 0) / 10 : player.playing ? 0.32 + Math.max(0, Math.sin(performance.now() / 260)) * 0.18 : 0;
+      r.setEnergy(player.playing ? Math.min(1, e) : 0);
+    }, 100);
+  } catch (err) {
+    console.warn('chill', err);
+    toast(t('error'));
+    closeChill();
+  }
+}
+function closeChill(fromHistory) {
+  const c = chill;
+  if (!c) return;
+  chill = null;
+  clearInterval(c.tick); clearTimeout(c.hide);
+  try { c.lock?.release(); } catch {}
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  c.el.classList.remove('open');
+  setTimeout(() => { c.room?.dispose(); c.el.remove(); }, 380);
+  if (!fromHistory && history.state?.chill) history.back();
+}
+addEventListener('popstate', () => chill && closeChill(true));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && chill) closeChill(); });
 // phone: drag the big player down to put it away, drag the small player up to open it. The player follows the finger.
 (() => {
   let d = null;
@@ -3786,8 +4224,132 @@ function fillDevSheet() {
       ${A?.openBluetooth ? `<button class="btn" data-devbt>${icon('bluetooth')}${t('devPair')}</button>` : ''}
       ${A?.openOutput ? `<button class="btn" data-devout>${icon('speaker')}${t('devSystemPicker')}</button>` : ''}
     </div>
-    ${A ? '' : `<p class="muted small">${t('devPickHint')}</p>`}`;
+    ${A ? '' : `<p class="muted small">${t('devPickHint')}</p>`}
+    ${accountDevicesHtml()}`;
 }
+// ---------- other devices of the same account (like Spotify Connect): see what plays there, take it over ----------
+const DEV_ID = (() => {
+  try {
+    let id = localStorage.getItem('musik.devid');
+    if (!id) localStorage.setItem('musik.devid', (id = Math.random().toString(36).slice(2, 12)));
+    return id;
+  } catch {
+    return 'x' + Math.random().toString(36).slice(2, 10);
+  }
+})();
+function myDeviceName() {
+  const ua = navigator.userAgent;
+  if (window.MusikAndroid) {
+    const m = ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|\))/);
+    return m && !/^K$/.test(m[1]) ? m[1].trim() : 'Android';
+  }
+  const os = /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : 'Linux';
+  if (window.musikDesktop) return t('devPc', { os });
+  const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  return `${br} (${os})`;
+}
+const myKind = () => (window.MusikAndroid || /Android|iPhone/.test(navigator.userAgent) ? 'phone' : window.musikDesktop ? 'computer' : 'web');
+let remoteDevs = [];
+let elsewhereHidden = '';
+const packTrack = (x) => (x ? (x.ext ? { ...x, cover: extCovers.get(x.id) || x.cover || '' } : { id: x.id, title: x.title, artist: x.artist, album: x.album, duration: x.duration, has_cover: x.has_cover }) : null);
+async function presenceTick() {
+  if (!conn.token || offlineMode || !player) return;
+  const tr = player?.current;
+  const body = { device: DEV_ID, name: myDeviceName(), kind: myKind(), playing: !!player?.playing, position: player?.position || 0, duration: player?.duration || tr?.duration || 0 };
+  if (tr) body.track = { ...packTrack(tr), next: player.queue.slice(player.index + 1, player.index + 31).map(packTrack) };
+  try {
+    const r = await post('/api/presence', body);
+    remoteDevs = (r.devices || []).filter((d) => d.track);
+    for (const c of r.commands || []) {
+      if (c.cmd === 'pause') player?.pause();
+      else if (c.cmd === 'play') player?.play();
+      else if (c.cmd === 'next') player?.next();
+      else if (c.cmd === 'prev') player?.prev();
+    }
+  } catch {
+    remoteDevs = [];
+  }
+  paintElsewhere();
+  if ($('.devsheet .ds-acc')) $('.devsheet .ds-acc').outerHTML = accountDevicesHtml();
+}
+function presenceLoop() {
+  const busy = player?.playing || remoteDevs.some((d) => d.playing) || $('.devsheet');
+  if (!document.hidden || player?.playing) presenceTick();
+  setTimeout(presenceLoop, busy ? 8000 : 20000);
+}
+setTimeout(presenceLoop, 2500);
+function accountDevicesHtml() {
+  if (!remoteDevs.length) return '<div class="ds-acc"></div>';
+  const kindIcon = { phone: 'phone', computer: 'computer', web: 'devices' };
+  return `<div class="ds-acc"><h4>${t('devAccount')}</h4>${remoteDevs
+    .map((d) => `<div class="ds-row acc">${icon(kindIcon[d.kind] || 'devices')}<span><b>${esc(d.name)}</b><small>${d.playing ? `${icon('play')} ` : ''}${esc(d.track.title)} · ${esc(d.track.artist || '')}</small></span>
+      <button class="icon-btn" data-remcmd="${esc(d.device)}:${d.playing ? 'pause' : 'play'}" title="${t(d.playing ? 'pause' : 'play')}">${icon(d.playing ? 'pause' : 'play')}</button>
+      <button class="btn small primary" data-takeover="${esc(d.device)}">${t('devPlayHere')}</button></div>`)
+    .join('')}</div>`;
+}
+/** A small bar like Spotify's "Listening on …" while another device of the account plays and this one does not. */
+function paintElsewhere() {
+  const d = remoteDevs.find((x) => x.playing);
+  let el = $('#elsewhere');
+  const show = d && !player?.playing && elsewhereHidden !== d.device + d.track.title;
+  if (!show) return el?.remove();
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'elsewhere';
+    document.body.appendChild(el);
+  }
+  el.classList.toggle('above-player', !!player?.current);
+  el.innerHTML = `${icon(d.kind === 'phone' ? 'phone' : d.kind === 'computer' ? 'computer' : 'devices')}<span><small>${t('devPlayingOn', { name: esc(d.name) })}</small><b>${esc(d.track.title)} · ${esc(d.track.artist || '')}</b></span>
+    <button class="btn small primary" data-takeover="${esc(d.device)}">${t('devPlayHere')}</button><button class="icon-btn" data-elsewhereoff="${esc(d.device + d.track.title)}" title="${t('close')}">${icon('close')}</button>`;
+}
+async function takeOver(id) {
+  const d = remoteDevs.find((x) => x.device === id);
+  if (!d?.track) return;
+  const items = [d.track, ...(d.track.next || [])].filter(Boolean);
+  const localIds = items.filter((x) => !x.ext).map((x) => x.id);
+  let byId = new Map();
+  if (localIds.length) byId = new Map((await post('/api/tracks/batch', { ids: localIds }).catch(() => [])).map((x) => [x.id, x]));
+  const list = items
+    .map((x) => {
+      if (!x.ext) return byId.get(x.id);
+      if (x.cover) extCovers.set(x.id, x.cover);
+      const { next, ...rest } = x;
+      return rest;
+    })
+    .filter(Boolean);
+  if (!list.length) return toast(t('error'));
+  const pos = d.position + (d.playing ? (Date.now() - d.at) / 1000 : 0);
+  post(`/api/presence/${encodeURIComponent(id)}/cmd`, { cmd: 'pause' }).catch(() => {});
+  player.playList(list, 0);
+  const seekOnce = () => {
+    player.removeEventListener('state', seekOnce);
+    if (pos > 2 && (!d.duration || pos < d.duration - 2)) setTimeout(() => player.seek(pos), 300);
+  };
+  player.addEventListener('state', seekOnce);
+  remoteDevs = remoteDevs.map((x) => (x.device === id ? { ...x, playing: false } : x));
+  paintElsewhere();
+  $('.devsheet') && fillDevSheet();
+  toast(t('devTookOver', { name: d.name }));
+}
+document.addEventListener('click', (e) => {
+  const tk = e.target.closest('[data-takeover]');
+  if (tk) return void takeOver(tk.dataset.takeover);
+  const rc = e.target.closest('[data-remcmd]');
+  if (rc) {
+    const [id, cmd] = rc.dataset.remcmd.split(':');
+    post(`/api/presence/${encodeURIComponent(id)}/cmd`, { cmd }).catch(() => {});
+    remoteDevs = remoteDevs.map((x) => (x.device === id ? { ...x, playing: cmd === 'play' } : x));
+    $('.devsheet .ds-acc') && ($('.devsheet .ds-acc').outerHTML = accountDevicesHtml());
+    paintElsewhere();
+    setTimeout(presenceTick, 2500);
+    return;
+  }
+  const off = e.target.closest('[data-elsewhereoff]');
+  if (off) {
+    elsewhereHidden = off.dataset.elsewhereoff;
+    paintElsewhere();
+  }
+});
 async function devSheet() {
   if ($('.devsheet')) return;
   if (!window.MusikAndroid && outDevices === null) await loadOutputs(false);
@@ -3842,6 +4404,54 @@ function setCard(id, ic, title, rows) {
   return `<section class="set-card" id="set-${id}" data-k="${esc(title.toLowerCase())}"><h3>${icon(ic)}<span>${title}</span></h3>${rows}</section>`;
 }
 const sw = (id, on) => `<label class="switch"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span></span></label>`;
+// settings kept in prefs: a switch, a slider with its value, a row of choices
+const pct = (v) => Math.round(Number(v) * 100) + ' %';
+const pv = (k, d) => (prefs[k] ?? d);
+const psw = (k, d) => `<label class="switch"><input type="checkbox" data-pref="${k}" ${pv(k, d) ? 'checked' : ''}><span></span></label>`;
+const rngP = (v, min, max) => `${(((Number(v) - min) / (max - min)) * 100).toFixed(1)}%`;
+const prng = (k, min, max, step, d, fmt = (v) => v) => `<div class="prng"><input type="range" data-pref="${k}" min="${min}" max="${max}" step="${step}" value="${pv(k, d)}" style="--p:${rngP(pv(k, d), min, max)}"><b data-prefval="${k}">${fmt(pv(k, d))}</b></div>`;
+const PREF_FMT = { crossfade: (v) => (Number(v) ? v + ' s' : t('off')), vizSpeed: (v) => Number(v).toFixed(1) + '×', vizSens: pct, vizBass: pct, vizMid: pct, vizHigh: pct, mixStream: (v) => `${Math.round((1 - v) * 100)} : ${Math.round(v * 100)}` };
+const pseg = (k, opts, d, label) => `<div class="seg wrap">${opts.map((o) => `<button data-prefseg="${k}" data-v="${o}" class="${pv(k, d) === o ? 'on' : ''}">${label(o)}</button>`).join('')}</div>`;
+/** What has to follow a changed setting. */
+function prefChanged(k) {
+  if (k.startsWith('viz') || k === 'miniViz') {
+    applyVizTune();
+    miniVizSync();
+    const r = $('.rainbow-only');
+    if (r) r.hidden = prefs.vizColor !== 'rainbow';
+  }
+  if (['crossfade', 'normalize', 'streamQ'].includes(k)) player?.setOptions?.(playOptions());
+  if (k === 'chill') chillSync();
+  if (k === 'mixStream') saveTaste();
+  if (k === 'discord') discordSync();
+}
+const playOptions = () => ({ crossfade: Number(prefs.crossfade || 0), normalize: !!prefs.normalize, streamQ: prefs.streamQ || 'auto' });
+document.addEventListener('input', (e) => {
+  const k = e.target.dataset?.pref;
+  if (!k || e.target.type !== 'range') return;
+  prefs[k] = Number(e.target.value);
+  e.target.style.setProperty('--p', rngP(e.target.value, Number(e.target.min), Number(e.target.max)));
+  const b = $(`[data-prefval="${k}"]`);
+  if (b) b.textContent = (PREF_FMT[k] || ((v) => v))(prefs[k]);
+  savePrefs();
+  prefChanged(k);
+});
+document.addEventListener('change', (e) => {
+  const k = e.target.dataset?.pref;
+  if (!k || e.target.type !== 'checkbox') return;
+  prefs[k] = e.target.checked;
+  savePrefs();
+  prefChanged(k);
+});
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-prefseg]');
+  if (!b) return;
+  const k = b.dataset.prefseg;
+  prefs[k] = b.dataset.v;
+  savePrefs();
+  b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  prefChanged(k);
+});
 async function renderSettings() {
   const s = $('#settings-body');
   const user = conn.user || {};
@@ -3861,7 +4471,26 @@ async function renderSettings() {
       setRow(t('columns'), `<div class="colpick">${COLS.map((k) => `<button data-col="${k}" class="chip ${cols().has(k) ? 'on' : ''}">${t('col_' + k)}</button>`).join('')}</div>`, { hint: t('columnsHint'), keys: 'spalten columns artist album länge duration quelle source jahr genre', wide: true })),
     setCard('playback', 'play', t('playback'),
       setRow(t('autoplayShort'), sw('autoplay', prefs.autoplay), { hint: t('autoplay'), keys: 'autoplay radio' }) +
-      setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' })),
+      setRow(t('crossfade'), prng('crossfade', 0, 12, 1, 0, (v) => (Number(v) ? v + ' s' : t('off'))), { hint: t('crossfadeHint'), keys: 'crossfade überblendung übergang fade gapless' }) +
+      setRow(t('normalize'), psw('normalize', false), { hint: t('normalizeHint'), keys: 'lautstärke normalisieren normalize volume loudness gleiche' }) +
+      setRow(t('streamQ'), pseg('streamQ', ['auto', 'low', 'normal', 'high', 'veryhigh'], 'auto', (v) => t('q_' + v)), { hint: t('streamQHint'), keys: 'qualität quality streaming bitrate', wide: true }) +
+      setRow(t('chill'), psw('chill', false), { hint: t('chillHint'), keys: 'chillscreen raum room zimmer vollbild fullscreen kamera camera plattenspieler' })),
+    setCard('viz', 'viz', t('viz'),
+      setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' }) +
+      setRow(t('miniViz'), pseg('miniViz', MINI_MODES, 'bars', (v) => t('mviz_' + v)), { hint: t('miniVizHint'), keys: 'mini player visualizer klein', wide: true }) +
+      setRow(t('vizColor'), pseg('vizColor', ['accent', 'rainbow'], 'accent', (v) => t('vcol_' + v)), { keys: 'farbe color regenbogen rainbow akzent' }) +
+      `<div class="rainbow-only" ${prefs.vizColor === 'rainbow' ? '' : 'hidden'}>${setRow(t('vizSpeed'), prng('vizSpeed', 0.2, 3, 0.1, 1, (v) => Number(v).toFixed(1) + '×'), { keys: 'regenbogen rainbow speed tempo' })}</div>` +
+      setRow(t('vizSens'), prng('vizSens', 0.3, 2.5, 0.05, 1, pct), { hint: t('vizSensHint'), keys: 'empfindlichkeit sensitivity' }) +
+      setRow(t('vizBass'), prng('vizBass', 0, 2, 0.05, 1, pct), { keys: 'bass tiefen lows' }) +
+      setRow(t('vizMid'), prng('vizMid', 0, 2, 0.05, 1, pct), { keys: 'mitten mids' }) +
+      setRow(t('vizHigh'), prng('vizHigh', 0, 2, 0.05, 1, pct), { keys: 'höhen highs treble' })),
+    (window.musikDesktop?.discord ? setCard('discord', 'radio', 'Discord',
+      setRow(t('discordShow'), psw('discord', false), { hint: t('discordHint'), keys: 'discord rich presence status aktivität activity' }) +
+      setRow(t('discordId'), `<input class="textin" id="discordid" value="${esc(prefs.discordId || '')}" placeholder="123456789012345678" inputmode="numeric" autocomplete="off" spellcheck="false">`, { hint: t('discordIdHint'), keys: 'discord application id client' })) : '') +
+    setCard('taste', 'mix', t('taste'),
+      setRow(t('mixStream'), `<div class="mixlbl"><small>${t('mixOwn')}</small>${prng('mixStream', 0, 1, 0.05, 0.3, PREF_FMT.mixStream)}<small>${t('mixStreaming')}</small></div>`, { hint: t('mixStreamHint'), keys: 'mix geschmack taste lokal local streaming spotify anteil', wide: true }) +
+      setRow(t('tasteExcludedList'), '', { hint: t('tasteExcludedHint'), keys: 'geschmack taste ausschließen exclude profil profile', wide: true }) +
+      `<div id="tastelist" class="tastelist">${tasteListHtml()}</div>`) +
     (offline.ok() ? setCard('offline', 'download', t('offTitle'), `<span class="muted small">…</span>`) : '') +
     setCard('devices', 'bluetooth', t('devices'), devicesHtml()) +
     setCard('sound', 'eq', t('equalizer'), setRow(t('equalizer'), eqHtml(), { wide: true, keys: 'eq bass treble klang sound preset' })),
@@ -4294,7 +4923,7 @@ function buildShell() {
   $('#app').innerHTML = `
   ${frameless ? `<div class="titlebar" data-drag>
     <div class="tb-left"><span class="tb-logo">${icon('note')}</span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
-    <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><button class="tb-search" data-tbsearch>${icon('search')}<span>${t('searchPlaceholder_' + searchMode())}</span></button></div>
+    <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><label class="tb-search">${icon('search')}<input id="tbq" type="search" placeholder="${t('searchPlaceholder_' + searchMode())}" autocomplete="off" spellcheck="false"></label></div>
     <div class="tb-right"><button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
       <button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
       <button class="tb-win" data-win="max" title="${t('maximize')}"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button>
@@ -4341,7 +4970,7 @@ function buildShell() {
     <nav class="bottomnav"><i class="navblob"></i>${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}</nav>
   </div>
   <div id="fs" class="fs">
-    <div class="fs-top"><button class="icon-btn" data-act="close-fs">${icon('down')}</button><span class="muted small">${t('nowPlaying')}</span><button class="icon-btn" data-act="menu">${icon('more')}</button></div>
+    <div class="fs-top"><button class="icon-btn" data-act="close-fs">${icon('down')}</button><span class="muted small">${t('nowPlaying')}</span><span class="fs-topr"><button class="icon-btn" data-act="chill" id="fs-chill" title="${t('chill')}" ${prefs.chill ? '' : 'hidden'}>${icon('expand')}</button><button class="icon-btn" data-act="menu">${icon('more')}</button></span></div>
     <div id="fs-cover" class="fs-cover"></div>
     <div class="fs-meta"><div><div id="fs-title" class="title"></div><div id="fs-artist" class="sub"></div></div><button class="icon-btn like" data-act="like">${icon('heart')}</button></div>
     <div class="timeline"><input class="seek" type="range" min="0" max="1" step="0.1" value="0"><div class="times"><span class="t-pos">0:00</span><span class="t-dur">0:00</span></div></div>
@@ -4383,6 +5012,7 @@ function startApp() {
     player.autoplay = prefs.autoplay;
     player.setVolume(prefs.volume ?? 1);
     if (prefs.eq) player.setEq(prefs.eq);
+    player.setOptions(playOptions());
     buildShell();
     bindPlayer();
   } else buildShell();

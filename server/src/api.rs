@@ -1347,6 +1347,7 @@ pub fn router(st: St) -> Router {
         .merge(crate::ext::routes())
         .merge(crate::taste::routes())
         .merge(crate::offline::routes())
+        .merge(crate::presence::routes())
         .merge(crate::update::routes())
         .merge(crate::spotify::routes())
         .fallback(|| async { ApiError::new(404, "not_found") });
