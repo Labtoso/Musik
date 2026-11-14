@@ -1,0 +1,1107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Musik Docs</title>
+<meta name="description" content="Guide for Musik: install the server, set up the apps, listen on the go, share playlists, offline mode, themes and help.">
+<meta name="theme-color" content="#0d1117">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+// theme before paint: saved choice, else the system
+try { const t = localStorage.getItem('musik.docs.theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+</script>
+<style>
+:root {
+  --bg: #ffffff; --bg-side: #ffffff; --bg-soft: #f6f8fa; --bg-code: #f6f8fa; --bg-hover: #f1f3f6;
+  --line: #e5e7eb; --line2: #d1d5db;
+  --text: #24292f; --head: #111827; --muted: #57606a; --dim: #8c959f;
+  --accent: #2f6bf2; --accent-soft: rgba(47,107,242,.09); --accent-text: #1f5ae0;
+  --info: #2f6bf2; --tip: #1a7f37; --warn: #9a6700; --danger: #cf222e;
+  --info-bg: #eef4ff; --tip-bg: #edf8f0; --warn-bg: #fff8e6; --danger-bg: #ffeef0;
+  --shadow: 0 10px 30px rgba(17,24,39,.12), 0 2px 6px rgba(17,24,39,.06);
+  --sans: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  --top: 64px; --side: 272px; --toc: 232px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) {
+    --bg: #0d1117; --bg-side: #0d1117; --bg-soft: #161b22; --bg-code: #161b22; --bg-hover: #1c222b;
+    --line: #21262d; --line2: #30363d;
+    --text: #c9d1d9; --head: #f0f3f6; --muted: #8b949e; --dim: #6e7681;
+    --accent: #4f7cff; --accent-soft: rgba(79,124,255,.14); --accent-text: #79a0ff;
+    --info: #4f8cff; --tip: #3fb950; --warn: #d29922; --danger: #f85149;
+    --info-bg: rgba(79,140,255,.1); --tip-bg: rgba(63,185,80,.1); --warn-bg: rgba(210,153,34,.1); --danger-bg: rgba(248,81,73,.1);
+    --shadow: 0 12px 34px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme=dark] {
+  --bg: #0d1117; --bg-side: #0d1117; --bg-soft: #161b22; --bg-code: #161b22; --bg-hover: #1c222b;
+  --line: #21262d; --line2: #30363d;
+  --text: #c9d1d9; --head: #f0f3f6; --muted: #8b949e; --dim: #6e7681;
+  --accent: #4f7cff; --accent-soft: rgba(79,124,255,.14); --accent-text: #79a0ff;
+  --info: #4f8cff; --tip: #3fb950; --warn: #d29922; --danger: #f85149;
+  --info-bg: rgba(79,140,255,.1); --tip-bg: rgba(63,185,80,.1); --warn-bg: rgba(210,153,34,.1); --danger-bg: rgba(248,81,73,.1);
+  --shadow: 0 12px 34px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: calc(var(--top) + 20px); -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button, input { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+::selection { background: var(--accent); color: #fff; }
+
+/* header */
+.top { position: fixed; inset: 0 0 auto; height: var(--top); z-index: 40; display: flex; align-items: center; gap: 12px; padding: 0 20px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--head); font-weight: 700; font-size: 17px; letter-spacing: -.01em; width: calc(var(--side) - 32px); flex: none; }
+.brand:hover { text-decoration: none; }
+.brand svg { width: 30px; height: 30px; }
+.brand small { font: 500 11px var(--mono); color: var(--muted); border: 1px solid var(--line2); border-radius: 20px; padding: 1px 8px; }
+.burger, .ibtn { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; color: var(--muted); flex: none; }
+.burger:hover, .ibtn:hover { background: var(--bg-hover); color: var(--head); }
+.burger { display: none; }
+.search { position: relative; flex: 1 1 auto; max-width: 440px; }
+.search label { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 8px; color: var(--dim); cursor: text; }
+.search label:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 14.5px; color: var(--text); }
+.search input::-webkit-search-cancel-button { display: none; }
+.search kbd { font: 500 11px var(--mono); color: var(--dim); border: 1px solid var(--line2); border-radius: 5px; padding: 1px 6px; background: var(--bg); }
+.results { position: absolute; top: 46px; left: 0; width: min(560px, calc(100vw - 32px)); max-height: min(70vh, 520px); overflow-y: auto; background: var(--bg); border: 1px solid var(--line2); border-radius: 10px; box-shadow: var(--shadow); padding: 6px; display: none; }
+.results.open { display: block; }
+.results a { display: block; padding: 9px 12px; border-radius: 7px; color: var(--text); }
+.results a:hover, .results a.sel { background: var(--accent-soft); text-decoration: none; }
+.results b { display: block; color: var(--head); font-weight: 600; font-size: 14.5px; }
+.results b span { color: var(--dim); font-weight: 500; }
+.results small { display: block; color: var(--muted); font-size: 13px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.results mark { background: none; color: var(--accent-text); font-weight: 600; }
+.results .none { padding: 14px 12px; color: var(--muted); font-size: 14px; }
+.links { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.links > a { color: var(--muted); font-size: 14.5px; font-weight: 500; padding: 6px 10px; border-radius: 7px; }
+.links > a:hover { color: var(--head); background: var(--bg-hover); text-decoration: none; }
+.lang { display: flex; border: 1px solid var(--line2); border-radius: 8px; overflow: hidden; font: 500 12px var(--mono); margin: 0 4px; }
+.lang button { padding: 6px 9px; color: var(--muted); }
+.lang button.on { background: var(--head); color: var(--bg); }
+.sun { display: none; }
+:root[data-theme=dark] .sun { display: block; } :root[data-theme=dark] .moon { display: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme=light]) .sun { display: block; } :root:not([data-theme=light]) .moon { display: none; } }
+
+/* sidebar */
+.side { position: fixed; top: var(--top); bottom: 0; left: 0; width: var(--side); overflow-y: auto; padding: 22px 16px 40px; background: var(--bg-side); border-right: 1px solid var(--line); scrollbar-width: thin; z-index: 30; }
+.side .grp { margin-bottom: 4px; }
+.side .grp > button { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; font-size: 14.5px; font-weight: 600; color: var(--head); text-align: left; }
+.side .grp > button:hover { background: var(--bg-hover); }
+.side .grp > button svg { width: 15px; height: 15px; color: var(--dim); transition: transform .15s; }
+.side .grp.shut > button svg { transform: rotate(-90deg); }
+.side .grp.shut ul { display: none; }
+.side ul { list-style: none; margin: 2px 0 10px; padding: 0 0 0 10px; }
+.side li a { display: block; padding: 5px 10px 5px 14px; margin-left: 2px; border-left: 1px solid var(--line2); color: var(--muted); font-size: 14.5px; line-height: 1.45; }
+.side li a:hover { color: var(--head); text-decoration: none; border-color: var(--dim); }
+.side li a.on { color: var(--accent-text); border-color: var(--accent); font-weight: 600; background: linear-gradient(90deg, var(--accent-soft), transparent 80%); }
+.side .home { display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin-bottom: 10px; border-radius: 6px; font-size: 14.5px; font-weight: 600; color: var(--head); }
+.side .home:hover { background: var(--bg-hover); text-decoration: none; }
+.side .home.on { color: var(--accent-text); background: var(--accent-soft); }
+.scrim { display: none; }
+
+/* page */
+.page { margin-left: var(--side); padding-top: var(--top); }
+.inner { display: grid; grid-template-columns: minmax(0, 1fr) var(--toc); gap: 48px; max-width: 1120px; padding: 34px 40px 60px 48px; }
+article { min-width: 0; max-width: 780px; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13.5px; color: var(--dim); margin-bottom: 14px; }
+.crumbs a { color: var(--muted); }
+.crumbs svg { width: 13px; height: 13px; }
+h1 { font-size: clamp(30px, 4vw, 38px); line-height: 1.15; letter-spacing: -.025em; color: var(--head); font-weight: 700; margin: 0 0 14px; }
+.lead { font-size: 18px; color: var(--muted); margin: 0 0 26px; }
+h2 { font-size: 24px; line-height: 1.3; letter-spacing: -.015em; color: var(--head); font-weight: 650; margin: 40px 0 12px; padding-top: 22px; border-top: 1px solid var(--line); }
+h3 { font-size: 18.5px; color: var(--head); font-weight: 650; margin: 28px 0 8px; }
+h2, h3 { position: relative; }
+.hash { position: absolute; left: -22px; padding-right: 6px; color: var(--dim); font-weight: 500; opacity: 0; text-decoration: none !important; }
+h2 .hash { top: 22px; }
+h2:hover .hash, h3:hover .hash, .hash:focus { opacity: 1; }
+p { margin: 0 0 14px; }
+ul, ol { margin: 0 0 16px; padding-left: 24px; }
+li { margin: 5px 0; }
+li::marker { color: var(--dim); }
+strong, b { color: var(--head); font-weight: 600; }
+code { font: 13.5px var(--mono); background: var(--bg-code); border: 1px solid var(--line); border-radius: 5px; padding: 1.5px 5px; color: var(--head); overflow-wrap: anywhere; }
+.path { font-weight: 600; color: var(--head); white-space: nowrap; }
+.code { position: relative; margin: 14px 0 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-code); }
+.code .lbl { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--line); font: 500 11.5px var(--mono); color: var(--dim); text-transform: lowercase; }
+.code pre { margin: 0; padding: 14px 16px; font: 13.5px/1.7 var(--mono); color: var(--head); white-space: pre-wrap; overflow-wrap: anywhere; }
+.code pre code { background: none; border: 0; padding: 0; }
+.copy { display: inline-flex; align-items: center; gap: 6px; font: 500 12px var(--sans); color: var(--muted); padding: 3px 8px; border-radius: 6px; text-transform: none; }
+.copy:hover { background: var(--bg-hover); color: var(--head); }
+.copy svg { width: 15px; height: 15px; }
+.copy.ok { color: var(--tip); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 22px; font-size: 14.5px; display: block; overflow-x: auto; }
+thead, tbody, tr { width: 100%; }
+th, td { text-align: left; padding: 9px 14px; border: 1px solid var(--line); vertical-align: top; }
+th { background: var(--bg-soft); color: var(--head); font-weight: 600; white-space: nowrap; }
+td:first-child { white-space: nowrap; }
+img.shot { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; }
+.shots { display: flex; gap: 14px; align-items: flex-end; margin: 18px 0 6px; }
+.shots .d { flex: 1 1 0; min-width: 0; }
+.shots .m { width: 23%; border-radius: 14px; }
+.shots .m2 { width: 32%; border-radius: 14px; }
+.cap { font-size: 13px; color: var(--dim); margin: 0 0 20px; }
+
+/* callouts */
+.callout { display: flex; gap: 12px; margin: 18px 0 22px; padding: 13px 16px; border: 1px solid; border-left-width: 4px; border-radius: 8px; font-size: 15px; }
+.callout svg { margin-top: 3px; }
+.callout > div > :last-child { margin-bottom: 0; }
+.callout .t { display: block; font-weight: 650; margin-bottom: 2px; }
+.callout.info { border-color: color-mix(in srgb, var(--info) 35%, transparent); border-left-color: var(--info); background: var(--info-bg); }
+.callout.info svg, .callout.info .t { color: var(--info); }
+.callout.tip { border-color: color-mix(in srgb, var(--tip) 35%, transparent); border-left-color: var(--tip); background: var(--tip-bg); }
+.callout.tip svg, .callout.tip .t { color: var(--tip); }
+.callout.warn { border-color: color-mix(in srgb, var(--warn) 35%, transparent); border-left-color: var(--warn); background: var(--warn-bg); }
+.callout.warn svg, .callout.warn .t { color: var(--warn); }
+
+/* tabs */
+.tabs { margin: 14px 0 22px; border: 1px solid var(--line); border-radius: 8px; }
+.tabs [role=tablist] { display: flex; overflow-x: auto; border-bottom: 1px solid var(--line); padding: 0 6px; scrollbar-width: none; }
+.tabs [role=tab] { padding: 10px 12px; font-size: 14px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tabs [role=tab]:hover { color: var(--head); }
+.tabs [role=tab][aria-selected=true] { color: var(--accent-text); border-color: var(--accent); }
+.tabs [role=tabpanel] { padding: 16px 18px 4px; }
+.tabs [role=tabpanel][hidden] { display: none; }
+.tabs .code { margin-top: 4px; }
+
+/* steps */
+.steps { list-style: none; padding: 0; counter-reset: s; }
+.steps > li { counter-increment: s; position: relative; padding: 0 0 12px 42px; margin: 0; }
+.steps > li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); font: 600 13px/26px var(--sans); text-align: center; }
+.steps > li::after { content: ''; position: absolute; left: 13px; top: 32px; bottom: 6px; width: 1px; background: var(--line2); }
+.steps > li:last-child::after { display: none; }
+
+/* cards on the home page */
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0 26px; }
+.cards a { display: block; padding: 15px 16px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); transition: border-color .15s, background .15s; }
+.cards a:hover { border-color: var(--accent); background: var(--accent-soft); text-decoration: none; }
+.cards b { display: flex; align-items: center; gap: 8px; color: var(--head); font-size: 15.5px; margin-bottom: 2px; }
+.cards b svg { color: var(--accent-text); }
+.cards span { font-size: 14px; color: var(--muted); line-height: 1.5; display: block; }
+
+/* faq */
+details.q { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 8px; }
+details.q summary { cursor: pointer; list-style: none; padding: 11px 40px 11px 16px; position: relative; font-weight: 600; color: var(--head); font-size: 15.5px; }
+details.q summary::-webkit-details-marker { display: none; }
+details.q summary::after { content: ''; position: absolute; right: 16px; top: 18px; width: 7px; height: 7px; border-right: 2px solid var(--dim); border-bottom: 2px solid var(--dim); transform: rotate(45deg); transition: transform .15s; }
+details.q[open] summary::after { transform: rotate(-135deg); top: 21px; }
+details.q > div { padding: 0 16px 6px; }
+
+/* prev / next, footer of the article */
+.meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin: 46px 0 18px; font-size: 13.5px; color: var(--dim); }
+.meta a { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.meta svg { width: 15px; height: 15px; }
+.pn { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.pn a { display: block; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; color: var(--head); font-weight: 600; transition: border-color .15s; }
+.pn a:hover { border-color: var(--accent); text-decoration: none; }
+.pn a small { display: block; font-weight: 500; font-size: 12.5px; color: var(--dim); margin-bottom: 2px; }
+.pn .next { text-align: right; grid-column: 2; }
+.foot { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.foot a { color: var(--muted); }
+
+/* on this page */
+.toc { position: sticky; top: calc(var(--top) + 34px); align-self: start; max-height: calc(100vh - var(--top) - 60px); overflow-y: auto; font-size: 13.5px; scrollbar-width: thin; }
+.toc p { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--head); margin: 0 0 10px; font-size: 13.5px; }
+.toc p svg { width: 16px; height: 16px; color: var(--dim); }
+.toc a { display: block; padding: 4px 0 4px 12px; border-left: 1px solid var(--line2); color: var(--muted); line-height: 1.45; }
+.toc a.h3 { padding-left: 24px; }
+.toc a:hover { color: var(--head); text-decoration: none; }
+.toc a.on { color: var(--accent-text); border-color: var(--accent); }
+.toc .up { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; color: var(--dim); font-size: 13px; }
+.toc .up:hover { color: var(--head); }
+.toc .up svg { width: 14px; height: 14px; }
+
+@media (max-width: 1180px) {
+  .inner { grid-template-columns: minmax(0, 1fr); padding-right: 40px; }
+  .toc { display: none; }
+}
+@media (max-width: 960px) {
+  .burger { display: grid; }
+  .brand { width: auto; }
+  .side { transform: translateX(-100%); transition: transform .22s ease; box-shadow: none; width: min(300px, 86vw); }
+  body.nav .side { transform: none; box-shadow: var(--shadow); }
+  .scrim { display: block; position: fixed; inset: var(--top) 0 0; background: rgba(0,0,0,.35); z-index: 25; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  body.nav .scrim { opacity: 1; pointer-events: auto; }
+  .page { margin-left: 0; }
+  .inner { padding: 26px 20px 50px; }
+  .links > a { display: none; }
+  .hash { display: none; }
+}
+@media (max-width: 640px) {
+  .top { padding: 0 10px 0 6px; gap: 6px; }
+  .brand small { display: none; }
+  .search { position: static; flex: 0 0 auto; }
+  .search label { width: 36px; padding: 0; justify-content: center; border-color: transparent; background: none; cursor: pointer; }
+  .search input, .search kbd { display: none; }
+  body.find .search label { position: absolute; left: 8px; right: 8px; top: 13px; width: auto; padding: 0 10px; justify-content: flex-start; background: var(--bg-soft); border-color: var(--accent); z-index: 2; }
+  body.find .search input { display: block; }
+  .results { left: 8px; right: 8px; top: 58px; width: auto; }
+  .cards { grid-template-columns: 1fr; }
+  .shots .m { width: 30%; }
+  .shots .m2 { width: 46%; }
+  .pn { grid-template-columns: 1fr; }
+  .pn .next { grid-column: 1; }
+  h2 { font-size: 21.5px; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="burger" id="burger" aria-label="Menu"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <a class="brand" href="#/"><svg viewBox="0 0 512 512" aria-hidden="true"><circle cx="256" cy="256" r="248" fill="#0a0b10" stroke="#2a2e42" stroke-width="8"/><g fill="none" stroke="#252838" stroke-width="10"><circle cx="256" cy="256" r="210"/><circle cx="256" cy="256" r="170"/><circle cx="256" cy="256" r="134"/></g><circle cx="256" cy="256" r="98" fill="#4f7cff"/><circle cx="256" cy="256" r="16" fill="#0a0b10"/></svg>Musik Docs<small id="ver" hidden></small></a>
+  <div class="search">
+    <label id="slabel"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" autocomplete="off" spellcheck="false"><kbd id="kbd">Ctrl K</kbd></label>
+    <div class="results" id="results" role="listbox"></div>
+  </div>
+  <nav class="links">
+    <a href="../" data-t="download"></a>
+    <a href="https://github.com/Labtoso/Musik">GitHub</a>
+    <div class="lang"><button data-l="en">EN</button><button data-l="de">DE</button></div>
+    <button class="ibtn" id="theme" aria-label="Light or dark"><svg class="i moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="i sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+  </nav>
+</header>
+
+<aside class="side" id="side"></aside>
+<div class="scrim" id="scrim"></div>
+
+<div class="page">
+  <div class="inner">
+    <article id="doc"></article>
+    <aside class="toc" id="toc"></aside>
+  </div>
+</div>
+
+<!-- ============================ ENGLISH ============================ -->
+
+<template data-l="en" data-p="" data-g="" data-t="Welcome">
+<p class="lead">Musik is your own music server with apps for Android, Windows, Linux and the browser. It keeps your music at home, learns your taste and plays everywhere.</p>
+<div class="shots"><img class="shot d" src="../shots/d-home.webp" width="1440" height="900" alt="Desktop app, start page" loading="lazy"><img class="shot m" src="../shots/m-home.webp" width="540" height="1169" alt="Android app, start page" loading="lazy"></div>
+<p class="cap">Desktop app and Android app</p>
+<h2>Where do you want to start?</h2>
+<div class="cards">
+  <a href="#/start"><b><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Quick start</b><span>From zero to the first song in five steps</span></a>
+  <a href="#/install"><b><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/></svg>Install the server</b><span>Proxmox, Debian, ZimaOS, Docker, Windows</span></a>
+  <a href="#/apps"><b><svg class="i" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Get the apps</b><span>Android, Windows, Linux, browser</span></a>
+  <a href="#/away"><b><svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Listen on the go</b><span>Tailscale, no port forwarding</span></a>
+  <a href="#/share"><b><svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Share playlists</b><span>Public links, invite friends</span></a>
+  <a href="#/help"><b><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/></svg>Help</b><span>When something does not work</span></a>
+</div>
+<h2>How it fits together</h2>
+<ul>
+  <li><strong>Server:</strong> a small Rust program, best as a Proxmox container. It reads your music folder, streams to the apps and runs the recommendations.</li>
+  <li><strong>Apps:</strong> Android, Windows and Linux, plus the web player that the server serves itself.</li>
+  <li><strong>Your mix:</strong> learns from what you play to the end, skip and like. Nothing leaves your server.</li>
+  <li><strong>Spotify and more:</strong> optional. Names and covers come from Spotify, the sound from YouTube Music, played through your server.</li>
+</ul>
+</template>
+
+<template data-l="en" data-p="start" data-g="Get started" data-t="Quick start">
+<p class="lead">From zero to the first song in five steps.</p>
+<ol class="steps">
+  <li><strong>Install the server</strong>, easiest on Proxmox (see <a href="#/install">Install the server</a>). At the end you see an address like <code>http://192.168.1.50:8484</code>.</li>
+  <li><strong>Get an app</strong> from <a href="../">musik.labtoso.de</a>, or just open the address in a browser.</li>
+  <li><strong>Enter the address</strong> and create your account. The first account is the admin.</li>
+  <li><strong>Answer the setup assistant:</strong> language, look, music you like, favourite artists, sources and how you listen.</li>
+  <li><strong>Add music</strong> to the music folder or upload it under <span class="path">Settings → Upload music</span>, then play <strong>Mix for you</strong> on the start page.</li>
+</ol>
+<div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Tip</span><p>Every step of the setup assistant can be skipped and changed later in Settings.</p></div></div>
+</template>
+
+<template data-l="en" data-p="install" data-g="Server" data-t="Install the server">
+<p class="lead">One command per system. Running it again later updates the server, your data stays.</p>
+<h2>Pick your system</h2>
+<div class="tabs">
+  <div role="tablist"><button role="tab">Proxmox</button><button role="tab">Debian / Ubuntu</button><button role="tab">ZimaOS / CasaOS</button><button role="tab">Docker</button><button role="tab">Windows</button></div>
+  <div role="tabpanel">
+    <p>Click the node in Proxmox, open <strong>Shell</strong> and paste:</p>
+    <pre data-lang="bash"><code>bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+    <p>It creates a Debian 12 container (2 cores, 2 GB RAM, 8 GB disk), asks for an optional music folder on the host and whether you want <a href="#/away">Tailscale</a>, then prints the address.</p>
+  </div>
+  <div role="tabpanel">
+    <pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash</code></pre>
+    <p>Installs the <code>musik</code> service. Options go after <code>bash -s --</code>: <code>--music /path</code>, <code>--port 8484</code>, <code>--tailscale</code>, <code>--no-tailscale</code>, <code>--ts-authkey …</code></p>
+  </div>
+  <div role="tabpanel">
+    <pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash</code></pre>
+    <p>Musik shows up as an app on the dashboard. Songs go into <code>Media/Music</code>.</p>
+  </div>
+  <div role="tabpanel">
+    <pre data-lang="bash"><code>git clone https://github.com/Labtoso/Musik.git && cd Musik && docker compose up -d --build</code></pre>
+    <p>Music goes into <code>music/</code>, data into <code>data/</code>, port 8484.</p>
+  </div>
+  <div role="tabpanel">
+    <p>Download <code>musik-server-windows-x64.exe</code> from the <a href="https://github.com/Labtoso/Musik/releases/latest">latest release</a> and start it. It uses your Music folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> next to the exe.</p>
+  </div>
+</div>
+<h2>Proxmox options</h2>
+<p>Put them in front of the command, for example <code>MUSIC_HOST_DIR=/mnt/nas/music bash -c "…"</code>.</p>
+<table>
+  <thead><tr><th>Option</th><th>Meaning</th></tr></thead>
+  <tbody>
+  <tr><td><code>MUSIC_HOST_DIR</code></td><td>Host folder with your music, mounted read-only into the container</td></tr>
+  <tr><td><code>CTID</code></td><td>Container number, otherwise the next free one</td></tr>
+  <tr><td><code>CT_CORES</code> <code>CT_RAM</code> <code>CT_SWAP</code> <code>CT_DISK</code></td><td>Cores, RAM and swap in MB, disk in GB (2 / 2048 / 2048 / 8)</td></tr>
+  <tr><td><code>CT_BRIDGE</code> <code>CT_STORAGE</code></td><td>Network bridge (<code>vmbr0</code>) and storage</td></tr>
+  <tr><td><code>TAILSCALE=1</code> / <code>0</code></td><td>Tailscale on or off without asking</td></tr>
+  <tr><td><code>TS_AUTHKEY</code></td><td>Tailscale key, so you do not have to open a link</td></tr>
+  <tr><td><code>PUBLIC=1</code> / <code>0</code></td><td><a href="#/share">Public links</a> on or off</td></tr>
+  </tbody>
+</table>
+<h2>After the install</h2>
+<p>Open the printed address in a browser or in an app and create the first account. Next: <a href="#/apps">Get the apps</a>.</p>
+</template>
+
+<template data-l="en" data-p="config" data-g="Server" data-t="Server settings">
+<p class="lead">Settings live in <code>/etc/musik.env</code> (container and Debian) or in a <code>.env</code> next to the server.</p>
+<h2>Variables</h2>
+<table>
+  <thead><tr><th>Variable</th><th>Default</th><th>Meaning</th></tr></thead>
+  <tbody>
+  <tr><td><code>MUSIC_DIRS</code></td><td>Music folder</td><td>Song folders, several separated by <code>:</code> (Windows <code>;</code>)</td></tr>
+  <tr><td><code>PORT</code></td><td>8484</td><td>Server port</td></tr>
+  <tr><td><code>DATA_DIR</code></td><td><code>data</code></td><td>Database, covers, uploads</td></tr>
+  <tr><td><code>SCAN_INTERVAL</code></td><td>30</td><td>Minutes between automatic scans</td></tr>
+  <tr><td><code>SERVER_NAME</code></td><td>Musik</td><td>Name in the apps and on share pages</td></tr>
+  <tr><td><code>REMOTE_URL</code></td><td>–</td><td>Address on the go (set by the installer with Tailscale)</td></tr>
+  <tr><td><code>PUBLIC_URL</code></td><td>–</td><td>Address for public links (set by the installer)</td></tr>
+  <tr><td><code>HOST</code></td><td>0.0.0.0</td><td>Address it listens on</td></tr>
+  </tbody>
+</table>
+<h2>Apply a change</h2>
+<pre data-lang="bash"><code>systemctl restart musik</code></pre>
+<h2>Where things are</h2>
+<table>
+  <thead><tr><th>What</th><th>Container and Debian</th></tr></thead>
+  <tbody>
+  <tr><td>Settings</td><td><code>/etc/musik.env</code></td></tr>
+  <tr><td>Data</td><td><code>/var/lib/musik</code></td></tr>
+  <tr><td>Music</td><td><code>/srv/musik</code></td></tr>
+  <tr><td>Logs</td><td><code>journalctl -u musik -f</code></td></tr>
+  </tbody>
+</table>
+</template>
+
+<template data-l="en" data-p="apps" data-g="Apps" data-t="Get the apps">
+<p class="lead">Download from <a href="../">musik.labtoso.de</a>, enter your server address once, done.</p>
+<h2>Downloads</h2>
+<table>
+  <thead><tr><th>Device</th><th>File</th><th>How</th></tr></thead>
+  <tbody>
+  <tr><td>Android</td><td><code>Musik.apk</code></td><td>Open it and allow installs from this source. Plays in the background with lock screen controls.</td></tr>
+  <tr><td>Windows</td><td><code>Musik.exe</code></td><td>Run the setup. Media keys work.</td></tr>
+  <tr><td>Linux</td><td><code>Musik.AppImage</code></td><td>Make it executable and start it.</td></tr>
+  <tr><td>Browser</td><td>–</td><td>Open the server address, or <strong>Web player</strong> on the home page.</td></tr>
+  </tbody>
+</table>
+<pre data-lang="bash"><code>chmod +x Musik.AppImage && ./Musik.AppImage</code></pre>
+<h2>First start</h2>
+<p>Each app asks for the server address once, for example <code>192.168.1.50:8484</code>, then runs the setup assistant. Change the address later under <span class="path">Settings → Change server</span>.</p>
+<div class="shots"><img class="shot m2" src="../shots/m-np1.webp" width="540" height="1169" alt="Full screen player" loading="lazy"><img class="shot m2" src="../shots/m-album.webp" width="540" height="1169" alt="Album page" loading="lazy"></div>
+<p class="cap">Full screen player and album page on Android</p>
+</template>
+
+<template data-l="en" data-p="away" data-g="Listen anywhere" data-t="On the go">
+<p class="lead">Without extra steps the apps work on your home Wi-Fi. With Tailscale they work everywhere, with no port forwarding and nothing open to the internet.</p>
+<h2>Set it up</h2>
+<ol class="steps">
+  <li>Run the installer and pick <strong>2) With Tailscale</strong>. For an existing server just run it again.</li>
+  <li>Open the link it shows and sign in to Tailscale (free).</li>
+  <li>If the installer asks, click <strong>Enable HTTPS</strong> on <a href="https://login.tailscale.com/admin/dns">login.tailscale.com/admin/dns</a> and press Enter.</li>
+  <li>Install the Tailscale app on your phone and sign in with the same account.</li>
+  <li>Open Musik once at home. Away from home it switches to the Tailscale address by itself.</li>
+</ol>
+<p>The address is shown under <span class="path">Settings → On the go</span>.</p>
+<h2>Without a link</h2>
+<p>Create an auth key in the Tailscale admin under <strong>Settings → Keys</strong>:</p>
+<pre data-lang="bash"><code>TAILSCALE=1 TS_AUTHKEY=tskey-auth-xxxxx bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+<h2>Docker and Windows</h2>
+<p>Install Tailscale on that computer from <a href="https://tailscale.com/download">tailscale.com/download</a>, then set the address and restart the server:</p>
+<pre data-lang="env"><code>REMOTE_URL=http://100.x.y.z:8484</code></pre>
+<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Battery saver</span><p>If Android stops Tailscale in the background, exclude it from battery optimisation.</p></div></div>
+</template>
+
+<template data-l="en" data-p="share" data-g="Listen anywhere" data-t="Sharing and public links">
+<p class="lead">Tap <strong>Share</strong> on a playlist. With public links switched on, anyone can open it at musik.labtoso.de, no app and no account needed.</p>
+<h2>Two ways to share</h2>
+<table>
+  <thead><tr><th>Share as</th><th>What the other person can do</th></tr></thead>
+  <tbody>
+  <tr><td>Link to listen</td><td>Listen in any browser, without signing in</td></tr>
+  <tr><td>Invite collaborators</td><td>Create an account on the page (or sign in) and add or remove songs</td></tr>
+  </tbody>
+</table>
+<h2>Switch on public links</h2>
+<p>Run the Proxmox installer again and answer <code>y</code> to <strong>Switch on public links?</strong>, or:</p>
+<pre data-lang="bash"><code>PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+<p>Links then look like <code>musik.labtoso.de/s/#…</code>. The page lives on the website, the music comes straight from your server through Tailscale Funnel. See or change the address under <span class="path">Settings → On the go → Public links</span>. Switch off with <code>PUBLIC=0</code> or by clearing that field.</p>
+<h3>Docker and Windows</h3>
+<p>The server listens for public links on port 8485 (this computer only). On the computer with Tailscale:</p>
+<pre data-lang="bash"><code>tailscale funnel --bg --https=8443 http://127.0.0.1:8485</code></pre>
+<p>Then set <code>PUBLIC_URL=https://&lt;name&gt;.&lt;tailnet&gt;.ts.net:8443</code> and restart the server.</p>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Safe by design</span><p>Public links use a separate door (port 8443). Through it, setup, updates, user management, scans, uploads and admin sign-ins are closed. Sign-ins are limited to 20 a minute, and one invitation makes at most 25 accounts.</p></div></div>
+</template>
+
+<template data-l="en" data-p="offline" data-g="Listen anywhere" data-t="Offline mode">
+<p class="lead">Download playlists in the Android or desktop app and they play without the server.</p>
+<h2>Download a playlist</h2>
+<p>Open a playlist and tap <strong>Download</strong>. Tap again to remove it. A downloaded playlist follows changes on the server.</p>
+<h2>Without a connection</h2>
+<p>When the server cannot be reached, the app starts in offline mode by itself. It looks and works as usual, a bar on top has a button to go online again. The page where you enter the server address also has <strong>Use offline</strong>.</p>
+<h2>Manage storage</h2>
+<p><span class="path">Settings → Offline</span> lists what is stored on this device, with its size, and removes it.</p>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Good to know</span><p>Only songs stored as files on your server are kept. The web player in the browser has no offline mode.</p></div></div>
+</template>
+
+<template data-l="en" data-p="sources" data-g="Using Musik" data-t="Music and sources">
+<p class="lead">Your own files always come first. Spotify, YouTube and others are optional, switched on under <span class="path">Settings → Sources</span>.</p>
+<h2>Your own files</h2>
+<p>Put them into the music folder (scanned every 30 minutes, or right away with <strong>Rescan library</strong>) or use <span class="path">Settings → Upload music</span>. MP3, FLAC, M4A/AAC, OGG, WAV and WebM work. Title, artist, album, cover and lyrics come from the tags.</p>
+<h2>Spotify</h2>
+<ol class="steps">
+  <li>Create an app on <a href="https://developer.spotify.com/dashboard">developer.spotify.com</a> with <strong>Web API</strong> ticked.</li>
+  <li>Add this redirect URI: <code>https://musik.labtoso.de/spotify.html</code></li>
+  <li>Paste the client ID under <span class="path">Settings → Sources → Spotify</span> and press <strong>Connect Spotify</strong>. The connection stays saved on the server for all your apps.</li>
+</ol>
+<p>Spotify songs play in full: names, covers and descriptions come from Spotify, the sound is found on YouTube Music and streamed through your server. No YouTube key needed.</p>
+<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Spotify limits since February 2026</span><p>The owner of the developer app needs Premium, at most 5 users, and playlist contents only for your own or collaborative playlists. Copy other playlists into your library first, or import an Exportify CSV.</p></div></div>
+<h2>Import playlists</h2>
+<p><span class="path">Library → Imported → Import</span>: paste a link or pick a file. Songs you own play from your library, the rest through the source. <strong>Save as playlist</strong> turns it into a normal playlist.</p>
+<table>
+  <thead><tr><th>Source</th><th>Import</th></tr></thead>
+  <tbody>
+  <tr><td>Spotify</td><td>Your playlists, liked songs, albums</td></tr>
+  <tr><td>YouTube, YouTube Music</td><td>Playlist link</td></tr>
+  <tr><td>SoundCloud</td><td>Playlist or track link</td></tr>
+  <tr><td>Deezer</td><td>Playlist or album link</td></tr>
+  <tr><td>File</td><td>CSV (e.g. Exportify), M3U, TXT</td></tr>
+  </tbody>
+</table>
+</template>
+
+<template data-l="en" data-p="listen" data-g="Using Musik" data-t="Mix, radio and playlists">
+<p class="lead">The more you listen, the better the mix gets.</p>
+<h2>Recommendations</h2>
+<ul>
+  <li><strong>Mix for you</strong> on the start page, plus song, playlist and artist suggestions from what you hear and follow.</li>
+  <li><strong>Start radio</strong> in a song's menu plays similar songs and keeps the queue going.</li>
+  <li><strong>Smart shuffle</strong> plays favourites more often and avoids the same artist twice in a row.</li>
+</ul>
+<p>Playing to the end counts positive, an early skip negative, a like strongly positive. Older signals fade with a half-life of 30 days.</p>
+<h2>Library</h2>
+<ul>
+  <li><strong>Like</strong> any song with the heart, also from Spotify or YouTube. Liked songs collect in <strong>Liked songs</strong>.</li>
+  <li><strong>Follow</strong> artists on their page. They show up in Library → Artists and on the start page.</li>
+  <li><strong>Playlists:</strong> <strong>+</strong> in the sidebar or <strong>Add to playlist</strong> in a song's menu. <strong>Edit details</strong> sets picture, name and description. Drag to reorder.</li>
+</ul>
+<h2>Menus</h2>
+<p>Right click on the computer, long press on the phone, or tap the <strong>…</strong> button. Works on songs, albums, artists and playlists.</p>
+</template>
+
+<template data-l="en" data-p="player" data-g="Using Musik" data-t="Devices, sound and lyrics">
+<p class="lead">Tap the small player (phone) or the cover (computer) to open the full screen player with lyrics, queue and visualizer.</p>
+<h2>Devices</h2>
+<p><span class="path">Settings → Devices</span> shows where the music plays. Pick headphones or a Bluetooth device. Optional: pause when a device disconnects, continue when it comes back within ten minutes.</p>
+<h2>Equalizer</h2>
+<p><span class="path">Settings → Equalizer</span>: 10 bands from 31 Hz to 16 kHz, preamp and presets (Flat, Bass boost, Treble boost, Vocal, Acoustic, Electronic, Night). Works on songs from your server.</p>
+<h2>Visualizer</h2>
+<p>Tap <strong>Visualizer</strong> in the full screen player: bars, ring or wave, in the colours of the cover. Each tap switches on.</p>
+<h2>Lyrics</h2>
+<p>From the file's tags or from LRCLIB. Synced lyrics follow along, tap a line to jump there.</p>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Android permissions</span><p>Android asks once for “record audio” for the visualizer and for Bluetooth to show full device names. Nothing is recorded.</p></div></div>
+</template>
+
+<template data-l="en" data-p="look" data-g="Using Musik" data-t="Themes and colours">
+<p class="lead">Change the look under <span class="path">Settings → General → Theme</span> or in the setup assistant.</p>
+<h2>Themes</h2>
+<table>
+  <thead><tr><th>Theme</th><th>Looks like</th></tr></thead>
+  <tbody>
+  <tr><td>Standard</td><td>Calm and dark (or light). The default.</td></tr>
+  <tr><td>Liquid Glass</td><td>Frosted glass panels, light rims, a backdrop drifting in the colours of the cover.</td></tr>
+  <tr><td>Green</td><td>Black with a green accent, round buttons, bold type. Always dark.</td></tr>
+  </tbody>
+</table>
+<div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Themes +</span><p>Green and later themes appear once you switch on <strong>Themes +</strong> above the theme picker.</p></div></div>
+<h2>More options</h2>
+<ul>
+  <li><strong>Light or dark</strong> for every theme.</li>
+  <li><strong>Accent colour:</strong> blue, green, purple, orange, pink, red, teal, or from the cover.</li>
+  <li><strong>Language:</strong> English or German, kept across updates.</li>
+  <li><strong>Columns</strong> that song lists show: cover, artist, album, source, length, year, genre, date added.</li>
+</ul>
+</template>
+
+<template data-l="en" data-p="update" data-g="Maintenance" data-t="Updates and backup">
+<p class="lead"><span class="path">Settings → Updates → Update now</span> updates the server and the app. Only an admin can update the server.</p>
+<h2>Update by hand</h2>
+<table>
+  <thead><tr><th>What</th><th>How</th></tr></thead>
+  <tbody>
+  <tr><td>Proxmox</td><td>Run the installer again</td></tr>
+  <tr><td>Debian / Ubuntu</td><td><code>musik-update</code></td></tr>
+  <tr><td>Docker</td><td><code>git pull && docker compose up -d --build</code></td></tr>
+  <tr><td>Apps</td><td>Install the new version from the website over the old one</td></tr>
+  </tbody>
+</table>
+<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Android before 1.8.0</span><p>Uninstall Musik once and install the new <code>Musik.apk</code>. From then on updates install over it.</p></div></div>
+<h2>Backup</h2>
+<p>The data folder is enough: <code>/var/lib/musik</code> or <code>data/</code>. It holds the database, covers and uploaded songs. Easiest is a Proxmox backup of the container.</p>
+</template>
+
+<template data-l="en" data-p="help" data-g="Maintenance" data-t="Help and FAQ">
+<p class="lead">The most common problems and how to fix them.</p>
+<h2>Connection</h2>
+<details class="q"><summary>The app cannot find the server</summary><div><p>Check the address including the port (<code>:8484</code>) and that the phone is on the same Wi-Fi. <code>http://ADDRESS:8484/api/info</code> in a browser must show <code>"app":"musik"</code>. In the container run <code>systemctl status musik</code>.</p></div></details>
+<details class="q"><summary>Nothing works on the go</summary><div><p>Is Tailscale on and signed in with the same account on the phone? Exclude it from battery saving on Android. In the container run <code>tailscale status</code>.</p></div></details>
+<h2>Music</h2>
+<details class="q"><summary>New songs do not show up</summary><div><p>Press <strong>Rescan library</strong> in Settings. With a host folder, check that <code>MUSIC_HOST_DIR</code> was set and is readable.</p></div></details>
+<details class="q"><summary>Spotify does not connect</summary><div><p>The redirect URI in the Spotify dashboard must be exactly <code>https://musik.labtoso.de/spotify.html</code>, and your Spotify account must be added as a user of the developer app.</p></div></details>
+<details class="q"><summary>The wrong version of a song plays</summary><div><p>Report the song with its name in a GitHub issue. The server prefers official uploads and skips covers, live and remix versions.</p></div></details>
+<h2>Apps</h2>
+<details class="q"><summary>Android will not install the update</summary><div><p>Versions before 1.8.0 were signed with a different key. Uninstall Musik once and install the new <code>Musik.apk</code>.</p></div></details>
+<details class="q"><summary>Where are the logs?</summary><div><pre data-lang="bash"><code>journalctl -u musik -f</code></pre></div></details>
+<h2>Still stuck?</h2>
+<p>Open an <a href="https://github.com/Labtoso/Musik/issues">issue on GitHub</a>.</p>
+</template>
+
+<!-- ============================ DEUTSCH ============================ -->
+
+<template data-l="de" data-p="" data-g="" data-t="Willkommen">
+<p class="lead">Musik ist dein eigener Musik-Server mit Apps für Android, Windows, Linux und den Browser. Deine Musik bleibt zuhause, der Server lernt deinen Geschmack und spielt überall.</p>
+<div class="shots"><img class="shot d" src="../shots/d-home.webp" width="1440" height="900" alt="Desktop-App, Startseite" loading="lazy"><img class="shot m" src="../shots/m-home.webp" width="540" height="1169" alt="Android-App, Startseite" loading="lazy"></div>
+<p class="cap">Desktop-App und Android-App</p>
+<h2>Womit willst du anfangen?</h2>
+<div class="cards">
+  <a href="#/start"><b><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Schnellstart</b><span>In fünf Schritten zum ersten Song</span></a>
+  <a href="#/install"><b><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/></svg>Server installieren</b><span>Proxmox, Debian, ZimaOS, Docker, Windows</span></a>
+  <a href="#/apps"><b><svg class="i" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Apps holen</b><span>Android, Windows, Linux, Browser</span></a>
+  <a href="#/away"><b><svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Unterwegs hören</b><span>Tailscale, ohne Portfreigabe</span></a>
+  <a href="#/share"><b><svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Playlists teilen</b><span>Öffentliche Links, Freunde einladen</span></a>
+  <a href="#/help"><b><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/></svg>Hilfe</b><span>Wenn etwas nicht klappt</span></a>
+</div>
+<h2>So hängt alles zusammen</h2>
+<ul>
+  <li><strong>Server:</strong> ein kleines Rust-Programm, am besten als Proxmox-Container. Er liest deinen Musikordner, streamt an die Apps und macht die Empfehlungen.</li>
+  <li><strong>Apps:</strong> Android, Windows und Linux, dazu der Webplayer, den der Server selbst ausliefert.</li>
+  <li><strong>Dein Mix:</strong> lernt aus dem, was du ganz hörst, überspringst und likest. Nichts verlässt deinen Server.</li>
+  <li><strong>Spotify und mehr:</strong> optional. Namen und Cover kommen von Spotify, der Ton von YouTube Music, gespielt über deinen Server.</li>
+</ul>
+</template>
+
+<template data-l="de" data-p="start" data-g="Erste Schritte" data-t="Schnellstart">
+<p class="lead">In fünf Schritten zum ersten Song.</p>
+<ol class="steps">
+  <li><strong>Server installieren</strong>, am einfachsten auf Proxmox (siehe <a href="#/install">Server installieren</a>). Am Ende steht eine Adresse wie <code>http://192.168.1.50:8484</code>.</li>
+  <li><strong>App holen</strong> auf <a href="../">musik.labtoso.de</a>, oder die Adresse einfach im Browser öffnen.</li>
+  <li><strong>Adresse eintragen</strong> und Konto anlegen. Das erste Konto ist Admin.</li>
+  <li><strong>Startassistent beantworten:</strong> Sprache, Aussehen, Musik, Lieblingskünstler, Quellen und wie du hörst.</li>
+  <li><strong>Musik reinbringen:</strong> in den Musikordner legen oder unter <span class="path">Einstellungen → Musik hochladen</span>, dann auf der Startseite <strong>Mix für dich</strong> abspielen.</li>
+</ol>
+<div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Tipp</span><p>Jeden Schritt des Startassistenten kannst du überspringen und später in den Einstellungen ändern.</p></div></div>
+</template>
+
+<template data-l="de" data-p="install" data-g="Server" data-t="Server installieren">
+<p class="lead">Ein Befehl pro System. Später noch mal ausgeführt, aktualisiert er den Server, deine Daten bleiben.</p>
+<h2>System wählen</h2>
+<div class="tabs">
+  <div role="tablist"><button role="tab">Proxmox</button><button role="tab">Debian / Ubuntu</button><button role="tab">ZimaOS / CasaOS</button><button role="tab">Docker</button><button role="tab">Windows</button></div>
+  <div role="tabpanel">
+    <p>In Proxmox die Node anklicken, <strong>Shell</strong> öffnen und einfügen:</p>
+    <pre data-lang="bash"><code>bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+    <p>Legt einen Debian-12-Container an (2 Kerne, 2 GB RAM, 8 GB Platte), fragt nach einem Musikordner auf dem Host (optional) und ob du <a href="#/away">Tailscale</a> willst, und zeigt am Ende die Adresse.</p>
+  </div>
+  <div role="tabpanel">
+    <pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash</code></pre>
+    <p>Installiert den Dienst <code>musik</code>. Optionen hinter <code>bash -s --</code>: <code>--music /pfad</code>, <code>--port 8484</code>, <code>--tailscale</code>, <code>--no-tailscale</code>, <code>--ts-authkey …</code></p>
+  </div>
+  <div role="tabpanel">
+    <pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash</code></pre>
+    <p>Musik erscheint als App auf dem Dashboard. Songs kommen nach <code>Media/Music</code>.</p>
+  </div>
+  <div role="tabpanel">
+    <pre data-lang="bash"><code>git clone https://github.com/Labtoso/Musik.git && cd Musik && docker compose up -d --build</code></pre>
+    <p>Musik in <code>music/</code>, Daten in <code>data/</code>, Port 8484.</p>
+  </div>
+  <div role="tabpanel">
+    <p><code>musik-server-windows-x64.exe</code> vom <a href="https://github.com/Labtoso/Musik/releases/latest">neuesten Release</a> laden und starten. Er nimmt deinen Musik-Ordner. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine <code>.env</code> neben der exe schreiben.</p>
+  </div>
+</div>
+<h2>Optionen für Proxmox</h2>
+<p>Vor den Befehl setzen, zum Beispiel <code>MUSIC_HOST_DIR=/mnt/nas/musik bash -c "…"</code>.</p>
+<table>
+  <thead><tr><th>Option</th><th>Bedeutung</th></tr></thead>
+  <tbody>
+  <tr><td><code>MUSIC_HOST_DIR</code></td><td>Ordner auf dem Host mit deiner Musik, nur lesend eingebunden</td></tr>
+  <tr><td><code>CTID</code></td><td>Nummer des Containers, sonst die nächste freie</td></tr>
+  <tr><td><code>CT_CORES</code> <code>CT_RAM</code> <code>CT_SWAP</code> <code>CT_DISK</code></td><td>Kerne, RAM und Swap in MB, Platte in GB (2 / 2048 / 2048 / 8)</td></tr>
+  <tr><td><code>CT_BRIDGE</code> <code>CT_STORAGE</code></td><td>Netzwerk-Bridge (<code>vmbr0</code>) und Speicher</td></tr>
+  <tr><td><code>TAILSCALE=1</code> / <code>0</code></td><td>Tailscale an oder aus, ohne Frage</td></tr>
+  <tr><td><code>TS_AUTHKEY</code></td><td>Tailscale-Schlüssel, dann musst du keinen Link öffnen</td></tr>
+  <tr><td><code>PUBLIC=1</code> / <code>0</code></td><td><a href="#/share">Öffentliche Links</a> an oder aus</td></tr>
+  </tbody>
+</table>
+<h2>Nach der Installation</h2>
+<p>Die angezeigte Adresse im Browser oder in einer App öffnen und das erste Konto anlegen. Weiter mit <a href="#/apps">Apps holen</a>.</p>
+</template>
+
+<template data-l="de" data-p="config" data-g="Server" data-t="Einstellungen des Servers">
+<p class="lead">Die Einstellungen stehen in <code>/etc/musik.env</code> (Container und Debian) oder in einer <code>.env</code> neben dem Server.</p>
+<h2>Variablen</h2>
+<table>
+  <thead><tr><th>Variable</th><th>Standard</th><th>Bedeutung</th></tr></thead>
+  <tbody>
+  <tr><td><code>MUSIC_DIRS</code></td><td>Musik-Ordner</td><td>Ordner mit Songs, mehrere mit <code>:</code> (Windows <code>;</code>)</td></tr>
+  <tr><td><code>PORT</code></td><td>8484</td><td>Port des Servers</td></tr>
+  <tr><td><code>DATA_DIR</code></td><td><code>data</code></td><td>Datenbank, Cover, Uploads</td></tr>
+  <tr><td><code>SCAN_INTERVAL</code></td><td>30</td><td>Minuten zwischen automatischen Scans</td></tr>
+  <tr><td><code>SERVER_NAME</code></td><td>Musik</td><td>Name in den Apps und auf Teilen-Seiten</td></tr>
+  <tr><td><code>REMOTE_URL</code></td><td>–</td><td>Adresse für unterwegs (setzt der Installer bei Tailscale)</td></tr>
+  <tr><td><code>PUBLIC_URL</code></td><td>–</td><td>Adresse für öffentliche Links (setzt der Installer)</td></tr>
+  <tr><td><code>HOST</code></td><td>0.0.0.0</td><td>Adresse, auf der er lauscht</td></tr>
+  </tbody>
+</table>
+<h2>Änderung übernehmen</h2>
+<pre data-lang="bash"><code>systemctl restart musik</code></pre>
+<h2>Wo was liegt</h2>
+<table>
+  <thead><tr><th>Was</th><th>Container und Debian</th></tr></thead>
+  <tbody>
+  <tr><td>Einstellungen</td><td><code>/etc/musik.env</code></td></tr>
+  <tr><td>Daten</td><td><code>/var/lib/musik</code></td></tr>
+  <tr><td>Musik</td><td><code>/srv/musik</code></td></tr>
+  <tr><td>Logs</td><td><code>journalctl -u musik -f</code></td></tr>
+  </tbody>
+</table>
+</template>
+
+<template data-l="de" data-p="apps" data-g="Apps" data-t="Apps holen">
+<p class="lead">Auf <a href="../">musik.labtoso.de</a> laden, einmal die Server-Adresse eintragen, fertig.</p>
+<h2>Downloads</h2>
+<table>
+  <thead><tr><th>Gerät</th><th>Datei</th><th>So geht’s</th></tr></thead>
+  <tbody>
+  <tr><td>Android</td><td><code>Musik.apk</code></td><td>Öffnen und Installation aus dieser Quelle erlauben. Spielt im Hintergrund, mit Steuerung auf dem Sperrbildschirm.</td></tr>
+  <tr><td>Windows</td><td><code>Musik.exe</code></td><td>Setup starten. Medientasten gehen.</td></tr>
+  <tr><td>Linux</td><td><code>Musik.AppImage</code></td><td>Ausführbar machen und starten.</td></tr>
+  <tr><td>Browser</td><td>–</td><td>Server-Adresse öffnen oder <strong>Webplayer</strong> auf der Startseite.</td></tr>
+  </tbody>
+</table>
+<pre data-lang="bash"><code>chmod +x Musik.AppImage && ./Musik.AppImage</code></pre>
+<h2>Erster Start</h2>
+<p>Jede App fragt einmal nach der Server-Adresse, zum Beispiel <code>192.168.1.50:8484</code>, dann läuft der Startassistent. Die Adresse änderst du später unter <span class="path">Einstellungen → Server wechseln</span>.</p>
+<div class="shots"><img class="shot m2" src="../shots/m-np1.webp" width="540" height="1169" alt="Vollbild-Player" loading="lazy"><img class="shot m2" src="../shots/m-album.webp" width="540" height="1169" alt="Albumseite" loading="lazy"></div>
+<p class="cap">Vollbild-Player und Albumseite auf Android</p>
+</template>
+
+<template data-l="de" data-p="away" data-g="Überall hören" data-t="Unterwegs">
+<p class="lead">Ohne Extra-Schritte gehen die Apps im WLAN zuhause. Mit Tailscale überall, ohne Portfreigabe und ohne dass etwas offen im Internet steht.</p>
+<h2>Einrichten</h2>
+<ol class="steps">
+  <li>Installer ausführen und <strong>2) With Tailscale</strong> wählen. Bei einem bestehenden Server einfach noch mal ausführen.</li>
+  <li>Den angezeigten Link öffnen und bei Tailscale anmelden (kostenlos).</li>
+  <li>Fragt der Installer danach, auf <a href="https://login.tailscale.com/admin/dns">login.tailscale.com/admin/dns</a> <strong>Enable HTTPS</strong> klicken und Enter drücken.</li>
+  <li>Tailscale-App aufs Handy und mit demselben Konto anmelden.</li>
+  <li>Musik einmal zuhause öffnen. Unterwegs wechselt die App von selbst auf die Tailscale-Adresse.</li>
+</ol>
+<p>Die Adresse steht unter <span class="path">Einstellungen → Unterwegs</span>.</p>
+<h2>Ohne Link</h2>
+<p>In der Tailscale-Verwaltung unter <strong>Settings → Keys</strong> einen Auth-Key anlegen:</p>
+<pre data-lang="bash"><code>TAILSCALE=1 TS_AUTHKEY=tskey-auth-xxxxx bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+<h2>Docker und Windows</h2>
+<p>Tailscale auf dem Rechner installieren (<a href="https://tailscale.com/download">tailscale.com/download</a>), dann die Adresse eintragen und den Server neu starten:</p>
+<pre data-lang="env"><code>REMOTE_URL=http://100.x.y.z:8484</code></pre>
+<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Akku-Sparmodus</span><p>Beendet Android Tailscale im Hintergrund, nimm es von der Akku-Optimierung aus.</p></div></div>
+</template>
+
+<template data-l="de" data-p="share" data-g="Überall hören" data-t="Teilen und öffentliche Links">
+<p class="lead">In einer Playlist auf <strong>Teilen</strong> tippen. Mit öffentlichen Links öffnet sie jeder auf musik.labtoso.de, ohne App und ohne Konto.</p>
+<h2>Zwei Arten zu teilen</h2>
+<table>
+  <thead><tr><th>Teilen als</th><th>Was die andere Person kann</th></tr></thead>
+  <tbody>
+  <tr><td>Link zum Anhören</td><td>In jedem Browser reinhören, ohne Anmeldung</td></tr>
+  <tr><td>Mitwirkende einladen</td><td>Auf der Seite ein Konto anlegen (oder anmelden) und Songs hinzufügen oder entfernen</td></tr>
+  </tbody>
+</table>
+<h2>Öffentliche Links einschalten</h2>
+<p>Den Proxmox-Installer noch mal ausführen und bei <strong>Switch on public links?</strong> mit <code>y</code> antworten, oder:</p>
+<pre data-lang="bash"><code>PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+<p>Links sehen dann so aus: <code>musik.labtoso.de/s/#…</code>. Die Seite liegt auf der Website, die Musik kommt direkt von deinem Server über Tailscale Funnel. Die Adresse siehst und änderst du unter <span class="path">Einstellungen → Unterwegs → Öffentliche Links</span>. Ausschalten mit <code>PUBLIC=0</code> oder indem du das Feld leerst.</p>
+<h3>Docker und Windows</h3>
+<p>Der Server hört für öffentliche Links auf Port 8485 (nur auf diesem Rechner). Auf dem Rechner mit Tailscale:</p>
+<pre data-lang="bash"><code>tailscale funnel --bg --https=8443 http://127.0.0.1:8485</code></pre>
+<p>Dann <code>PUBLIC_URL=https://&lt;name&gt;.&lt;tailnet&gt;.ts.net:8443</code> eintragen und den Server neu starten.</p>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Sicher gebaut</span><p>Öffentliche Links nutzen eine eigene Tür (Port 8443). Darüber sind Einrichtung, Updates, Nutzerverwaltung, Scans, Uploads und Admin-Anmeldungen gesperrt. Anmeldungen sind auf 20 pro Minute begrenzt, und eine Einladung reicht für höchstens 25 Konten.</p></div></div>
+</template>
+
+<template data-l="de" data-p="offline" data-g="Überall hören" data-t="Offline-Modus">
+<p class="lead">Playlists in der Android- oder Desktop-App herunterladen, dann spielen sie auch ohne Server.</p>
+<h2>Playlist herunterladen</h2>
+<p>Playlist öffnen und auf <strong>Herunterladen</strong> tippen. Noch mal tippen entfernt sie. Eine geladene Playlist folgt Änderungen auf dem Server.</p>
+<h2>Ohne Verbindung</h2>
+<p>Ist der Server nicht erreichbar, startet die App von selbst offline. Sie sieht aus und funktioniert wie immer, eine Leiste oben hat einen Knopf, um wieder online zu gehen. Auf der Seite für die Server-Adresse gibt es außerdem <strong>Offline nutzen</strong>.</p>
+<h2>Speicher verwalten</h2>
+<p><span class="path">Einstellungen → Offline</span> zeigt, was auf diesem Gerät liegt und wie groß es ist, und entfernt es.</p>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Gut zu wissen</span><p>Gespeichert werden nur Songs, die als Datei auf deinem Server liegen. Der Webplayer im Browser hat keinen Offline-Modus.</p></div></div>
+</template>
+
+<template data-l="de" data-p="sources" data-g="Benutzen" data-t="Musik und Quellen">
+<p class="lead">Deine eigenen Dateien kommen immer zuerst. Spotify, YouTube und andere sind optional und werden unter <span class="path">Einstellungen → Quellen</span> eingeschaltet.</p>
+<h2>Eigene Dateien</h2>
+<p>In den Musikordner legen (wird alle 30 Minuten eingelesen, sofort mit <strong>Bibliothek neu einlesen</strong>) oder <span class="path">Einstellungen → Musik hochladen</span>. MP3, FLAC, M4A/AAC, OGG, WAV und WebM gehen. Titel, Künstler, Album, Cover und Songtexte kommen aus den Tags.</p>
+<h2>Spotify</h2>
+<ol class="steps">
+  <li>Auf <a href="https://developer.spotify.com/dashboard">developer.spotify.com</a> eine App anlegen und <strong>Web API</strong> anhaken.</li>
+  <li>Diese Redirect URI eintragen: <code>https://musik.labtoso.de/spotify.html</code></li>
+  <li>Die Client-ID unter <span class="path">Einstellungen → Quellen → Spotify</span> einfügen und <strong>Mit Spotify verbinden</strong> drücken. Die Verbindung bleibt auf dem Server gespeichert, für alle deine Apps.</li>
+</ol>
+<p>Spotify-Songs laufen ganz: Namen, Cover und Beschreibungen kommen von Spotify, der Ton wird auf YouTube Music gefunden und über deinen Server gestreamt. Ein YouTube-Schlüssel ist nicht nötig.</p>
+<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Spotify-Grenzen seit Februar 2026</span><p>Der Besitzer der Entwickler-App braucht Premium, höchstens 5 Nutzer, und Playlist-Inhalte gibt es nur für eigene oder gemeinsame Playlists. Andere Playlists vorher in die eigene Bibliothek kopieren oder als Exportify-CSV importieren.</p></div></div>
+<h2>Playlists importieren</h2>
+<p><span class="path">Bibliothek → Importiert → Importieren</span>: Link einfügen oder Datei wählen. Songs, die du hast, spielen aus deiner Bibliothek, der Rest über die Quelle. <strong>Als Playlist speichern</strong> macht eine normale Playlist daraus.</p>
+<table>
+  <thead><tr><th>Quelle</th><th>Import</th></tr></thead>
+  <tbody>
+  <tr><td>Spotify</td><td>Eigene Playlists, Lieblingssongs, Alben</td></tr>
+  <tr><td>YouTube, YouTube Music</td><td>Playlist-Link</td></tr>
+  <tr><td>SoundCloud</td><td>Playlist- oder Track-Link</td></tr>
+  <tr><td>Deezer</td><td>Playlist- oder Album-Link</td></tr>
+  <tr><td>Datei</td><td>CSV (z. B. Exportify), M3U, TXT</td></tr>
+  </tbody>
+</table>
+</template>
+
+<template data-l="de" data-p="listen" data-g="Benutzen" data-t="Mix, Radio und Playlists">
+<p class="lead">Je mehr du hörst, desto besser wird der Mix.</p>
+<h2>Empfehlungen</h2>
+<ul>
+  <li><strong>Mix für dich</strong> auf der Startseite, dazu Vorschläge für Songs, Playlists und Künstler aus dem, was du hörst und wem du folgst.</li>
+  <li><strong>Radio starten</strong> im Menü eines Songs spielt Ähnliches und setzt die Warteschlange fort.</li>
+  <li><strong>Schlaues Mischen</strong> spielt Favoriten öfter und nie zweimal denselben Künstler hintereinander.</li>
+</ul>
+<p>Ganz gehört zählt positiv, früh übersprungen negativ, ein Like stark positiv. Ältere Signale verblassen mit einer Halbwertszeit von 30 Tagen.</p>
+<h2>Bibliothek</h2>
+<ul>
+  <li><strong>Liken</strong> geht bei jedem Song, auch von Spotify oder YouTube. Sie landen in <strong>Lieblingssongs</strong>.</li>
+  <li>Künstlern <strong>folgst</strong> du auf ihrer Seite. Sie erscheinen in Bibliothek → Künstler und auf der Startseite.</li>
+  <li><strong>Playlists:</strong> <strong>+</strong> in der Seitenleiste oder <strong>Zu Playlist hinzufügen</strong> im Menü eines Songs. <strong>Details bearbeiten</strong> setzt Bild, Name und Beschreibung. Reihenfolge per Ziehen.</li>
+</ul>
+<h2>Menüs</h2>
+<p>Rechtsklick am Computer, langes Drücken am Handy oder der Knopf <strong>…</strong>. Geht bei Songs, Alben, Künstlern und Playlists.</p>
+</template>
+
+<template data-l="de" data-p="player" data-g="Benutzen" data-t="Geräte, Klang und Songtexte">
+<p class="lead">Auf den kleinen Player (Handy) oder das Cover (Computer) tippen öffnet den Vollbild-Player mit Songtext, Warteschlange und Visualizer.</p>
+<h2>Geräte</h2>
+<p><span class="path">Einstellungen → Geräte</span> zeigt, wo die Musik spielt. Kopfhörer oder Bluetooth-Gerät wählen. Optional: Pause beim Trennen, weiterspielen, wenn das Gerät innerhalb von zehn Minuten zurückkommt.</p>
+<h2>Equalizer</h2>
+<p><span class="path">Einstellungen → Equalizer</span>: 10 Bänder von 31 Hz bis 16 kHz, Vorverstärkung und Presets (Neutral, Mehr Bass, Mehr Höhen, Stimme, Akustik, Elektronisch, Nachts leise). Wirkt auf Songs von deinem Server.</p>
+<h2>Visualizer</h2>
+<p>Im Vollbild-Player auf <strong>Visualizer</strong> tippen: Balken, Kreis oder Welle in den Farben des Covers. Jeder Tipp schaltet weiter.</p>
+<h2>Songtexte</h2>
+<p>Aus den Tags der Datei oder von LRCLIB. Synchrone Texte laufen mit, ein Tipp auf eine Zeile springt hin.</p>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Android-Berechtigungen</span><p>Android fragt einmal nach „Audio aufnehmen“ für den Visualizer und nach Bluetooth für volle Gerätenamen. Aufgenommen wird nichts.</p></div></div>
+</template>
+
+<template data-l="de" data-p="look" data-g="Benutzen" data-t="Designs und Farben">
+<p class="lead">Das Aussehen änderst du unter <span class="path">Einstellungen → Allgemein → Design</span> oder im Startassistenten.</p>
+<h2>Designs</h2>
+<table>
+  <thead><tr><th>Design</th><th>So sieht es aus</th></tr></thead>
+  <tbody>
+  <tr><td>Standard</td><td>Ruhig und dunkel (oder hell). Voreingestellt.</td></tr>
+  <tr><td>Liquid Glass</td><td>Milchglas-Flächen, helle Kanten, ein Hintergrund, der in den Farben des Covers treibt.</td></tr>
+  <tr><td>Green</td><td>Schwarz mit grünem Akzent, runde Knöpfe, kräftige Schrift. Immer dunkel.</td></tr>
+  </tbody>
+</table>
+<div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Themes +</span><p>Green und weitere Designs erscheinen, sobald du über dem Design-Wähler <strong>Themes +</strong> einschaltest.</p></div></div>
+<h2>Weitere Optionen</h2>
+<ul>
+  <li><strong>Hell oder dunkel</strong> für jedes Design.</li>
+  <li><strong>Akzentfarbe:</strong> Blau, Grün, Lila, Orange, Pink, Rot, Türkis oder aus dem Cover.</li>
+  <li><strong>Sprache:</strong> Englisch oder Deutsch, bleibt über Updates erhalten.</li>
+  <li><strong>Spalten</strong> in Songlisten: Cover, Künstler, Album, Quelle, Länge, Jahr, Genre, hinzugefügt am.</li>
+</ul>
+</template>
+
+<template data-l="de" data-p="update" data-g="Pflege" data-t="Updates und Sicherung">
+<p class="lead"><span class="path">Einstellungen → Updates → Jetzt updaten</span> aktualisiert Server und App. Den Server darf nur ein Admin updaten.</p>
+<h2>Von Hand updaten</h2>
+<table>
+  <thead><tr><th>Was</th><th>Wie</th></tr></thead>
+  <tbody>
+  <tr><td>Proxmox</td><td>Installer noch mal ausführen</td></tr>
+  <tr><td>Debian / Ubuntu</td><td><code>musik-update</code></td></tr>
+  <tr><td>Docker</td><td><code>git pull && docker compose up -d --build</code></td></tr>
+  <tr><td>Apps</td><td>Neue Version von der Website drüber installieren</td></tr>
+  </tbody>
+</table>
+<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Android vor 1.8.0</span><p>Musik einmal deinstallieren und die neue <code>Musik.apk</code> installieren. Ab dann gehen Updates direkt drüber.</p></div></div>
+<h2>Sicherung</h2>
+<p>Der Datenordner reicht: <code>/var/lib/musik</code> bzw. <code>data/</code>. Darin liegen Datenbank, Cover und hochgeladene Songs. Am einfachsten ist ein Proxmox-Backup des Containers.</p>
+</template>
+
+<template data-l="de" data-p="help" data-g="Pflege" data-t="Hilfe und FAQ">
+<p class="lead">Die häufigsten Probleme und wie du sie löst.</p>
+<h2>Verbindung</h2>
+<details class="q"><summary>Die App findet den Server nicht</summary><div><p>Adresse mit Port (<code>:8484</code>) prüfen und ob das Handy im selben WLAN ist. <code>http://ADRESSE:8484/api/info</code> im Browser muss <code>"app":"musik"</code> zeigen. Im Container <code>systemctl status musik</code> ausführen.</p></div></details>
+<details class="q"><summary>Unterwegs geht nichts</summary><div><p>Ist Tailscale auf dem Handy an und mit demselben Konto angemeldet? Auf Android von der Akku-Optimierung ausnehmen. Im Container <code>tailscale status</code> ausführen.</p></div></details>
+<h2>Musik</h2>
+<details class="q"><summary>Neue Songs tauchen nicht auf</summary><div><p>In den Einstellungen <strong>Bibliothek neu einlesen</strong> drücken. Bei einem Host-Ordner prüfen, ob <code>MUSIC_HOST_DIR</code> gesetzt war und lesbar ist.</p></div></details>
+<details class="q"><summary>Spotify verbindet sich nicht</summary><div><p>Die Redirect URI im Spotify-Dashboard muss genau <code>https://musik.labtoso.de/spotify.html</code> sein, und dein Spotify-Konto muss als Nutzer der Entwickler-App eingetragen sein.</p></div></details>
+<details class="q"><summary>Es läuft die falsche Version eines Songs</summary><div><p>Melde den Song mit Namen in einem GitHub-Issue. Der Server nimmt offizielle Uploads zuerst und überspringt Cover-, Live- und Remix-Versionen.</p></div></details>
+<h2>Apps</h2>
+<details class="q"><summary>Android installiert das Update nicht</summary><div><p>Versionen vor 1.8.0 hatten einen anderen Schlüssel. Musik einmal deinstallieren und die neue <code>Musik.apk</code> installieren.</p></div></details>
+<details class="q"><summary>Wo sind die Logs?</summary><div><pre data-lang="bash"><code>journalctl -u musik -f</code></pre></div></details>
+<h2>Hängst du fest?</h2>
+<p>Öffne ein <a href="https://github.com/Labtoso/Musik/issues">Issue auf GitHub</a>.</p>
+</template>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return v; };
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const slug = (s) => s.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const ico = {
+    chev: '<svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+    right: '<svg class="i" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+    copy: '<svg class="i" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
+    home: '<svg class="i" viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/></svg>',
+    list: '<svg class="i" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+    up: '<svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
+  };
+  const T = {
+    en: { search: 'Search', none: 'No results for', onpage: 'On this page', top: 'Back to top', prev: 'Previous', next: 'Next', copy: 'Copy', copied: 'Copied', edit: 'Edit this page on GitHub', docs: 'Docs', download: 'Download', home: 'Welcome' },
+    de: { search: 'Suchen', none: 'Keine Treffer für', onpage: 'Auf dieser Seite', top: 'Nach oben', prev: 'Zurück', next: 'Weiter', copy: 'Kopieren', copied: 'Kopiert', edit: 'Diese Seite auf GitHub bearbeiten', docs: 'Docs', download: 'Download', home: 'Willkommen' },
+  };
+  let lang = store('musik.site.lang') === 'de' ? 'de' : 'en';
+  const qlang = new URLSearchParams(location.search).get('lang');
+  if (qlang === 'de' || qlang === 'en') lang = qlang;
+  const pages = () => $$(`template[data-l="${lang}"]`).map((t) => ({ id: t.dataset.p, group: t.dataset.g, title: t.dataset.t, tpl: t }));
+  let cur = '', spy = null, index = null;
+
+  const route = () => {
+    const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
+    const [p, ...rest] = h.split('/');
+    return { p: p || '', a: rest.join('/') };
+  };
+
+  function sidebar() {
+    const list = pages();
+    let html = `<a class="home${cur === '' ? ' on' : ''}" href="#/">${ico.home}${esc(list[0].title)}</a>`;
+    const groups = [];
+    list.slice(1).forEach((p) => { let g = groups.find((x) => x.name === p.group); if (!g) groups.push((g = { name: p.group, items: [] })); g.items.push(p); });
+    const shut = JSON.parse(store('musik.docs.shut') || '[]');
+    groups.forEach((g, i) => {
+      const closed = shut.includes(i) && !g.items.some((p) => p.id === cur);
+      html += `<div class="grp${closed ? ' shut' : ''}" data-i="${i}"><button type="button" aria-expanded="${!closed}">${esc(g.name)}${ico.chev}</button><ul>`;
+      g.items.forEach((p) => (html += `<li><a href="#/${p.id}" class="${p.id === cur ? 'on' : ''}">${esc(p.title)}</a></li>`));
+      html += '</ul></div>';
+    });
+    $('#side').innerHTML = html;
+    $$('#side .grp > button').forEach((b) => b.addEventListener('click', () => {
+      const g = b.parentElement; const c = g.classList.toggle('shut'); b.setAttribute('aria-expanded', !c);
+      store('musik.docs.shut', JSON.stringify($$('#side .grp.shut').map((x) => +x.dataset.i)));
+    }));
+  }
+
+  function enhance(doc) {
+    // headings: ids and anchor links
+    const seen = {};
+    $$('h2, h3', doc).forEach((h) => {
+      let id = slug(h.textContent) || 'section';
+      if (seen[id]) id += '-' + ++seen[id]; else seen[id] = 1;
+      h.id = id;
+      const a = document.createElement('a');
+      a.className = 'hash'; a.href = `#/${cur}/${id}`; a.textContent = '#'; a.setAttribute('aria-hidden', 'true');
+      h.prepend(a);
+    });
+    // code blocks with a label and a copy button
+    $$('pre', doc).forEach((pre) => {
+      const box = document.createElement('div');
+      box.className = 'code';
+      box.innerHTML = `<div class="lbl"><span>${pre.dataset.lang || 'text'}</span><button class="copy" type="button">${ico.copy}<span>${T[lang].copy}</span></button></div>`;
+      pre.replaceWith(box); box.appendChild(pre);
+      const b = $('.copy', box);
+      b.addEventListener('click', async () => {
+        const text = pre.textContent;
+        let ok = false;
+        try { await navigator.clipboard.writeText(text); ok = true; } catch {
+          const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.select(); try { ok = document.execCommand('copy'); } catch {} ta.remove();
+        }
+        if (!ok) return;
+        b.classList.add('ok'); b.innerHTML = `${ico.check}<span>${T[lang].copied}</span>`;
+        setTimeout(() => { b.classList.remove('ok'); b.innerHTML = `${ico.copy}<span>${T[lang].copy}</span>`; }, 1600);
+      });
+    });
+    // tabs, the chosen one is kept
+    $$('.tabs', doc).forEach((box) => {
+      const tabs = $$('[role=tab]', box), panels = $$('[role=tabpanel]', box);
+      const pick = (i) => { tabs.forEach((t, j) => t.setAttribute('aria-selected', i === j)); panels.forEach((p, j) => (p.hidden = i !== j)); };
+      tabs.forEach((t, i) => t.addEventListener('click', () => { pick(i); store('musik.docs.tab', i); }));
+      pick(Math.min(+store('musik.docs.tab') || 0, tabs.length - 1));
+    });
+  }
+
+  function render(scroll = true) {
+    const list = pages();
+    const r = route();
+    const i = Math.max(0, list.findIndex((p) => p.id === r.p));
+    const page = list[i];
+    cur = page.id;
+    const doc = $('#doc');
+    const crumbs = page.id ? `<nav class="crumbs"><a href="#/">${T[lang].docs}</a>${ico.right}<span>${esc(page.group)}</span>${ico.right}<span>${esc(page.title)}</span></nav>` : '';
+    doc.innerHTML = `${crumbs}<h1>${esc(page.title)}</h1>`;
+    doc.appendChild(page.tpl.content.cloneNode(true));
+    const prev = list[i - 1], next = list[i + 1];
+    doc.insertAdjacentHTML('beforeend', `
+      <div class="meta"><a href="https://github.com/Labtoso/Musik/edit/main/site/docs/index.html">${ico.edit}${T[lang].edit}</a></div>
+      <nav class="pn">${prev ? `<a class="prev" href="#/${prev.id}"><small>← ${T[lang].prev}</small>${esc(prev.title)}</a>` : ''}${next ? `<a class="next" href="#/${next.id}"><small>${T[lang].next} →</small>${esc(next.title)}</a>` : ''}</nav>
+      <div class="foot"><span>© LabtosoStudios</span><span><a href="../">musik.labtoso.de</a> · <a href="https://github.com/Labtoso/Musik/releases">Releases</a></span></div>`);
+    enhance(doc);
+    document.title = page.id ? `${page.title} · Musik Docs` : 'Musik Docs';
+    sidebar();
+    toc();
+    document.body.classList.remove('nav');
+    if (r.a) { const el = document.getElementById(r.a); if (el) { el.scrollIntoView(); return; } }
+    if (scroll) scrollTo(0, 0);
+  }
+
+  function toc() {
+    const hs = $$('#doc h2, #doc h3');
+    const box = $('#toc');
+    spy?.disconnect();
+    if (!hs.length) { box.innerHTML = ''; return; }
+    box.innerHTML = `<p>${ico.list}${T[lang].onpage}</p>` + hs.map((h) => `<a href="#/${cur}/${h.id}" data-id="${h.id}" class="${h.tagName === 'H3' ? 'h3' : ''}">${esc(h.textContent.replace(/^#/, ''))}</a>`).join('') + `<button class="up" type="button">${ico.up}${T[lang].top}</button>`;
+    $('.up', box).addEventListener('click', () => scrollTo({ top: 0, behavior: 'smooth' }));
+    const mark = (id) => $$('a', box).forEach((a) => a.classList.toggle('on', a.dataset.id === id));
+    spy = new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && mark(e.target.id)), { rootMargin: '-70px 0px -70% 0px' });
+    hs.forEach((h) => spy.observe(h));
+    mark(hs[0].id);
+  }
+
+  // in-page anchors: scroll without leaving the page route
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href^="#/"]');
+    if (!a) return;
+    const [, p, ...rest] = a.getAttribute('href').split('/');
+    if ((p || '') === cur && rest.length) {
+      e.preventDefault();
+      history.replaceState(null, '', a.getAttribute('href'));
+      document.getElementById(rest.join('/'))?.scrollIntoView({ behavior: 'smooth' });
+      document.body.classList.remove('nav');
+    }
+  });
+  addEventListener('hashchange', () => render());
+
+  // search over every page of the current language
+  function buildIndex() {
+    index = [];
+    pages().forEach((p) => {
+      const div = document.createElement('div');
+      div.appendChild(p.tpl.content.cloneNode(true));
+      $$('td, th, li, p, summary, [role=tab], .t', div).forEach((x) => x.append(' '));
+      let head = '', text = '';
+      const push = () => { if (text.trim() || head) index.push({ p: p.id, page: p.title, head, text: text.replace(/\s+/g, ' ').trim() }); };
+      [...div.children].forEach((el) => {
+        if (el.tagName === 'H2' || el.tagName === 'H3') { push(); head = el.textContent.trim(); text = ''; }
+        else text += ' ' + el.textContent;
+      });
+      push();
+    });
+  }
+  let sel = -1;
+  function search() {
+    const q = $('#q').value.trim().toLowerCase();
+    const box = $('#results');
+    if (!q) { box.classList.remove('open'); box.innerHTML = ''; return; }
+    if (!index) buildIndex();
+    const words = q.split(/\s+/);
+    const hits = index.map((e) => {
+      const hay = (e.page + ' ' + e.head + ' ' + e.text).toLowerCase();
+      if (!words.every((w) => hay.includes(w))) return null;
+      let score = 0;
+      words.forEach((w) => { if (e.page.toLowerCase().includes(w)) score += 3; if (e.head.toLowerCase().includes(w)) score += 2; });
+      return { e, score };
+    }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 12);
+    sel = hits.length ? 0 : -1;
+    const hl = (s) => { let out = esc(s); words.forEach((w) => { if (w.length > 1) out = out.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>'); }); return out; };
+    const snip = (t) => { const k = t.toLowerCase().indexOf(words[0]); const s = Math.max(0, k - 50); return (s ? '…' : '') + t.slice(s, s + 150); };
+    box.innerHTML = hits.length
+      ? hits.map(({ e }, i) => `<a href="#/${e.p}${e.head ? '/' + slug(e.head) : ''}" class="${i === 0 ? 'sel' : ''}" role="option"><b>${hl(e.page)}${e.head ? ` <span>› ${hl(e.head)}</span>` : ''}</b><small>${hl(snip(e.text))}</small></a>`).join('')
+      : `<div class="none">${T[lang].none} „${esc(q)}“</div>`;
+    box.classList.add('open');
+  }
+  function closeSearch() { $('#results').classList.remove('open'); document.body.classList.remove('find'); }
+  $('#q').addEventListener('input', search);
+  $('#q').addEventListener('focus', () => { if ($('#q').value) search(); });
+  $('#q').addEventListener('keydown', (e) => {
+    const items = $$('#results a');
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!items.length) return;
+      sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items.forEach((a, i) => a.classList.toggle('sel', i === sel));
+      items[sel].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && items[sel]) {
+      e.preventDefault(); items[sel].click(); location.hash = items[sel].getAttribute('href'); $('#q').blur(); closeSearch();
+    } else if (e.key === 'Escape') { $('#q').value = ''; closeSearch(); $('#q').blur(); }
+  });
+  $('#results').addEventListener('click', (e) => { if (e.target.closest('a')) { $('#q').value = ''; closeSearch(); } });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.search')) closeSearch(); });
+  $('#slabel').addEventListener('click', () => { document.body.classList.add('find'); $('#q').focus(); });
+  addEventListener('keydown', (e) => {
+    const typing = /input|textarea/i.test(document.activeElement?.tagName);
+    if ((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing)) { e.preventDefault(); document.body.classList.add('find'); $('#q').focus(); $('#q').select(); }
+  });
+  if (/Mac|iPhone|iPad/.test(navigator.platform)) $('#kbd').textContent = '⌘ K';
+
+  // menu on small screens
+  $('#burger').addEventListener('click', () => document.body.classList.toggle('nav'));
+  $('#scrim').addEventListener('click', () => document.body.classList.remove('nav'));
+
+  // light or dark
+  $('#theme').addEventListener('click', () => {
+    const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    const t = dark ? 'light' : 'dark';
+    document.documentElement.dataset.theme = t; store('musik.docs.theme', t);
+  });
+
+  // language
+  function setLang(l) {
+    lang = l; index = null;
+    document.documentElement.lang = l;
+    $$('.lang button').forEach((b) => b.classList.toggle('on', b.dataset.l === l));
+    $$('[data-t]').forEach((el) => { if (el.tagName !== 'TEMPLATE') el.textContent = T[l][el.dataset.t]; });
+    $('#q').placeholder = T[l].search + ' …';
+  }
+  $$('.lang button').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.l === lang) return;
+    store('musik.site.lang', b.dataset.l); setLang(b.dataset.l); render(false);
+  }));
+
+  fetch('../version.json?' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((r) => {
+    if (r && r.tag_name) { const v = $('#ver'); v.textContent = r.tag_name; v.hidden = false; }
+  }).catch(() => {});
+
+  setLang(lang);
+  render(!location.hash.includes('/', 2));
+})();
+</script>
+</body>
+</html>

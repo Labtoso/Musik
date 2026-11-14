@@ -1,3 +1,5 @@
+> Die komplette Anleitung mit Suche, auf Englisch und Deutsch: https://musik.labtoso.de/docs/#/away
+
 # Musik unterwegs hören (Tailscale)
 
 Zuhause im WLAN finden die Apps deinen Server direkt. Damit das auch unterwegs klappt, verbindet Tailscale dein Handy und deinen Server über ein privates Netz. Es braucht keine Portfreigabe am Router, keine eigene Domain und kein Zertifikat. Für den privaten Gebrauch ist Tailscale kostenlos.

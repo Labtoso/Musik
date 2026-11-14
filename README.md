@@ -2,7 +2,9 @@
 
 Your own music app, written mostly in Rust: a server for Proxmox (or any Linux, Docker, Windows), an Android app, a desktop app for Windows and Linux, and a web app. A recommendation engine learns from what you play, skip and like.
 
-**Download page:** https://musik.labtoso.de · **Releases:** https://github.com/Labtoso/Musik/releases/latest
+**Download page:** https://musik.labtoso.de · **Docs:** https://musik.labtoso.de/docs/ · **Releases:** https://github.com/Labtoso/Musik/releases/latest
+
+The full guide (install, apps, on the go, sharing, offline, themes, help) lives in the [docs](https://musik.labtoso.de/docs/), in English and German. This README is the short version.
 
 ## Install the server
 
@@ -25,7 +27,11 @@ Run it again to update. Optional: `MUSIC_HOST_DIR=/mnt/pve/nas/music` mounts a h
 
 **On the go (Tailscale):** answer `y` when the Proxmox script asks, or add `--tailscale` to the Debian command. The apps then switch to the Tailscale address by themselves when you are away. Step by step guide (German): [docs/tailscale.md](docs/tailscale.md)
 
-**Other platforms, sharing, equalizer, lyrics:** on first start the app asks where songs may come from (local, YouTube, YouTube Music, Spotify, SoundCloud). Import playlists by link or file, share anything by link, and use the 10-band equalizer and synced lyrics. Guide (German): [docs/plattformen.md](docs/plattformen.md)
+**Public links:** answer `y` to "Switch on public links?" (or `PUBLIC=1`) and shared playlists open for anyone at `musik.labtoso.de/s/#…`, through Tailscale Funnel. See [docs/tailscale.md](docs/tailscale.md#public).
+
+**Other platforms, sharing, equalizer, lyrics:** the setup assistant asks where songs may come from. Spotify songs play in full: names and covers from Spotify, the sound from YouTube Music through your server. Import playlists by link or file, share by link, use the 10-band equalizer and synced lyrics. Guide (German): [docs/plattformen.md](docs/plattformen.md)
+
+**Offline:** download playlists in the Android and desktop app, they play without the server.
 
 Open `http://<server>:8484` and create the first account. It is the admin and can add more users.
 
