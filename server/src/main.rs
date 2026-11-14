@@ -99,6 +99,12 @@ fn main() {
     let remote = var("REMOTE_URL")
         .map(|u| u.trim().trim_end_matches('/').to_string())
         .filter(|u| u.starts_with("http"));
+    // public links: a second door that only Tailscale Funnel (or a tunnel) opens to the internet
+    let public = var("PUBLIC_URL")
+        .map(|u| u.trim().trim_end_matches('/').to_string())
+        .filter(|u| u.starts_with("http"));
+    let public_port: u16 = var("PUBLIC_PORT").and_then(|p| p.parse().ok()).unwrap_or(8485);
+    let public_host = var("PUBLIC_HOST").unwrap_or_else(|| "127.0.0.1".into());
 
     for d in &music_dirs {
         std::fs::create_dir_all(d).ok();
@@ -116,6 +122,7 @@ fn main() {
         web_dir,
         name,
         remote,
+        public,
     });
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -164,6 +171,16 @@ fn main() {
                     api::start_scan(&st);
                 }
             });
+        }
+        if public_port != 0 && public_port != port {
+            let public_app = api::router(state.clone()).layer(axum::middleware::from_fn(api::public_guard));
+            match tokio::net::TcpListener::bind((public_host.as_str(), public_port)).await {
+                Ok(l) => {
+                    println!("Public links: {public_host}:{public_port}{}", state.public.as_deref().map(|u| format!(" -> {u}")).unwrap_or_default());
+                    tokio::spawn(async move { axum::serve(l, public_app).await.ok() });
+                }
+                Err(e) => eprintln!("Public links off, cannot listen on {public_host}:{public_port}: {e}"),
+            }
         }
         let app = api::router(state);
         axum::serve(listener, app)

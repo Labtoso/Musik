@@ -71,6 +71,52 @@ Du kannst die Tailscale-Adresse auch direkt als Server-Adresse in der App eintra
 
 In der App siehst du die Adresse unter **Einstellungen → Unterwegs**.
 
+<a name="public"></a>
+## Playlists öffentlich teilen
+
+Mit öffentlichen Links öffnet sich eine geteilte Playlist für jeden, auch ohne Tailscale und ohne dein Netz. Der Link sieht so aus:
+
+```
+https://musik.labtoso.de/s/#Ab3dEfGh2kLm@musik.tail1234.ts.net:8443
+```
+
+Die Seite liegt auf musik.labtoso.de, die Musik kommt direkt von deinem Server. Dafür öffnet Tailscale Funnel eine zweite Tür (Port 8443) ins Internet. Hinter dieser Tür antwortet der Server nur auf das Nötigste:
+
+- geteilte Playlists, Alben und Songs anhören (auch Spotify-Songs, die laufen wie in der App über YouTube Music)
+- Einladungen zum Mitwirken annehmen, mit neuem oder vorhandenem Konto
+- die Web-App für eingeladene Leute, damit sie Songs hinzufügen können
+
+Von außen gesperrt sind die Ersteinrichtung, Updates, Nutzerverwaltung, Ordner-Scan, Hochladen und jede Anmeldung mit einem Admin-Konto. Anmeldeversuche sind auf 20 pro Minute begrenzt.
+
+### Einschalten
+
+Führe den Installer noch einmal aus (Proxmox wie oben) und antworte bei **„Switch on public links? [y/N]“** mit `y`. Ohne Frage geht es mit:
+
+```bash
+PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
+```
+
+Fragt Tailscale beim ersten Mal nach einer Freigabe für **Funnel**, öffnest du den angezeigten Link und bestätigst. Danach steht am Ende `Public links: https://musik.….ts.net:8443`. In der App findest du die Adresse unter **Einstellungen → Unterwegs → Öffentliche Links**.
+
+### Teilen
+
+In einer Playlist auf **Teilen** tippen:
+
+- **Link zum Anhören:** jeder mit dem Link kann die Playlist hören.
+- **Mitwirkende einladen:** wer den Link öffnet, legt ein Konto an (oder meldet sich an) und kann danach Songs hinzufügen und entfernen. Ein Einladungslink reicht für bis zu 25 neue Konten.
+
+Ausschalten: Installer mit `PUBLIC=0` ausführen oder in den Einstellungen bei **Öffentliche Links** das Feld leeren und speichern.
+
+### Docker oder Windows
+
+Der Server hört für öffentliche Links auf Port 8485 (nur auf diesem Rechner). Auf dem Rechner mit Tailscale:
+
+```bash
+tailscale funnel --bg --https=8443 http://127.0.0.1:8485
+```
+
+Dann `PUBLIC_URL=https://<name>.<tailnet>.ts.net:8443` in die Einstellungen (`docker-compose.yml` oder `.env`) eintragen und den Server neu starten. Ein anderer Tunnel (zum Beispiel Cloudflare Tunnel) auf Port 8485 geht genauso, Hauptsache die Adresse beginnt mit `https://`.
+
 ## Wenn es nicht klappt
 
 | Problem | Lösung |
@@ -85,4 +131,5 @@ Status im Container ansehen:
 ```bash
 pct exec <ID> -- tailscale status
 pct exec <ID> -- tailscale serve status
+pct exec <ID> -- tailscale funnel status
 ```

@@ -66,6 +66,16 @@ function applyPrefs() {
   window.MusikAndroid?.setAccent?.(prefs.accent);
 }
 document.addEventListener('click', async (e) => {
+  if (!e.target.closest('[data-savepublic]')) return;
+  const url = ($('#publicurl')?.value || '').trim();
+  try {
+    const r = await put('/api/public-url', { url: url || '-' });
+    toast(t(r.public ? 'saved' : 'publicOffSaved'));
+  } catch (err) {
+    toast(t(err.code === 'bad_url' ? 'remoteBad' : 'error'));
+  }
+});
+document.addEventListener('click', async (e) => {
   if (!e.target.closest('[data-saveremote]')) return;
   const url = ($('#remoteurl')?.value || '').trim();
   try {
@@ -711,7 +721,8 @@ function srcBadge(src) {
 async function shareThing(kind, ref, title) {
   try {
     const r = await post('/api/shares', { kind, ref: typeof ref === 'object' ? JSON.stringify(ref) : String(ref) });
-    const url = (conn.server || location.origin) + r.path;
+    // a public link (musik.labtoso.de) when the server has one, otherwise the home address
+    const url = r.url || (conn.server || location.origin) + r.path;
     if (window.MusikAndroid?.share) return window.MusikAndroid.share(title, url);
     if (navigator.share) {
       try {
@@ -720,7 +731,7 @@ async function shareThing(kind, ref, title) {
         if (e.name === 'AbortError') return;
       }
     }
-    if (await copyText(url)) toast(t('linkCopied'));
+    if (await copyText(url)) toast(t(r.url ? 'linkCopiedPublic' : 'linkHomeOnly'));
     else {
       dialog({ title: t('share'), fields: [{ name: 'url', label: 'Link', value: url }], ok: 'OK' });
     }
@@ -3703,7 +3714,10 @@ async function renderSettings() {
         ? setRow(t('remoteAddr'), `<div class="remoteedit"><input id="remoteurl" class="textin" value="${esc(info?.remote || '')}" placeholder="http://100.x.x.x:8484" autocomplete="off" spellcheck="false" inputmode="url"><button class="btn primary" data-saveremote>${t('save')}</button>${info?.remote ? `<button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button>` : ''}</div>`, { hint: `${info?.remote ? t('remoteOn') : t('remoteOff')} <a href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a>`, keys: 'tailscale unterwegs remote', wide: true })
         : info?.remote
           ? setRow(t('remoteAddr'), `<button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button>`, { hint: `<code class="addr">${esc(info.remote)}</code><br>${t('remoteOn')}`, keys: 'tailscale unterwegs remote' })
-          : setRow(t('remoteAddr'), `<a class="btn" href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a>`, { hint: t('remoteOff'), keys: 'tailscale unterwegs remote' }))),
+          : setRow(t('remoteAddr'), `<a class="btn" href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a>`, { hint: t('remoteOff'), keys: 'tailscale unterwegs remote' })) +
+      (conn.user?.admin
+        ? setRow(t('publicLinks'), `<div class="remoteedit"><input id="publicurl" class="textin" value="${esc(info?.public || '')}" placeholder="https://musik.tail1234.ts.net:8443" autocomplete="off" spellcheck="false" inputmode="url"><button class="btn primary" data-savepublic>${t('save')}</button></div>`, { hint: `${info?.public ? t('publicOn') : t('publicOff')} <a href="${GUIDE}#public" target="_blank" rel="noopener">${t('guide')}</a>`, keys: 'öffentlich public teilen share funnel link', wide: true })
+        : '')),
     user.admin ? setCard('users', 'user', t('users'), setRow(t('users'), `<button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button>`, { hint: '<span id="userlist">…</span>', keys: 'nutzer users admin konto' })) : '',
     setCard('updates', 'download', t('updates'),
       setRow(t('updates'), `<button class="btn" data-updcheck>${icon('refresh')}${t('checkUpdates')}</button>`, { wide: true, hint: '<div id="updinfo" class="upd"></div>', keys: 'update version neu' }) +
@@ -4169,7 +4183,7 @@ function startApp() {
       await spotify.finishLogin().catch(() => false);
       loadExtLikes().then(() => renderPlayer());
       setTimeout(() => autoUpdateCheck(), 4000);
-      if (!settings.setupDone && !state.joined && !['welcome', 'join'].includes(state.route)) go('#/welcome');
+      if (!settings.setupDone && !state.joined && !/^#\/(welcome|join)\b/.test(location.hash) && !['welcome', 'join'].includes(state.route)) go('#/welcome');
       else render();
     })
     .catch(() => render());
@@ -4187,6 +4201,15 @@ setUnauthorizedHandler(() => {
 });
 
 async function boot() {
+  // an invitation from a public link hands over the new session: #/join/<token>?auth=<session>
+  const handoff = location.hash.match(/[?&]auth=([0-9a-f]{64})/);
+  if (handoff) {
+    conn.token = handoff[1];
+    conn.server = location.origin;
+    conn.user = null;
+    saveConn();
+    history.replaceState(null, '', location.pathname + location.hash.replace(/[?&]auth=[0-9a-f]{64}/, ''));
+  }
   sameOrigin = await detectSameOrigin();
   if (sameOrigin) conn.server = sameOrigin;
   if (conn.server && conn.token) {

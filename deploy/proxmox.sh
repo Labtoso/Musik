@@ -7,6 +7,7 @@
 #   CTID=120  CT_CORES=2  CT_RAM=2048  CT_SWAP=2048  CT_DISK=8  CT_BRIDGE=vmbr0  CT_STORAGE=local-lvm  BRANCH=main
 #   TAILSCALE=1                         also set up Tailscale (apps work away from home); TAILSCALE=0 skips the question
 #   TS_AUTHKEY=tskey-auth-...           log in to Tailscale without opening a link
+#   PUBLIC=1 / PUBLIC=0                 shared playlist links for anyone (Tailscale Funnel) on or off
 set -euo pipefail
 
 REPO="Labtoso/Musik"
@@ -81,6 +82,8 @@ ts_args() {
   [ "$TAILSCALE" = "1" ] || { printf ' --no-tailscale'; return 0; }
   printf ' --tailscale'
   [ -n "${TS_AUTHKEY:-}" ] && printf ' --ts-authkey %q' "$TS_AUTHKEY"
+  [ "${PUBLIC:-}" = "1" ] && printf ' --public'
+  [ "${PUBLIC:-}" = "0" ] && printf ' --no-public'
   return 0
 }
 

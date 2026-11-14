@@ -37,6 +37,44 @@ pub struct AppState {
     pub name: String,
     /// Address that also works away from home, e.g. the Tailscale name (REMOTE_URL).
     pub remote: Option<String>,
+    /// Address anyone on the internet can open, e.g. Tailscale Funnel (PUBLIC_URL).
+    pub public: Option<String>,
+}
+
+/// Marks requests that came in over the public listener (internet, not the home network).
+#[derive(Clone, Copy)]
+pub struct PublicSide;
+
+/// Requests from the internet: no first-time setup, no admin tools, admin accounts stay at
+/// home, and sign-in attempts are rationed so passwords can't be guessed in bulk.
+pub async fn public_guard(mut req: Request, next: axum::middleware::Next) -> Response {
+    let path = req.uri().path().to_string();
+    const HOME_ONLY: [&str; 7] = ["/api/setup", "/api/update", "/api/remote", "/api/public-url", "/api/users", "/api/library/scan", "/api/upload"];
+    if HOME_ONLY.iter().any(|p| path == *p || path.starts_with(&format!("{p}/"))) {
+        return ApiError::new(403, "local_only").into_response();
+    }
+    if req.method() == Method::POST && (path == "/api/login" || path.ends_with("/signup")) && !login_budget() {
+        return ApiError::new(429, "too_many").into_response();
+    }
+    req.extensions_mut().insert(PublicSide);
+    next.run(req).await
+}
+/// At most 20 sign-ins or sign-ups per minute over the public address.
+fn login_budget() -> bool {
+    static B: Mutex<(u64, u32)> = Mutex::new((0, 0));
+    let minute = (now_ms() / 60_000) as u64;
+    let mut b = B.lock().unwrap();
+    if b.0 != minute {
+        *b = (minute, 0);
+    }
+    b.1 += 1;
+    b.1 <= 20
+}
+fn home_only(parts: &Parts, u: &User) -> Result<(), ApiError> {
+    if u.admin && parts.extensions.get::<PublicSide>().is_some() {
+        return Err(ApiError::new(403, "local_only"));
+    }
+    Ok(())
 }
 
 pub type St = Arc<AppState>;
@@ -103,6 +141,7 @@ impl FromRequestParts<St> for Auth {
         let token = bearer(parts).ok_or(ApiError::new(401, "unauthorized"))?;
         let u = auth::verify(&st.db.lock().unwrap(), &token)
             .ok_or(ApiError::new(401, "unauthorized"))?;
+        home_only(parts, &u)?;
         Ok(Auth(u, token))
     }
 }
@@ -114,6 +153,7 @@ impl FromRequestParts<St> for AuthQ {
             .ok_or(ApiError::new(401, "unauthorized"))?;
         let u = auth::verify(&st.db.lock().unwrap(), &token)
             .ok_or(ApiError::new(401, "unauthorized"))?;
+        home_only(parts, &u)?;
         Ok(AuthQ(u))
     }
 }
@@ -283,12 +323,44 @@ fn remote_url(st: &St) -> Option<String> {
         .ok();
     saved.filter(|s| !s.is_empty()).or_else(|| st.remote.clone())
 }
-async fn info(State(st): State<St>) -> Json<Value> {
+/// The address for public links: saved in the app, else PUBLIC_URL. Only https works from the
+/// download site, plain http only as a direct link.
+pub fn public_url(st: &St) -> Option<String> {
+    let saved: Option<String> = st
+        .db
+        .lock()
+        .unwrap()
+        .query_row("SELECT v FROM kv WHERE k = 'public_url'", [], |r| r.get(0))
+        .ok();
+    match saved {
+        Some(s) if s == "-" => None,
+        Some(s) if !s.is_empty() => Some(s),
+        _ => st.public.clone(),
+    }
+}
+async fn info(State(st): State<St>, req: Request) -> Json<Value> {
     let setup = auth::needs_setup(&st.db.lock().unwrap());
     let remote = remote_url(&st);
+    let public = public_url(&st);
+    let here = req.extensions().get::<PublicSide>().is_some();
     Json(
-        json!({ "name": st.name, "app": "musik", "version": VERSION, "setup": setup, "remote": remote, "ytdlp": crate::ytdl::available() }),
+        json!({ "name": st.name, "app": "musik", "version": VERSION, "setup": setup && !here, "remote": remote, "public": public, "publicSide": here, "ytdlp": crate::ytdl::available() }),
     )
+}
+async fn set_public(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    admin(&u)?;
+    let v: Value = body_json(req).await?;
+    let url = v["url"].as_str().unwrap_or("").trim().trim_end_matches('/').to_string();
+    // "-" switches public links off even when PUBLIC_URL is set
+    if !url.is_empty() && url != "-" && !(url.starts_with("http://") || url.starts_with("https://")) || url.len() > 300 {
+        return Err(ApiError::new(400, "bad_url"));
+    }
+    st.db
+        .lock()
+        .unwrap()
+        .execute("INSERT INTO kv (k, v) VALUES ('public_url', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", [&url])
+        .ok();
+    Ok(Json(json!({ "public": public_url(&st) })))
 }
 async fn set_remote(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
     admin(&u)?;
@@ -317,12 +389,17 @@ async fn setup(State(st): State<St>, req: Request) -> R {
 }
 
 async fn login(State(st): State<St>, req: Request) -> R {
+    let public = req.extensions().get::<PublicSide>().is_some();
     let b: Login = body_json(req).await?;
     let st2 = st.clone();
     // Password hashing is CPU heavy, keep it off the async workers.
     let res = tokio::task::spawn_blocking(move || {
         let db = st2.db.lock().unwrap();
-        auth::check_login(&db, &b.name, &b.password).map(|u| (auth::issue(&db, u.id, &b.client), u))
+        let u = auth::check_login(&db, &b.name, &b.password)?;
+        if public && u.admin {
+            return Err(auth::AuthError(403, "local_only"));
+        }
+        Ok((auth::issue(&db, u.id, &b.client), u))
     })
     .await
     .map_err(|_| ApiError::new(500, "error"))??;
@@ -1223,6 +1300,7 @@ pub fn router(st: St) -> Router {
     let api = Router::new()
         .route("/info", get(info))
         .route("/remote", put(set_remote))
+        .route("/public-url", put(set_public))
         .route("/setup", post(setup))
         .route("/login", post(login))
         .route("/logout", post(logout))

@@ -52,6 +52,21 @@
   .toast { position:fixed; left:50%; bottom:110px; transform:translateX(-50%); background:var(--surface2); padding:10px 16px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.on { opacity:1; }
   .foot { margin-top:30px; color:var(--muted); font-size:13px; text-align:center; }
+  .join-box { margin:0 0 18px; padding:16px; border-radius:12px; background:var(--surface); border:1px solid var(--line); display:none; }
+  .join-box.on { display:block; }
+  .join-box h2 { font-size:17px; margin:0 0 4px; }
+  .join-box p { margin:0 0 12px; color:var(--muted); font-size:14px; }
+  .seg { display:inline-flex; background:var(--surface2); border-radius:20px; padding:3px; margin-bottom:12px; }
+  .seg button { height:32px; padding:0 14px; border-radius:16px; font-weight:600; font-size:14px; color:var(--muted); }
+  .seg button.on { background:var(--text); color:var(--bg); }
+  .join-box label { display:block; margin-bottom:10px; }
+  .join-box label span { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
+  .join-box input { width:100%; height:42px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); padding:0 12px; font:inherit; }
+  .join-box input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .join-box .err { color:#ff7a7a; font-size:14px; min-height:20px; margin:2px 0 8px; }
+  .join-box .go { width:100%; height:44px; border-radius:22px; background:var(--accent); color:var(--ink); font-weight:700; }
+  .join-box .go:disabled { opacity:.6; }
+  .desc { color:var(--muted); margin:8px 0 0; max-width:60ch; }
   @media (max-width:560px) {
     .head { flex-direction:column; align-items:flex-start; }
     .cover { width:min(62vw,240px); height:min(62vw,240px); align-self:center; }
@@ -70,14 +85,20 @@
 </div><div class="in" style="display:block"><div class="prog" id="prog"><i id="pi"></i></div></div></div>
 <div class="toast" id="toast"></div>
 <audio id="au" preload="none"></audio>
+<!-- The same page is served by every Musik server at /s/<token> and by the download site at
+     musik.labtoso.de/s/#<token>@<public host>. Keep web/share.html and site/s/index.html equal. -->
 <script>
 (() => {
   let pl = '';
-  try { pl = JSON.parse(localStorage.getItem('musik.prefs') || '{}').lang || ''; } catch {}
-  const de = pl === 'de';
+  try { pl = JSON.parse(localStorage.getItem('musik.prefs') || '{}').lang || localStorage.getItem('musik.site.lang') || ''; } catch {}
+  const de = pl === 'de' || (!pl && /^de\b/i.test(navigator.language || ''));
   const T = de
-    ? { play: 'Abspielen', save: 'In meiner Bibliothek speichern', saved: 'Gespeichert', open: 'In der App öffnen', notFound: 'Dieser Link ist nicht (mehr) gültig.', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'Auf anderen Plattformen', login: 'Melde dich in der App an, um zu speichern.', songs: 'Songs', on: 'Geteilt von', join: 'Mitwirken', joinHint: 'Du wurdest eingeladen, an dieser Playlist mitzuwirken.', joinLogin: 'Melde dich zuerst in der App an, dann öffne den Link noch einmal.' }
-    : { play: 'Play', save: 'Save to my library', saved: 'Saved', open: 'Open in the app', notFound: 'This link is not valid (anymore).', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', other: 'On other platforms', login: 'Sign in in the app to save.', songs: 'songs', on: 'Shared from', join: 'Join as collaborator', joinHint: 'You were invited to add songs to this playlist.', joinLogin: 'Sign in in the app first, then open this link again.' };
+    ? { play: 'Abspielen', save: 'In meiner Bibliothek speichern', saved: 'Gespeichert', open: 'In der App öffnen', notFound: 'Dieser Link ist nicht (mehr) gültig.', offline: 'Der Server dieser Playlist ist gerade nicht erreichbar. Versuch es später noch einmal.', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', login: 'Melde dich in der App an, um zu speichern.', songs: 'Songs', on: 'Geteilt von', join: 'Mitwirken', joinHint: 'Du wurdest eingeladen, an dieser Playlist mitzuwirken. Du kannst Songs hinzufügen, entfernen und alles anhören.',
+        joinTitle: 'Mitwirken', joinText: 'Leg ein Konto auf diesem Musik-Server an oder melde dich an. Danach öffnet sich die Playlist in der App.', newAcc: 'Neues Konto', haveAcc: 'Ich habe ein Konto', name: 'Name', pass: 'Passwort', create: 'Konto anlegen und mitwirken', signin: 'Anmelden und mitwirken',
+        e: { name_taken: 'Den Namen gibt es schon. Nimm einen anderen oder melde dich an.', invalid_name: 'Der Name braucht 2 bis 32 Zeichen (Buchstaben, Zahlen, Leerzeichen, . _ -).', password_short: 'Das Passwort braucht mindestens 4 Zeichen.', wrong_login: 'Name oder Passwort stimmt nicht.', local_only: 'Dieses Konto kann sich nur zuhause anmelden.', too_many: 'Zu viele Versuche. Warte eine Minute.', invite_used_up: 'Diese Einladung wurde schon zu oft benutzt.', not_found: 'Diese Einladung gilt nicht mehr.' } }
+    : { play: 'Play', save: 'Save to my library', saved: 'Saved', open: 'Open in the app', notFound: 'This link is not valid (anymore).', offline: "The server of this playlist can't be reached right now. Try again later.", song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', login: 'Sign in in the app to save.', songs: 'songs', on: 'Shared from', join: 'Join as collaborator', joinHint: 'You were invited to work on this playlist. You can add and remove songs and listen to everything.',
+        joinTitle: 'Join as collaborator', joinText: 'Create an account on this Musik server or sign in. The playlist then opens in the app.', newAcc: 'New account', haveAcc: 'I have an account', name: 'Name', pass: 'Password', create: 'Create account and join', signin: 'Sign in and join',
+        e: { name_taken: 'That name is taken. Pick another one or sign in.', invalid_name: 'The name needs 2 to 32 characters (letters, digits, spaces, . _ -).', password_short: 'The password needs at least 4 characters.', wrong_login: 'Wrong name or password.', local_only: 'This account can only sign in at home.', too_many: 'Too many tries. Wait a minute.', invite_used_up: 'This invitation has been used too often.', not_found: 'This invitation is no longer valid.' } };
   document.documentElement.lang = de ? 'de' : 'en';
   const SRC = { spotify: 'Spotify', youtube: 'YouTube', ytmusic: 'YT Music', soundcloud: 'SoundCloud', deezer: 'Deezer', apple: 'Apple Music', tidal: 'Tidal' };
   const PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
@@ -85,17 +106,23 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const fmt = (s) => { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
-  const token = location.pathname.split('/s/')[1]?.split(/[/?#]/)[0] || '';
-  const base = '/api/public/' + encodeURIComponent(token);
+  // public link: #<token>@<host> (download site), otherwise /s/<token> on the server itself
+  const pub = location.hash.slice(1).match(/^([A-Za-z0-9]{6,32})@([a-z0-9.-]+(?::\d{1,5})?)$/i);
+  const token = pub ? pub[1] : location.pathname.split('/s/')[1]?.split(/[/?#]/)[0] || '';
+  const origin = pub ? 'https://' + pub[2] : location.origin;
+  const remote = origin !== location.origin;
+  const base = origin + '/api/public/' + encodeURIComponent(token);
   let conn = {};
   try { conn = JSON.parse(localStorage.getItem('musik.conn')) || {}; } catch {}
+  const signedIn = !remote && conn.token && (!conn.server || conn.server === location.origin);
   const au = $('au');
-  let data = null, cur = -1;
+  let data = null, list = [], cur = -1;
 
   const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 2600); };
 
   function tint(url) {
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
       try {
         const c = document.createElement('canvas'); c.width = c.height = 8;
@@ -112,45 +139,61 @@
   function render() {
     const d = data;
     document.title = d.title + ' · Musik';
-    const firstCover = d.tracks.find((t) => t.cover) ? base + '/cover/' + d.tracks.find((t) => t.cover).i : (d.external.find((e) => e.cover)?.cover || '');
-    const total = d.tracks.length + d.external.length;
+    // one list: songs from the server and platform songs (those play through the server too)
+    list = d.tracks.map((t) => ({ title: t.title, artist: t.artist, album: t.album, duration: t.duration, cover: t.cover ? base + '/cover/' + t.i : '', src: base + '/stream/' + t.i }))
+      .concat(d.external.map((e, k) => ({ title: e.title, artist: e.artist, album: '', duration: e.duration, cover: /^https:\/\//.test(e.cover) ? e.cover : '', src: base + '/song/' + k, badge: SRC[e.source] || e.source })));
+    const firstCover = list.find((x) => x.cover)?.cover || '';
     let h = `<div class="head"><div class="cover" style="${firstCover ? `background-image:url('${esc(firstCover)}')` : ''}"></div><div>
       <div class="kind">${T[d.kind] || ''}</div><h1>${esc(d.title)}</h1>
-      <div class="sub">${esc(d.sub)}${d.kind !== 'track' ? ` · ${total} ${T.songs}` : ''}</div></div></div>
-      <div class="actions">${d.tracks.length ? `<button class="play" id="playall" aria-label="${T.play}">${PLAY}</button>` : ''}
-      ${d.collab ? `<button class="btn join" id="join">${T.join}</button>` : ''}<button class="btn" id="save">${T.save}</button><a class="btn" href="/#/home">${T.open}</a></div>`;
-    if (d.collab) h += `<p class="invite">${T.joinHint}</p>`;
-    h += d.tracks.map((t) => `<div class="row" data-i="${t.i}"><span class="n">${t.i + 1}</span><span class="c" style="${t.cover ? `background-image:url('${base}/cover/${t.i}')` : ''}"></span>
-      <div style="min-width:0"><div class="t">${esc(t.title)}</div><div class="a">${esc(t.artist)}</div></div><span class="d">${fmt(t.duration)}</span></div>`).join('');
-    if (d.external.length) {
-      h += `<h3>${T.other}</h3>` + d.external.map((e, k) => `<a class="row" href="${esc(/^https:\/\//.test(e.url) ? e.url : '#')}" target="_blank" rel="noopener"><span class="n">${d.tracks.length + k + 1}</span>
-        <span class="c" style="${/^https:\/\//.test(e.cover) ? `background-image:url('${esc(e.cover)}')` : ''}"></span>
-        <div style="min-width:0"><div class="t">${esc(e.title)}</div><div class="a"><span class="src">${esc(SRC[e.source] || e.source)}</span>${esc(e.artist)}</div></div><span class="d">${e.duration ? fmt(e.duration) : ''}</span></a>`).join('');
-    }
+      <div class="sub">${esc(d.sub)}${d.kind !== 'track' ? ` · ${list.length} ${T.songs}` : ''}</div>${d.description ? `<p class="desc">${esc(d.description)}</p>` : ''}</div></div>
+      <div class="actions">${list.length ? `<button class="play" id="playall" aria-label="${T.play}">${PLAY}</button>` : ''}
+      ${d.collab ? `<button class="btn join" id="join">${T.join}</button>` : ''}${signedIn ? `<button class="btn" id="save">${T.save}</button><a class="btn" href="/#/home">${T.open}</a>` : ''}</div>`;
+    if (d.collab) h += `<p class="invite">${T.joinHint}</p>
+      <form class="join-box" id="joinbox" autocomplete="on"><h2>${T.joinTitle}</h2><p>${T.joinText}</p>
+        <div class="seg"><button type="button" class="on" data-m="new">${T.newAcc}</button><button type="button" data-m="have">${T.haveAcc}</button></div>
+        <label><span>${T.name}</span><input name="name" autocomplete="username" required minlength="2" maxlength="32"></label>
+        <label><span>${T.pass}</span><input name="password" type="password" autocomplete="new-password" required minlength="4"></label>
+        <div class="err" id="jerr"></div><button class="go" id="jgo">${T.create}</button></form>`;
+    h += list.map((x, i) => `<div class="row" data-i="${i}"><span class="n">${i + 1}</span><span class="c" style="${x.cover ? `background-image:url('${esc(x.cover)}')` : ''}"></span>
+      <div style="min-width:0"><div class="t">${esc(x.title)}</div><div class="a">${x.badge ? `<span class="src">${esc(x.badge)}</span>` : ''}${esc(x.artist)}</div></div><span class="d">${x.duration ? fmt(x.duration) : ''}</span></div>`).join('');
     h += `<div class="foot">${T.on} ${esc(d.server || 'Musik')}</div>`;
     $('root').innerHTML = h;
     if (firstCover) tint(firstCover);
     $('playall')?.addEventListener('click', () => (cur >= 0 ? toggle() : play(0)));
-    $('save').addEventListener('click', save);
+    $('save')?.addEventListener('click', save);
     $('join')?.addEventListener('click', join);
     document.querySelectorAll('.row[data-i]').forEach((r) => r.addEventListener('click', () => play(+r.dataset.i)));
+    const box = $('joinbox');
+    if (box) {
+      let mode = 'new';
+      box.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => {
+        mode = b.dataset.m;
+        box.querySelectorAll('[data-m]').forEach((x) => x.classList.toggle('on', x === b));
+        $('jgo').textContent = mode === 'new' ? T.create : T.signin;
+        box.elements.password.autocomplete = mode === 'new' ? 'new-password' : 'current-password';
+        $('jerr').textContent = '';
+      }));
+      box.addEventListener('submit', (e) => { e.preventDefault(); enter(mode, box.elements.name.value.trim(), box.elements.password.value); });
+    }
   }
 
   function play(i) {
-    if (!data.tracks[i]) return;
+    if (!list[i]) return;
     cur = i;
-    au.src = base + '/stream/' + i;
+    const x = list[i];
+    au.src = x.src;
     au.play().catch(() => {});
-    const t = data.tracks[i];
-    $('bt').textContent = t.title; $('ba').textContent = t.artist;
+    $('bt').textContent = x.title; $('ba').textContent = x.artist;
     $('bar').classList.add('show');
     document.querySelectorAll('.row[data-i]').forEach((r) => r.classList.toggle('on', +r.dataset.i === i));
-    if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: t.album, artwork: t.cover ? [{ src: base + '/cover/' + i }] : [] });
+    if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: x.title, artist: x.artist, album: x.album, artwork: x.cover ? [{ src: x.cover }] : [] });
   }
   const toggle = () => (au.paused ? au.play() : au.pause());
   const icons = () => { $('tog').innerHTML = au.paused ? PLAY : PAUSE; const p = $('playall'); if (p) p.innerHTML = au.paused || cur < 0 ? PLAY : PAUSE; };
   au.addEventListener('play', icons); au.addEventListener('pause', icons);
-  au.addEventListener('ended', () => (cur + 1 < data.tracks.length ? play(cur + 1) : icons()));
+  au.addEventListener('ended', () => (cur + 1 < list.length ? play(cur + 1) : icons()));
+  // a platform song that can't be found: go on with the next one
+  au.addEventListener('error', () => { if (cur >= 0 && cur + 1 < list.length && au.src) play(cur + 1); });
   au.addEventListener('timeupdate', () => ($('pi').style.width = (au.duration ? (au.currentTime / au.duration) * 100 : 0) + '%'));
   $('tog').addEventListener('click', toggle);
   $('prev').addEventListener('click', () => (au.currentTime > 3 ? (au.currentTime = 0) : play(Math.max(0, cur - 1))));
@@ -163,8 +206,7 @@
   icons();
 
   async function save() {
-    // only works when this browser is signed in to this same server
-    if (!conn.token || (conn.server && conn.server !== location.origin)) return toast(T.login);
+    if (!signedIn) return toast(T.login);
     const r = await fetch(base + '/save', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
     if (r.status === 401) return toast(T.login);
     if (!r.ok) return toast('Error ' + r.status);
@@ -174,20 +216,47 @@
     toast(T.saved + ': ' + j.name);
   }
 
+  // open the playlist in the web app of that server, signed in with the new session
+  const openApp = (session) => (location.href = origin + '/#/join/' + encodeURIComponent(token) + (session ? '?auth=' + session : ''));
+
   async function join() {
-    const app = '/#/join/' + encodeURIComponent(token);
-    if (!conn.token || (conn.server && conn.server !== location.origin)) return (location.href = app);
-    const r = await fetch(base + '/join', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
-    if (r.status === 401) return (location.href = app);
-    if (!r.ok) return toast('Error ' + r.status);
-    const j = await r.json();
-    location.href = '/#/playlist/' + j.id;
+    if (signedIn) {
+      const r = await fetch(base + '/join', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
+      if (r.ok) return (location.href = '/#/playlist/' + (await r.json()).id);
+    }
+    const box = $('joinbox');
+    box.classList.add('on');
+    box.elements.name.focus();
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
+  async function enter(mode, name, password) {
+    const go = $('jgo'), err = $('jerr');
+    go.disabled = true; err.textContent = '';
+    const call = (url, body, auth) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: 'Bearer ' + auth } : {}) }, body: JSON.stringify(body || {}) })
+      .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw j.error || 'error'; return j; });
+    try {
+      const client = 'Browser (invite)';
+      let session;
+      if (mode === 'new') session = (await call(base + '/signup', { name, password, client })).token;
+      else {
+        session = (await call(origin + '/api/login', { name, password, client })).token;
+        await call(base + '/join', {}, session);
+      }
+      openApp(session);
+    } catch (e) {
+      err.textContent = T.e[e] || (typeof e === 'string' ? e : T.offline);
+      go.disabled = false;
+    }
+  }
+
+  // another link opened in the same tab only changes the #part
+  addEventListener('hashchange', () => location.reload());
+  if (!token) { $('msg').textContent = T.notFound; return; }
   fetch(base)
-    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then((d) => { data = d; render(); })
-    .catch(() => ($('msg').textContent = T.notFound));
+    .catch((st) => ($('msg').textContent = typeof st === 'number' ? T.notFound : T.offline));
 })();
 </script>
 </body>

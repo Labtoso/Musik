@@ -5,8 +5,11 @@ services:
     restart: unless-stopped
     ports:
       - "8484:8484"
+      # public links: only reachable from this machine, Tailscale Funnel opens it (docs/tailscale.md)
+      - "127.0.0.1:8485:8485"
     volumes:
       - ./data:/data
       - ./music:/music
     # environment:
     #   - REMOTE_URL=http://100.x.y.z:8484   # Tailscale address for on the go, see docs/tailscale.md
+    #   - PUBLIC_URL=https://musik.tail1234.ts.net:8443   # public links, see docs/tailscale.md

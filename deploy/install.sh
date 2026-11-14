@@ -6,6 +6,8 @@
 #            --tailscale            also set up Tailscale so the apps work away from home
 #            --no-tailscale         do not ask about Tailscale
 #            --ts-authkey <key>     log in to Tailscale without opening a link (tskey-auth-...)
+#            --public               shared playlist links work for anyone (Tailscale Funnel, needs --tailscale)
+#            --no-public            shared links only work at home and in your tailnet
 set -euo pipefail
 
 REPO="Labtoso/Musik"
@@ -17,6 +19,7 @@ PORT="8484"
 ENV_FILE="/etc/musik.env"
 TAILSCALE=""
 TS_AUTHKEY="${TS_AUTHKEY:-}"
+PUBLIC="${PUBLIC:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -28,6 +31,8 @@ while [ $# -gt 0 ]; do
     --tailscale) TAILSCALE=1; shift ;;
     --no-tailscale) TAILSCALE=0; shift ;;
     --ts-authkey) TAILSCALE=1; TS_AUTHKEY="$2"; shift 2 ;;
+    --public) PUBLIC=1; shift ;;
+    --no-public) PUBLIC=0; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -211,6 +216,41 @@ if [ "$TAILSCALE" = "1" ]; then
              "Open ${LINK:-https://login.tailscale.com/admin/machines} and confirm it." || break
       done
       rm -f "$SERVE_LOG"
+
+      # Public links: Tailscale Funnel opens one extra door (port 8443) to the internet. Behind it
+      # the server only answers share pages and the accounts of invited people, never admin tools.
+      if [ -z "$PUBLIC" ] && ! grep -q '^PUBLIC_URL=' "$ENV_FILE" 2>/dev/null && [ -r /dev/tty ]; then
+        echo
+        echo "─────────────────────────────────────────────────────────────"
+        echo " Share playlists with anyone?"
+        echo
+        echo " With public links, a shared playlist opens for everyone at"
+        echo " musik.labtoso.de, no Tailscale needed. Invited people can"
+        echo " make an account and add songs. Your music library, settings"
+        echo " and admin account stay reachable only at home."
+        echo "─────────────────────────────────────────────────────────────"
+        read -rp "Switch on public links? [y/N]: " a </dev/tty || a=""
+        case "$a" in [yYjJ]*) PUBLIC=1 ;; *) PUBLIC=0 ;; esac
+      fi
+      if grep -q '^PUBLIC_URL=' "$ENV_FILE" 2>/dev/null && [ "$PUBLIC" != "0" ]; then PUBLIC=1; fi
+      PUB_PORT="$(awk -F= '/^PUBLIC_PORT=/{print $2}' "$ENV_FILE")"; PUB_PORT="${PUB_PORT:-8485}"
+      if [ "$PUBLIC" = "1" ]; then
+        FUNNEL_LOG="$(mktemp)"
+        for _ in 1 2 3; do
+          if timeout 30 tailscale funnel --bg --https=8443 "http://127.0.0.1:$PUB_PORT" >"$FUNNEL_LOG" 2>&1; then
+            DNS="$(tailscale status --json 2>/dev/null | sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' | head -n1)"
+            [ -n "$DNS" ] && { setenv PUBLIC_URL "https://$DNS:8443"; echo "Public links: https://$DNS:8443"; }
+            break
+          fi
+          LINK="$(grep -o 'https://login.tailscale.com[^ ]*' "$FUNNEL_LOG" | head -n1 || true)"
+          todo "Tailscale asks you to allow 'Funnel' for this device once." \
+               "Open ${LINK:-https://login.tailscale.com/admin/acls} and confirm it." || break
+        done
+        rm -f "$FUNNEL_LOG"
+      elif [ "$PUBLIC" = "0" ] && grep -q '^PUBLIC_URL=' "$ENV_FILE" 2>/dev/null; then
+        tailscale funnel --https=8443 off >/dev/null 2>&1 || true
+        sed -i '/^PUBLIC_URL=/d' "$ENV_FILE"
+      fi
     fi
     [ -n "$REMOTE" ] || echo "Using the Tailscale IP for now. Run musik-update later to switch to https."
     if [ -z "$REMOTE" ]; then
@@ -241,6 +281,8 @@ else
 fi
 echo "  Open:          http://${IP:-<server-ip>}:${PORT_NOW:-8484}"
 [ -n "$REMOTE" ] && echo "  On the go:     $REMOTE   (Tailscale on, the apps switch to it by themselves)"
+PUB="$(awk -F= '/^PUBLIC_URL=/{print $2}' "$ENV_FILE")"
+[ -n "$PUB" ] && echo "  Public links:  $PUB   (shared playlists open for anyone at musik.labtoso.de)"
 echo "  Music folder:  $(awk -F= '/^MUSIC_DIRS=/{print $2}' "$ENV_FILE")"
 echo "  Settings:      $ENV_FILE"
 echo "  Update:        musik-update"

@@ -79,6 +79,12 @@ CREATE TABLE IF NOT EXISTS shares (
   ref TEXT NOT NULL,
   created INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS share_signups (
+  token TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created INTEGER NOT NULL,
+  PRIMARY KEY (token, user_id)
+);
 CREATE TABLE IF NOT EXISTS follows (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   kind TEXT NOT NULL,
@@ -131,6 +137,8 @@ pub fn routes() -> Router<St> {
         .route("/public/{token}", get(public_share))
         .route("/public/{token}/save", post(save_share))
         .route("/public/{token}/join", post(join_share))
+        .route("/public/{token}/signup", post(signup_share))
+        .route("/public/{token}/song/{k}", get(public_song))
         .route("/public/{token}/stream/{i}", get(public_stream))
         .route("/public/{token}/cover/{i}", get(public_cover))
 }
@@ -1738,9 +1746,22 @@ async fn create_share(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R
         .ok();
         t
     });
+    drop(db);
     Ok(Json(
-        json!({ "token": token, "path": format!("/s/{token}") }),
+        json!({ "token": token, "path": format!("/s/{token}"), "url": public_link(&st, &token) }),
     ))
+}
+
+/// The download site that opens public links: musik.labtoso.de/s/#<token>@<host>
+const SITE: &str = "https://musik.labtoso.de";
+/// Link anyone can open, when the server has a public address.
+fn public_link(st: &St, token: &str) -> Option<String> {
+    let base = crate::api::public_url(st)?;
+    // the site is https, so it can only talk to an https server; otherwise link straight to it
+    Some(match base.strip_prefix("https://") {
+        Some(host) if !host.contains('/') => format!("{SITE}/s/#{token}@{host}"),
+        _ => format!("{base}/s/{token}"),
+    })
 }
 
 /// What a share link shows: (title, subtitle, kind, local tracks, external items)
@@ -1863,8 +1884,16 @@ async fn public_share(State(st): State<St>, Path(token): Path<String>) -> R {
         .collect();
     let ext: Vec<Value> = ext.iter().map(|e| json!({ "title": e["title"], "artist": e["artist"], "source": e["source"], "url": e["url"], "cover": e["cover"], "ext_id": e["ext_id"], "duration": e["duration"] })).collect();
     Ok(Json(
-        json!({ "title": title, "sub": sub, "kind": kind, "tracks": list, "external": ext, "server": st.name, "collab": share_is_collab(&db, &token) }),
+        json!({ "title": title, "sub": sub, "kind": kind, "tracks": list, "external": ext, "server": st.name, "collab": share_is_collab(&db, &token), "description": share_description(&db, &token) }),
     ))
+}
+fn share_description(db: &Connection, token: &str) -> String {
+    db.query_row(
+        "SELECT p.description FROM shares s JOIN playlists p ON p.id = CAST(s.ref AS INTEGER) WHERE s.token = ? AND s.kind IN ('playlist','collab')",
+        [token],
+        |r| r.get(0),
+    )
+    .unwrap_or_default()
 }
 fn share_is_collab(db: &Connection, token: &str) -> bool {
     db.query_row("SELECT kind = 'collab' FROM shares WHERE token = ?", [token], |r| r.get(0)).unwrap_or(false)
@@ -1886,6 +1915,71 @@ async fn join_share(State(st): State<St>, Auth(u, _): Auth, Path(token): Path<St
         db.execute("INSERT OR IGNORE INTO playlist_members (playlist_id, user_id, added) VALUES (?,?,?)", params![pid, u.id, now_ms()]).ok();
     }
     Ok(Json(json!({ "kind": "playlist", "id": pid, "name": name })))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct SignupIn {
+    name: String,
+    password: String,
+    client: String,
+}
+/// Someone without an account accepts an invitation: a normal (non-admin) account is made and
+/// joins the playlist. Only invitation links can do this, and each one at most 25 times.
+async fn signup_share(State(st): State<St>, Path(token): Path<String>, req: Request) -> R {
+    let b: SignupIn = body_json(req).await?;
+    let st2 = st.clone();
+    tokio::task::spawn_blocking(move || -> R {
+        let db = st2.db.lock().unwrap();
+        let (owner, pid): (i64, i64) = db
+            .query_row("SELECT user_id, CAST(ref AS INTEGER) FROM shares WHERE token = ? AND kind = 'collab'", [&token], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()
+            .unwrap_or(None)
+            .ok_or_else(nf)?;
+        let name: String = db
+            .query_row("SELECT name FROM playlists WHERE id = ? AND user_id = ?", params![pid, owner], |r| r.get(0))
+            .optional()
+            .unwrap_or(None)
+            .ok_or_else(nf)?;
+        let used: i64 = db.query_row("SELECT COUNT(*) FROM share_signups WHERE token = ?", [&token], |r| r.get(0)).unwrap_or(0);
+        if used >= 25 {
+            return Err(ApiError::new(403, "invite_used_up"));
+        }
+        let u = crate::auth::create_user(&db, &b.name, &b.password, false)?;
+        let now = now_ms();
+        db.execute("INSERT OR IGNORE INTO share_signups (token, user_id, created) VALUES (?,?,?)", params![token, u.id, now]).ok();
+        db.execute("INSERT OR IGNORE INTO playlist_members (playlist_id, user_id, added) VALUES (?,?,?)", params![pid, u.id, now]).ok();
+        let session = crate::auth::issue(&db, u.id, if b.client.is_empty() { "Invite" } else { &b.client });
+        Ok(Json(json!({ "token": session, "user": u, "playlist": { "id": pid, "name": name } })))
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?
+}
+
+/// A platform song of a shared playlist, played like everywhere else: found on YouTube Music,
+/// streamed through this server. Only songs that are in the share can be asked for.
+async fn public_song(State(st): State<St>, Path((token, k)): Path<(String, usize)>, headers: axum::http::HeaderMap) -> Response {
+    let found = {
+        let db = st.db.lock().unwrap();
+        let owner: Option<i64> = db.query_row("SELECT user_id FROM shares WHERE token = ?", [&token], |r| r.get(0)).optional().unwrap_or(None);
+        owner.and_then(|uid| resolve_share(&db, &token).ok().and_then(|(_, _, _, _, ext)| ext.get(k).cloned().map(|e| (uid, e))))
+    };
+    let Some((uid, e)) = found else { return nf().into_response() };
+    let s = |k: &str| e[k].as_str().unwrap_or("").to_string();
+    let (title, artist, duration) = (s("title"), s("artist"), e["duration"].as_f64().unwrap_or(0.0));
+    // a YouTube song is its own video
+    let direct = if matches!(e["source"].as_str(), Some("youtube" | "ytmusic")) { s("ext_id") } else { String::new() };
+    let st2 = st.clone();
+    let vid = if direct.len() == 11 {
+        direct
+    } else {
+        match tokio::task::spawn_blocking(move || find_video(&st2, uid, &title, &artist, duration, "", &[], false)).await {
+            Ok(Ok(v)) if !v.is_empty() => v,
+            Ok(Err(e)) => return e.into_response(),
+            _ => return nf().into_response(),
+        }
+    };
+    proxy_audio(vid, headers).await
 }
 
 /// Save a shared playlist / album / song into the own library: as a playlist when every song
