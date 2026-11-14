@@ -2497,7 +2497,7 @@ views.welcome = async (params) => {
   const i = wizIndex(params);
   const step = WIZ[i];
   if (step === 'hello') {
-    return wizFrame(i, `<div class="wiz-hero"><img class="brandmark big" src="icon.svg" alt=""><h1>${t('wizHello')}</h1><p class="muted lead">${t('wizHelloText')}</p></div>
+    return wizFrame(i, `<div class="wiz-hero"><span class="brandmark big" aria-hidden="true"></span><h1>${t('wizHello')}</h1><p class="muted lead">${t('wizHelloText')}</p></div>
       ${wizQ(t('wizLangAsk'), `<div class="seg">${['en', 'de'].map((l) => `<button data-wlang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`)}
       ${wizQ(t('wizNameAsk'), `<input id="wizname" class="textin" maxlength="40" value="${esc(conn.user?.name || '')}" autocomplete="nickname">`)}`);
   }
@@ -5031,7 +5031,7 @@ async function showLogin(errorMsg = '') {
     : '';
   const mode = !info ? 'server' : info.setup ? 'setup' : 'login';
   app.innerHTML = `<div class="auth-wrap"><form class="auth-card" novalidate>
-    <div class="brand"><img class="brandmark" src="icon.svg" alt=""><span>Streyn</span></div>
+    <div class="brand"><span class="brandmark" aria-hidden="true"></span><span>Streyn</span></div>
     <h2>${mode === 'setup' ? t('firstAccount') : mode === 'login' ? t('login') : t('connect')}</h2>
     ${mode === 'setup' ? `<p class="muted small">${t('firstAccountHelp')}</p>` : ''}
     ${mode === 'server' ? serverField : `${sameOrigin ? '' : `<p class="muted small srv">${esc(conn.server)} · <a href="#" data-editserver>${t('changeServer')}</a></p>`}
@@ -5086,7 +5086,7 @@ function buildShell() {
   document.documentElement.classList.toggle('frameless', frameless);
   $('#app').innerHTML = `
   ${frameless ? `<div class="titlebar" data-drag>
-    <div class="tb-left"><span class="tb-logo"><img class="brandmark" src="icon.svg" alt=""></span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
+    <div class="tb-left"><span class="tb-logo"><span class="brandmark" aria-hidden="true"></span></span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
     <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><label class="tb-search">${icon('search')}<input id="tbq" type="search" placeholder="${t('searchPlaceholder_' + searchMode())}" autocomplete="off" spellcheck="false"></label></div>
     <div class="tb-right"><button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
       <button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
@@ -5095,12 +5095,12 @@ function buildShell() {
   </div>` : ''}
   <div class="shell">
     <aside class="side">
-      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><img class="brandmark" src="icon.svg" alt="">Streyn</span></div>
+      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span>Streyn</span></div>
       <nav class="side-nav">${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}${nav('likes', 'heart', t('likes'))}${nav('queue', 'queue', t('queue'))}</nav>
       <div class="side-head">${t('playlists')}<button class="icon-btn sm" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button></div>
       <div id="side-playlists" class="side-pls"></div>
     </aside>
-    <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><img class="brandmark" src="icon.svg" alt="">Streyn</span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
+    <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span>Streyn</span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
     <main id="content">${offlineMode ? `<div class="offbar">${icon('download')}<span id="offbar-text"><b>${t('offMode')}</b> ${t('offModeHint')}</span><button class="btn sm" data-goonline>${t('goOnline')}</button></div>` : ''}<div id="view"></div></main>
     <footer id="player" class="player idle">
       <div id="mini-progress"><i></i></div>

@@ -1688,9 +1688,11 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 @media (pointer: fine) { .sorthint { display: none; } }
 
 /* Streyn logo */
-.brandmark { width: 26px; height: 26px; border-radius: 6px; flex: none; display: block; }
-.brandmark.big { width: 56px; height: 56px; border-radius: 14px; }
-.tb-logo .brandmark { width: 22px; height: 22px; border-radius: 5px; }
-.logo { display: inline-flex; align-items: center; gap: 9px; }
-.logo .brandmark { width: 24px; height: 24px; }
-.frameless .side-top .logo .brandmark { display: none; }
+/* the note in its circle, without the mint square, in the accent colour */
+.brandmark { width: 34px; height: 34px; flex: none; display: block; background: var(--accent); -webkit-mask: url(logo.png) center / contain no-repeat; mask: url(logo.png) center / contain no-repeat; }
+.brandmark.big { width: 72px; height: 72px; }
+.tb-logo { width: auto; height: auto; }
+.tb-logo .brandmark { width: 30px; height: 30px; margin: 0 4px 0 2px; }
+.logo { display: inline-flex; align-items: center; gap: 10px; font-size: 19px; }
+.logo .brandmark { width: 32px; height: 32px; }
+.brand .brandmark { width: 40px; height: 40px; }

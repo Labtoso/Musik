@@ -37,7 +37,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .bar { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: flex; align-items: center; gap: 18px; height: 64px; padding: 0 var(--gut); color: var(--paper); background: linear-gradient(rgba(6,7,13,.82), rgba(6,7,13,0)); }
 .gear { width: 36px; height: 36px; display: grid; place-items: center; margin-left: -8px; transition: transform .5s cubic-bezier(.3,1.4,.5,1); }
 .gear:hover { transform: rotate(90deg); }
-.disc { width: 30px; height: 30px; border-radius: 7px; }
+.disc { width: 40px; height: 40px; flex: none; background: var(--accent); -webkit-mask: url(logo.png) center / contain no-repeat; mask: url(logo.png) center / contain no-repeat; }
 .gear svg { width: 21px; height: 21px; }
 .word { display: inline-flex; align-items: center; gap: 10px; font: italic 800 24px/1 var(--serif); font-variation-settings: 'SOFT' 100, 'WONK' 1; letter-spacing: -.02em; }
 .bar nav { margin-left: auto; display: flex; gap: 6px; }
@@ -355,7 +355,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 
 <header class="bar">
   <button class="gear" id="gear" aria-label="Einstellungen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-  <a class="word" href="#"><img class="disc mark" src="icon.svg" alt="">Streyn</a>
+  <a class="word" href="#"><span class="disc mark" aria-hidden="true"></span>Streyn</a>
   <nav class="cats">
     <div class="cat"><button class="cbtn" aria-expanded="false"><span data-t="catA"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
       <div class="menu"><a href="#a1"><b data-t="nav1"></b><small data-t="navd1"></small></a><a href="#player"><b data-t="navP"></b><small data-t="navdP"></small></a><a href="#a2"><b data-t="nav2"></b><small data-t="navd2"></small></a></div></div>
