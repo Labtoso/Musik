@@ -1,7 +1,8 @@
 // Queue + playback. Two engines with the same interface:
 //  - HtmlEngine: <audio> element (browser, desktop)
 //  - NativeEngine: Android bridge (ExoPlayer service, keeps playing in background)
-import { streamUrl, coverUrl, post, get, ytSongUrl, ytAudioUrl, audioOut } from './api.js';
+import { streamUrl, coverUrl, post, get, ytSongUrl, ytAudioUrl, audioOut, extCovers } from './api.js';
+import { extTrack } from './sources.js';
 import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showStage } from './engines.js';
 import { toBands } from './viz.js';
 import { findOnYouTube, spotify } from './sources.js';
@@ -439,6 +440,11 @@ const needsHtml = (t) => !!t?.ext && !streams(t);
 function streamOf(t) {
   return viaVideo(t.ext) ? ytAudioUrl(t.ext.id) : ytSongUrl(t);
 }
+/** What the server keeps of a song from another platform when it is played. */
+function songOf(t) {
+  if (!t?.ext) return null;
+  return { id: t.id, title: t.title, artist: t.artist || '', album: t.album || '', duration: t.duration || 0, cover: extCovers.get(t.id) || '', source: t.ext.source, ext_id: String(t.ext.id), url: t.ext.url || '', ext: t.ext };
+}
 function toItem(t) {
   if (streams(t)) return { id: t.id, ext: t.ext, url: streamOf(t), streamed: true, title: t.title, artist: t.artist || '', album: t.album || '', artwork: coverUrl(t.id), duration: t.duration || 0 };
   if (t.ext) return { id: t.id, ext: t.ext, url: '', title: t.title, artist: t.artist || '', album: t.album || '', artwork: coverUrl(t.id), duration: t.duration || 0 };
@@ -596,13 +602,18 @@ export class Player extends EventTarget {
     const l = this.listen;
     if (!l) return;
     this.listen = null;
-    if (typeof l.id !== 'number') return; // songs from other platforms do not count
     const dur = l.duration || this.duration || 0;
     let kind = kindHint;
     if (kind === 'auto') kind = dur && l.played >= dur * 0.9 ? 'complete' : 'partial';
     if (kind === 'skip' && dur && l.played >= dur * 0.9) kind = 'complete';
     if (kind === 'partial' && l.played < 10) return; // too short to mean anything
-    this.pending.push({ trackId: l.id, kind, played: Math.round(l.played), duration: Math.round(dur), ts: Date.now() });
+    const ev = { trackId: l.id, kind, played: Math.round(l.played), duration: Math.round(dur), ts: Date.now() };
+    // songs from Spotify, Deezer, YouTube count too: the server learns from them like from own files
+    if (typeof l.id !== 'number') {
+      if (!l.song) return;
+      ev.song = l.song;
+    }
+    this.pending.push(ev);
     this.#savePending();
     if (flush || this.pending.length >= 5) this.flushEvents();
   }
@@ -643,19 +654,28 @@ export class Player extends EventTarget {
     this.position = 0;
     const cur = this.current;
     this.duration = cur?.duration || 0;
-    if (cur && reason !== 'end') this.listen = { id: cur.id, played: 0, duration: cur.duration || 0, last: 0 };
+    if (cur && reason !== 'end') this.listen = { id: cur.id, played: 0, duration: cur.duration || 0, last: 0, song: songOf(cur) };
     this.#emit('change');
     this.#updateSession();
     this.#maybeExtend();
   }
 
   async #maybeExtend() {
-    if (!this.autoplay || this.repeat !== 'off' || this.fetchingMore || !this.current || this.current.ext) return;
+    if (!this.autoplay || this.repeat !== 'off' || this.fetchingMore || !this.current) return;
     if (this.queue.length - this.index - 1 >= 2) return;
     this.fetchingMore = true;
     try {
-      const exclude = this.queue.slice(-200).map((t) => t.id).filter((id) => typeof id === 'number').join(',');
-      const more = await get(`/api/recommend/radio/${this.current.id}?limit=10&exclude=${exclude}`);
+      let more;
+      if (this.current.ext) {
+        // like Spotify's autoplay: more songs in the mood of the last ones, none of the queue again
+        const seeds = this.queue.slice(Math.max(0, this.index - 4), this.index + 1).filter((t) => t.artist).map((t) => ({ title: t.title, artist: t.artist }));
+        const exclude = this.queue.slice(-300).map((t) => ({ title: t.title, artist: t.artist || '' }));
+        if (!seeds.length) return;
+        more = (await post('/api/catalog/radio', { seeds, exclude, limit: 12 })).map(extTrack);
+      } else {
+        const exclude = this.queue.slice(-200).map((t) => t.id).filter((id) => typeof id === 'number').join(',');
+        more = await get(`/api/recommend/radio/${this.current.id}?limit=10&exclude=${exclude}`);
+      }
       if (more.length) this.add(more, false);
     } catch {
     } finally {

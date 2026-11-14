@@ -98,6 +98,14 @@ test('setup, login, library, stream, likes, playlists, events, recommendations',
   assert.equal(r.json.saved, 3);
   r = await s.api('GET', '/api/history');
   assert.equal(r.json.length, 3);
+  // songs from other platforms are learned from too (kept apart from the own files)
+  const song = { id: 'spotify:abc', title: 'Ext Song', artist: 'Ext Artist', source: 'spotify', ext_id: 'abc', ext: { source: 'spotify', id: 'abc' } };
+  r = await s.api('POST', '/api/events', { events: [{ trackId: 'spotify:abc', kind: 'complete', played: 200, duration: 200, song }, { trackId: 'x', kind: 'skip', song: { title: '' } }] });
+  assert.equal(r.json.saved, 1);
+  r = await s.api('GET', '/api/history');
+  assert.equal(r.json.length, 3);
+  r = await s.api('POST', '/api/catalog/radio', { seeds: [] });
+  assert.equal(r.status, 400);
   r = await s.api('GET', '/api/recommend/mix?limit=10');
   assert.equal(r.json.length, 4);
   assert.equal(new Set(r.json.map((x) => x.id)).size, 4);

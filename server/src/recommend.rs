@@ -21,6 +21,7 @@ const SESSION_GAP: i64 = 45 * 60_000;
 #[derive(Debug, Clone)]
 pub struct Track {
     pub id: i64,
+    pub title: String,
     pub artist: String,
     pub album: String,
     pub album_artist: String,
@@ -93,6 +94,35 @@ pub fn similarity(a: &Track, b: &Track) -> f64 {
     s
 }
 
+/// Genres picked in the setup assistant (user settings "genres": ["rock", "rap", …]).
+fn wizard_genres(db: &Connection, user_id: i64) -> Vec<String> {
+    let data: Option<String> = db.query_row("SELECT data FROM user_settings WHERE user_id = ?", [user_id], |r| r.get(0)).ok();
+    data.and_then(|d| serde_json::from_str::<serde_json::Value>(&d).ok())
+        .and_then(|v| v["genres"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|g| g.as_str().map(str::to_string))
+        .collect()
+}
+
+/// Does a genre tag of a file ("hip-hop", "alternative rock") belong to an assistant genre ("rap", "rock")?
+fn genre_matches(picked: &str, tag: &str) -> bool {
+    let words: &[&str] = match picked {
+        "rap" => &["rap", "hip hop", "hip-hop", "hiphop", "trap"],
+        "alt" => &["alternative", "indie", "alt"],
+        "dance" => &["dance", "house", "edm"],
+        "electro" => &["electro", "techno", "electronic", "trance"],
+        "rnb" => &["r&b", "rnb", "r'n'b"],
+        "classic" => &["classic", "klassik", "orchestra"],
+        "film" => &["soundtrack", "film", "score"],
+        "asia" => &["k-pop", "j-pop", "kpop", "jpop", "asia"],
+        "africa" => &["afro", "africa"],
+        "kids" => &["kids", "kinder", "children"],
+        p => return tag.contains(p),
+    };
+    words.iter().any(|w| tag.contains(w))
+}
+
 fn norm<K: std::hash::Hash + Eq + Clone>(m: &HashMap<K, f64>) -> HashMap<K, f64> {
     let max = m.values().fold(0.0f64, |a, v| a.max(v.abs()));
     if max == 0.0 {
@@ -159,7 +189,7 @@ impl Recommender {
                 return c.clone();
             }
         }
-        let mut st = db.prepare("SELECT id, artist, album, album_artist, genre, year, added FROM tracks").unwrap();
+        let mut st = db.prepare("SELECT id, artist, album, album_artist, genre, year, added, title FROM tracks").unwrap();
         let rows: Vec<Track> = st
             .query_map([], |r| {
                 Ok(Track {
@@ -170,6 +200,7 @@ impl Recommender {
                     genre: r.get(4)?,
                     year: r.get(5)?,
                     added: r.get(6)?,
+                    title: r.get(7)?,
                 })
             })
             .unwrap()
@@ -230,6 +261,12 @@ impl Recommender {
         ctx
     }
 
+    /// The taste profile right now (also used for catalog suggestions).
+    pub fn profile_now(&self, db: &Connection, user_id: i64) -> Profile {
+        let ctx = self.ctx(db);
+        self.profile_with(db, user_id, &ctx)
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn profile(&self, db: &Connection, user_id: i64) -> Profile {
         let ctx = self.ctx(db);
@@ -265,7 +302,23 @@ impl Recommender {
         }
         let mut artist_aff = HashMap::new();
         let mut album_aff = HashMap::new();
-        let mut genre_aff = HashMap::new();
+        let mut genre_aff: HashMap<String, f64> = HashMap::new();
+        // followed artists and the genres picked in the setup assistant count from the first day on
+        let follows: Vec<String> = db
+            .prepare("SELECT name FROM follows WHERE user_id = ?")
+            .and_then(|mut s| s.query_map([user_id], |r| r.get::<_, String>(0)).map(|r| r.flatten().collect()))
+            .unwrap_or_default();
+        for f in &follows {
+            *artist_aff.entry(f.to_lowercase()).or_insert(0.0) += 3.0;
+        }
+        let picked = wizard_genres(db, user_id);
+        for t in &ctx.rows {
+            for g in split_genres(&t.genre) {
+                if picked.iter().any(|p| genre_matches(p, &g)) {
+                    genre_aff.entry(g).or_insert(1.0);
+                }
+            }
+        }
         for (id, a) in &track_aff {
             let t = &ctx.rows[ctx.by_id[id]];
             let ak = artist_key(t);
@@ -284,7 +337,7 @@ impl Recommender {
             artist_aff_n: norm(&artist_aff),
             album_aff_n: norm(&album_aff),
             genre_aff_n: norm(&genre_aff),
-            cold: events.is_empty() && liked.is_empty(),
+            cold: events.is_empty() && liked.is_empty() && follows.is_empty() && picked.is_empty(),
             track_aff,
             artist_aff,
             last_played,
@@ -353,6 +406,9 @@ impl Recommender {
     fn diversify(ctx: &Ctx, mut pool: Vec<Cand>, limit: usize) -> Vec<Pick> {
         let mut out: Vec<Cand> = Vec::new();
         let mut artist_count: HashMap<String, f64> = HashMap::new();
+        // the same song can be in the library more than once (album + best-of): only once in a list
+        let song = |t: &Track| format!("{}|{}", artist_key(t), crate::ext::norm(&t.title));
+        let mut songs: HashSet<String> = HashSet::new();
         while out.len() < limit && !pool.is_empty() {
             let recent = &out[out.len().saturating_sub(5)..];
             let last_artist = out.last().map(|c| artist_key(&ctx.rows[c.idx]));
@@ -372,6 +428,10 @@ impl Recommender {
                 }
             }
             let pick = pool.remove(best_i);
+            let t = &ctx.rows[pick.idx];
+            if !t.title.is_empty() && !songs.insert(song(t)) {
+                continue;
+            }
             *artist_count.entry(artist_key(&ctx.rows[pick.idx])).or_insert(0.0) += 1.0;
             out.push(pick);
         }
@@ -624,6 +684,24 @@ mod tests {
         let mix = r.mix(&db, 1, 30);
         assert_eq!(mix.len(), 30);
         assert!(mix.iter().position(|m| m.id == 20).unwrap() < 5);
+    }
+
+    #[test]
+    fn same_song_only_once_and_assistant_counts() {
+        let db = fixture();
+        // the same song again on a best-of
+        db.execute(
+            "INSERT INTO tracks (id, path, title, artist, album, genre, year, duration, added) VALUES (99,'/m/99.mp3','Rocker 0 (Remastered)','Rocker','Best Of','Rock',2010,200.0,?)",
+            [NOW - 100 * DAY],
+        )
+        .unwrap();
+        db.execute("INSERT INTO user_settings (user_id, data) VALUES (1, '{\"genres\":[\"jazz\"]}')", []).unwrap();
+        let r = rec(4);
+        assert!(!r.profile(&db, 1).cold);
+        let mix = r.mix(&db, 1, 31);
+        assert!(!(mix.iter().any(|m| m.id == 1) && mix.iter().any(|m| m.id == 99)), "duplicate song");
+        let jazz = mix[..6].iter().filter(|m| (19..=24).contains(&m.id)).count();
+        assert!(jazz >= 2, "assistant genre jazz near the top: {jazz}");
     }
 
     #[test]

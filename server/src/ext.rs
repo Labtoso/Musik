@@ -117,7 +117,6 @@ pub fn routes() -> Router<St> {
         .route("/catalog/search", get(catalog_search))
         .route("/catalog/artist/{id}", get(catalog_artist))
         .route("/catalog/related", get(catalog_related))
-        .route("/catalog/foryou", get(catalog_foryou))
         .route("/catalog/genre-artists", get(catalog_genre_artists))
         .route("/catalog/preview/{id}", get(catalog_preview))
         .route("/fetch/oembed", get(fetch_oembed))
@@ -711,7 +710,7 @@ async fn import_to_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Pa
 }
 
 // ---------- fetching public data (server side because these APIs have no CORS) ----------
-fn http_get(url: &str) -> Result<Value, ApiError> {
+pub(crate) fn http_get(url: &str) -> Result<Value, ApiError> {
     ureq::get(url)
         .set("User-Agent", "Musik-Server")
         .timeout(Duration::from_secs(15))
@@ -1212,7 +1211,7 @@ async fn ytm_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) 
         .map_err(|_| ApiError::new(502, "youtube_unreachable"))?;
     Ok(Json(json!(v.into_iter().take(20).collect::<Vec<_>>())))
 }
-fn urlencode(s: &str) -> String {
+pub(crate) fn urlencode(s: &str) -> String {
     let mut o = String::new();
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
@@ -1225,7 +1224,7 @@ fn urlencode(s: &str) -> String {
 }
 
 // ---------- catalog: the public Deezer catalog (no key needed) for search like on Spotify ----------
-fn dz_track(t: &Value) -> Value {
+pub(crate) fn dz_track(t: &Value) -> Value {
     json!({
         "source": "deezer", "ext_id": t["id"].to_string(), "title": t["title"].as_str().unwrap_or(""),
         "artist": t["artist"]["name"].as_str().unwrap_or(""),
@@ -1239,7 +1238,7 @@ fn dz_album(a: &Value) -> Value {
     json!({ "id": a["id"].to_string(), "title": a["title"].as_str().unwrap_or(""), "artist": a["artist"]["name"].as_str().unwrap_or(""),
             "cover": a["cover_medium"].as_str().unwrap_or(""), "url": a["link"].as_str().unwrap_or("") })
 }
-fn dz_artist(a: &Value) -> Value {
+pub(crate) fn dz_artist(a: &Value) -> Value {
     json!({ "id": a["id"].to_string(), "name": a["name"].as_str().unwrap_or(""), "picture": a["picture_medium"].as_str().unwrap_or(""),
             "fans": a["nb_fan"].as_i64().unwrap_or(0) })
 }
@@ -1342,72 +1341,6 @@ async fn catalog_related(Auth(_, _): Auth, Query(q): Query<HashMap<String, Strin
         };
         let related = http_get(&format!("https://api.deezer.com/artist/{}/related?limit=12", hit["id"])).unwrap_or(Value::Null);
         json!({ "artists": dz_list(&related, dz_artist), "fans": hit["nb_fan"].as_i64().unwrap_or(0) })
-    })
-    .await
-    .map_err(|_| ApiError::new(500, "internal"))?;
-    Ok(Json(res))
-}
-
-/// ?artists=a|b|c → suggestions from what someone listens to: for each artist the related
-/// artists and their best songs, mixed so no artist dominates.
-async fn catalog_foryou(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
-    let names: Vec<String> = q
-        .get("artists")
-        .map(|s| s.split('|').map(|x| x.trim().chars().take(80).collect::<String>()).filter(|x| !x.is_empty()).take(5).collect())
-        .unwrap_or_default();
-    if names.is_empty() {
-        return Ok(Json(json!({ "rows": [], "artists": [], "playlists": [] })));
-    }
-    let res = tokio::task::spawn_blocking(move || {
-        let mut rows = Vec::new();
-        let mut artists: Vec<Value> = Vec::new();
-        let mut seen_a = std::collections::HashSet::new();
-        let mut seen_t = std::collections::HashSet::new();
-        for n in &names {
-            seen_a.insert(norm(n));
-        }
-        for name in &names {
-            let Ok(found) = http_get(&format!("https://api.deezer.com/search/artist?limit=1&q={}", urlencode(name))) else { continue };
-            let Some(a) = found["data"].get(0) else { continue };
-            let id = a["id"].to_string();
-            let related = http_get(&format!("https://api.deezer.com/artist/{id}/related?limit=8")).unwrap_or(Value::Null);
-            let mut tracks = Vec::new();
-            for r in related["data"].as_array().cloned().unwrap_or_default().iter().take(6) {
-                if seen_a.insert(norm(r["name"].as_str().unwrap_or(""))) {
-                    artists.push(dz_artist(r));
-                }
-                let rid = r["id"].to_string();
-                if let Ok(top) = http_get(&format!("https://api.deezer.com/artist/{rid}/top?limit=2")) {
-                    for t in dz_list(&top, dz_track) {
-                        if seen_t.insert(format!("{}|{}", norm(t["artist"].as_str().unwrap_or("")), norm(t["title"].as_str().unwrap_or("")))) {
-                            tracks.push(t);
-                        }
-                    }
-                }
-            }
-            if !tracks.is_empty() {
-                rows.push(json!({ "because": a["name"], "picture": a["picture_medium"], "tracks": tracks }));
-            }
-        }
-        // playlists that carry these artists, so the start page also suggests whole playlists
-        let mut playlists: Vec<Value> = Vec::new();
-        let mut seen_p = std::collections::HashSet::new();
-        for name in names.iter().take(4) {
-            let Ok(found) = http_get(&format!("https://api.deezer.com/search/playlist?limit=4&q={}", urlencode(name))) else { continue };
-            for p in found["data"].as_array().cloned().unwrap_or_default() {
-                let id = p["id"].to_string();
-                if p["nb_tracks"].as_i64().unwrap_or(0) < 8 || !seen_p.insert(id.clone()) {
-                    continue;
-                }
-                playlists.push(json!({
-                    "id": id, "title": p["title"].as_str().unwrap_or(""),
-                    "cover": p["picture_medium"].as_str().unwrap_or(""),
-                    "owner": p["user"]["name"].as_str().unwrap_or(""),
-                    "count": p["nb_tracks"].as_i64().unwrap_or(0),
-                }));
-            }
-        }
-        json!({ "rows": rows, "artists": artists.into_iter().take(16).collect::<Vec<_>>(), "playlists": playlists.into_iter().take(12).collect::<Vec<_>>() })
     })
     .await
     .map_err(|_| ApiError::new(500, "internal"))?;

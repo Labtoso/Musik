@@ -6,6 +6,7 @@ mod library;
 mod offline;
 mod recommend;
 mod spotify;
+mod taste;
 mod yt;
 mod ytdl;
 mod update;

@@ -282,12 +282,15 @@ struct PlaylistBody {
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct EventIn {
-    #[serde(rename = "trackId")]
+    #[serde(rename = "trackId", default)]
     track_id: Value,
     kind: String,
     played: Value,
     duration: Value,
     ts: Value,
+    /// a song from another platform (no own file): title, artist, album, cover, ext
+    #[serde(default)]
+    song: Value,
 }
 
 fn to_ids(v: &[Value]) -> Vec<i64> {
@@ -1115,6 +1118,14 @@ async fn events(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
     let now = now_ms();
     let mut n = 0;
     for e in list.into_iter().take(200) {
+        let f = |v: &Value| v.as_f64().unwrap_or(0.0).max(0.0);
+        let ts = e.ts.as_i64().filter(|t| (now - t).abs() < 30 * 86_400_000).unwrap_or(now);
+        if e.song.is_object() {
+            if crate::taste::record(&tx, u.id, &e.song, &e.kind, f(&e.played), f(&e.duration), ts) {
+                n += 1;
+            }
+            continue;
+        }
         let Some(id) = to_ids(&[e.track_id]).first().copied() else {
             continue;
         };
@@ -1128,11 +1139,6 @@ async fn events(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
         if exists.is_none() {
             continue;
         }
-        let ts =
-            e.ts.as_i64()
-                .filter(|t| (now - t).abs() < 30 * 86_400_000)
-                .unwrap_or(now);
-        let f = |v: &Value| v.as_f64().unwrap_or(0.0).max(0.0);
         tx.execute(
             "INSERT INTO plays (user_id, track_id, ts, played, duration, kind) VALUES (?,?,?,?,?,?)",
             params![u.id, id, ts, f(&e.played), f(&e.duration), e.kind],
@@ -1339,6 +1345,7 @@ pub fn router(st: St) -> Router {
         .route("/recommend/shuffle", post(rec_shuffle))
         .route("/home", get(home))
         .merge(crate::ext::routes())
+        .merge(crate::taste::routes())
         .merge(crate::offline::routes())
         .merge(crate::update::routes())
         .merge(crate::spotify::routes())

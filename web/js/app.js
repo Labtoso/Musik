@@ -1058,22 +1058,42 @@ async function favouriteArtists(h) {
   }
   return [...score.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, 4);
 }
+// suggestions from the catalog, worked out on the server from plays, skips, likes, followed artists and the setup assistant
+const fyLists = new Map();
 async function forYouSections(h) {
   const names = await favouriteArtists(h);
-  if (!names.length) return '';
   const r = await get('/api/catalog/foryou?artists=' + encodeURIComponent(names.join('|'))).catch(() => null);
   if (!r) return '';
   let html = '';
   const rows = (r.rows || []).map((row) => ({ ...row, tracks: row.tracks.map(extTrack) }));
-  // single songs first: one from each artist in turn, so the list is mixed
-  const songs = [];
-  for (let k = 0; songs.length < 8 && k < 12; k++) for (const row of rows) if (row.tracks[k] && songs.length < 8) songs.push(row.tracks[k]);
+  // mixes like on Spotify: one Daily Mix per corner of the taste, new music each week, the songs on repeat
+  const cards = [];
+  (r.mixes || []).forEach((m) => cards.push({ title: m.title, sub: (m.artists || []).join(', '), picture: m.picture, tracks: m.tracks.map(extTrack) }));
+  if (r.discover?.length >= 8) cards.push({ title: t('discoverMix'), sub: t('discoverHint'), picture: r.discover[0].cover, tracks: r.discover.map(extTrack) });
+  if (r.onRepeat?.length >= 5) cards.push({ title: t('onRepeat'), sub: t('onRepeatHint'), picture: r.onRepeat[0].cover, tracks: r.onRepeat.map(extTrack) });
+  if (cards.length) {
+    html += section(t('yourMixes'), `<div class="cards srow">${cards
+      .map((c) => {
+        const id = 'fymix:' + Math.random().toString(36).slice(2, 9);
+        fyLists.set(id, c.tracks);
+        if (fyLists.size > 60) fyLists.delete(fyLists.keys().next().value);
+        if (c.picture) extCovers.set(id, c.picture);
+        return `<button class="card" data-fymix="${id}">${coverImg(c.picture ? id : c.tracks[0]?.id, 'lg')}<div class="c-title">${esc(c.title)}</div><div class="c-sub">${esc(c.sub)}</div></button>`;
+      })
+      .join('')}</div>`);
+  }
+  const songs = (r.discover || []).slice(0, 8).map(extTrack);
   if (songs.length) html += section(t('songsForYou'), trackList(songs));
   if (r.playlists?.length) html += section(t('playlistsForYou'), plainAlbumCards(r.playlists.map(catPlaylist), true));
   if (r.artists?.length) html += section(t('suggestedArtists'), artistCards(r.artists.map(catArtist), true));
   for (const row of rows) html += section(t('becauseYouListen', { name: row.because }), trackCards(row.tracks, 'fy' + Math.random().toString(36).slice(2, 7)));
   return html;
 }
+document.addEventListener('click', (e) => {
+  const c = e.target.closest('[data-fymix]');
+  const list = c && fyLists.get(c.dataset.fymix);
+  if (list?.length) player.playList(list, 0);
+});
 
 // The start page is kept in memory once it has been built: coming back to it is instant until the app is closed.
 // A fresh copy is fetched quietly in the background when the kept one is older than a few minutes.
