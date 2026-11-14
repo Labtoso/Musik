@@ -22,6 +22,7 @@
   .err { color: #e5484d; min-height: 20px; font-size: 13px; }
   button { width: 100%; height: 42px; border: 0; border-radius: 7px; background: #4c8dff; color: #0b1220; font: inherit; font-weight: 600; cursor: pointer; margin-top: 6px; }
   button:disabled { opacity: 0.5; }
+  button.ghost { background: transparent; border: 1px solid #2c2f35; color: #ececee; margin-top: 10px; }
   .lang { position: fixed; top: 14px; right: 16px; width: auto; height: auto; margin: 0; padding: 6px 10px; border-radius: 16px; background: transparent; border: 1px solid #2c2f35; color: #9a9ca3; font-size: 12.5px; font-weight: 600; }
 </style>
 </head>
@@ -34,6 +35,8 @@
   <p id="help"></p>
   <p class="err" id="e"></p>
   <button id="b"></button>
+  <button type="button" class="ghost" id="off" hidden></button>
+  <p id="offhelp" hidden></p>
 </form>
 <script>
   let saved = '';
@@ -47,10 +50,19 @@
     location.reload();
   };
   const T = de
-    ? { h: 'Mit Server verbinden', l: 'Server-Adresse', help: 'Die Adresse zeigt der Server beim Start an, z. B. http://192.168.1.50:8484', b: 'Verbinden', offline: 'Server nicht erreichbar. Adresse prüfen.', notmusik: 'Unter dieser Adresse läuft kein Musik-Server.' }
-    : { h: 'Connect to server', l: 'Server address', help: 'The server prints its address on start, e.g. http://192.168.1.50:8484', b: 'Connect', offline: 'Server not reachable. Check the address.', notmusik: 'No Musik server at this address.' };
+    ? { h: 'Mit Server verbinden', l: 'Server-Adresse', help: 'Die Adresse zeigt der Server beim Start an, z. B. http://192.168.1.50:8484', b: 'Verbinden', off: 'Offline verwenden', offhelp: 'Spielt die Playlists, die du auf dieses Handy heruntergeladen hast.', offline: 'Server nicht erreichbar. Adresse prüfen.', notmusik: 'Unter dieser Adresse läuft kein Musik-Server.' }
+    : { h: 'Connect to server', l: 'Server address', help: 'The server prints its address on start, e.g. http://192.168.1.50:8484', b: 'Connect', off: 'Use offline', offhelp: 'Plays the playlists you downloaded to this phone.', offline: 'Server not reachable. Check the address.', notmusik: 'No Musik server at this address.' };
   document.documentElement.lang = de ? 'de' : 'en';
   for (const k of ['h', 'l', 'help', 'b']) document.getElementById(k).textContent = T[k];
+  if (window.MusikAndroid && MusikAndroid.canOffline && MusikAndroid.canOffline()) {
+    const off = document.getElementById('off');
+    off.hidden = false;
+    off.textContent = T.off;
+    const oh = document.getElementById('offhelp');
+    oh.hidden = false;
+    oh.textContent = T.offhelp;
+    off.onclick = () => { off.disabled = true; MusikAndroid.useOffline(); };
+  }
   const q = new URLSearchParams(location.search);
   const s = document.getElementById('s');
   const e = document.getElementById('e');

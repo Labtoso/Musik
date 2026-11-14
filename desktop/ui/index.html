@@ -22,6 +22,7 @@
   .err { color: #e5484d; min-height: 20px; font-size: 13px; }
   button { width: 100%; height: 42px; border: 0; border-radius: 7px; background: #4c8dff; color: #0b1220; font: inherit; font-weight: 600; cursor: pointer; margin-top: 6px; }
   button:disabled { opacity: 0.5; }
+  button.ghost { background: transparent; border: 1px solid #2c2f35; color: #ececee; margin-top: 10px; }
   .tb { position: fixed; left: 0; right: 0; top: 0; height: 40px; display: flex; justify-content: flex-end; background: #000; -webkit-user-select: none; user-select: none; z-index: 5; }
   .tb button { width: 46px; height: 40px; margin: 0; border-radius: 0; background: transparent; color: #9a9ca3; display: grid; place-items: center; }
   .tb button:hover { background: rgba(255,255,255,.1); color: #fff; }
@@ -40,6 +41,8 @@
   <p id="help"></p>
   <p class="err" id="e"></p>
   <button id="b"></button>
+  <button type="button" class="ghost" id="off" hidden></button>
+  <p id="offhelp" hidden></p>
 </form>
 <script>
   // own title bar: the window has no system frame
@@ -60,8 +63,8 @@
     location.reload();
   };
   const T = de
-    ? { h: 'Mit Server verbinden', l: 'Server-Adresse', help: 'Die Adresse zeigt der Server beim Start an, z. B. http://192.168.1.50:8484', b: 'Verbinden', connecting: 'Verbinde …', offline: 'Server nicht erreichbar. Adresse prüfen.', notmusik: 'Unter dieser Adresse läuft kein Musik-Server.', upd: 'Musik wird aktualisiert', updHelp: 'Die neue Version wird geladen. Danach schließt sich Musik kurz und startet neu.', updP: 'Lade … {p} %', updFail: 'Update fehlgeschlagen. Prüfe die Internetverbindung.', updUnsupported: 'Diese Version kann sich nicht selbst aktualisieren. Lade die neue Version von der Download-Seite.', back: 'Zurück' }
-    : { h: 'Connect to server', l: 'Server address', help: 'The server prints its address on start, e.g. http://192.168.1.50:8484', b: 'Connect', connecting: 'Connecting …', offline: 'Server not reachable. Check the address.', notmusik: 'No Musik server at this address.', upd: 'Updating Musik', updHelp: 'Downloading the new version. Musik then closes for a moment and starts again.', updP: 'Downloading … {p} %', updFail: 'Update failed. Check the internet connection.', updUnsupported: 'This version cannot update itself. Get the new version from the download page.', back: 'Back' };
+    ? { h: 'Mit Server verbinden', l: 'Server-Adresse', help: 'Die Adresse zeigt der Server beim Start an, z. B. http://192.168.1.50:8484', b: 'Verbinden', off: 'Offline verwenden', offhelp: 'Spielt die Playlists, die du auf diesen Computer heruntergeladen hast.', connecting: 'Verbinde …', offline: 'Server nicht erreichbar. Adresse prüfen.', notmusik: 'Unter dieser Adresse läuft kein Musik-Server.', upd: 'Musik wird aktualisiert', updHelp: 'Die neue Version wird geladen. Danach schließt sich Musik kurz und startet neu.', updP: 'Lade … {p} %', updFail: 'Update fehlgeschlagen. Prüfe die Internetverbindung.', updUnsupported: 'Diese Version kann sich nicht selbst aktualisieren. Lade die neue Version von der Download-Seite.', back: 'Zurück' }
+    : { h: 'Connect to server', l: 'Server address', help: 'The server prints its address on start, e.g. http://192.168.1.50:8484', b: 'Connect', off: 'Use offline', offhelp: 'Plays the playlists you downloaded to this computer.', connecting: 'Connecting …', offline: 'Server not reachable. Check the address.', notmusik: 'No Musik server at this address.', upd: 'Updating Musik', updHelp: 'Downloading the new version. Musik then closes for a moment and starts again.', updP: 'Downloading … {p} %', updFail: 'Update failed. Check the internet connection.', updUnsupported: 'This version cannot update itself. Get the new version from the download page.', back: 'Back' };
   document.documentElement.lang = de ? 'de' : 'en';
   for (const k of ['h', 'l', 'help', 'b']) document.getElementById(k).textContent = T[k];
   const q = new URLSearchParams(location.search);
@@ -69,6 +72,15 @@
   const e = document.getElementById('e');
   const b = document.getElementById('b');
   const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+  invoke('can_offline').then((ok) => {
+    if (!ok || q.has('update')) return;
+    const off = document.getElementById('off');
+    const oh = document.getElementById('offhelp');
+    off.hidden = oh.hidden = false;
+    off.textContent = T.off;
+    oh.textContent = T.offhelp;
+    off.onclick = () => { off.disabled = true; invoke('use_offline'); };
+  }).catch(() => {});
   window.showError = (code) => {
     e.textContent = T[code] || T.offline;
     b.disabled = false;

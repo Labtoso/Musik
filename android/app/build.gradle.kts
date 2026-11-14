@@ -35,6 +35,13 @@ android {
         }
     }
 
+    // the Musik server for offline mode ships as libmusikserver.so and must be unpacked to run
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

@@ -344,7 +344,7 @@ async fn info(State(st): State<St>, req: Request) -> Json<Value> {
     let public = public_url(&st);
     let here = req.extensions().get::<PublicSide>().is_some();
     Json(
-        json!({ "name": st.name, "app": "musik", "version": VERSION, "setup": setup && !here, "remote": remote, "public": public, "publicSide": here, "ytdlp": crate::ytdl::available() }),
+        json!({ "name": st.name, "app": "musik", "version": VERSION, "setup": setup && !here, "remote": remote, "public": public, "publicSide": here, "ytdlp": crate::ytdl::available(), "offline": crate::offline::enabled() }),
     )
 }
 async fn set_public(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
@@ -1339,6 +1339,7 @@ pub fn router(st: St) -> Router {
         .route("/recommend/shuffle", post(rec_shuffle))
         .route("/home", get(home))
         .merge(crate::ext::routes())
+        .merge(crate::offline::routes())
         .merge(crate::update::routes())
         .merge(crate::spotify::routes())
         .fallback(|| async { ApiError::new(404, "not_found") });
@@ -1352,7 +1353,7 @@ pub fn router(st: St) -> Router {
             Method::DELETE,
             Method::OPTIONS,
         ])
-        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::RANGE])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::RANGE, header::HeaderName::from_static("x-musik-key")])
         .expose_headers([
             header::CONTENT_RANGE,
             header::CONTENT_LENGTH,

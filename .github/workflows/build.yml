@@ -84,10 +84,21 @@ jobs:
 
   android:
     name: Android APK
-    needs: version
+    needs: [version, server]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # the server for offline mode runs inside the app
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: server-linux-*
+          path: srv
+          merge-multiple: true
+      - name: Server for offline mode
+        run: |
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a android/app/src/main/jniLibs/x86_64
+          cp srv/musik-server-linux-arm64 android/app/src/main/jniLibs/arm64-v8a/libmusikserver.so
+          cp srv/musik-server-linux-x64 android/app/src/main/jniLibs/x86_64/libmusikserver.so
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -136,15 +147,26 @@ jobs:
 
   desktop:
     name: Desktop ${{ matrix.name }}
-    needs: version
+    needs: [version, server]
     strategy:
       matrix:
         include:
-          - { name: windows, os: windows-latest, bundle: nsis, out: Musik.exe }
-          - { name: linux, os: ubuntu-22.04, bundle: appimage, out: Musik.AppImage }
+          - { name: windows, os: windows-latest, bundle: nsis, out: Musik.exe, srv: server-windows-x64, bin: musik-server-windows-x64.exe, triple: x86_64-pc-windows-msvc, ext: .exe }
+          - { name: linux, os: ubuntu-22.04, bundle: appimage, out: Musik.AppImage, srv: server-linux-x64, bin: musik-server-linux-x64, triple: x86_64-unknown-linux-gnu, ext: '' }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # the server for offline mode ships next to the app
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.srv }}
+          path: srv
+      - name: Server for offline mode
+        shell: bash
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          cp "srv/${{ matrix.bin }}" "desktop/src-tauri/binaries/musik-server-${{ matrix.triple }}${{ matrix.ext }}"
+          chmod +x desktop/src-tauri/binaries/*
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

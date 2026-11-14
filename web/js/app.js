@@ -370,6 +370,40 @@ applyPrefs();
 let player = null;
 let viz = null;
 let sameOrigin = null;
+// ---------- offline: the apps run a small server on the device that keeps copies of playlists ----------
+let offlineMode = false; // this page comes from that server on the device
+const OFFCB = {};
+let offN = 0;
+const offline = {
+  ok: () => !!(window.MusikAndroid?.offlineCall || window.musikDesktop?.offlineCall),
+  call(method, path, body) {
+    const A = window.MusikAndroid;
+    const b = body === undefined ? '' : JSON.stringify(body);
+    if (A?.offlineCall)
+      return new Promise((res) => setTimeout(() => {
+        let r = null;
+        try { r = JSON.parse(A.offlineCall(method, path, b) || 'null'); } catch {}
+        res(r);
+      }, 0));
+    return new Promise((res) => {
+      const id = ++offN;
+      OFFCB[id] = res;
+      window.musikDesktop.offlineCall(method, path, b, id);
+      setTimeout(() => OFFCB[id] && (delete OFFCB[id], res(null)), 20000);
+    });
+  },
+  status: () => offline.call('GET', '/api/offline/status').then((r) => r?.sets || []),
+  add: (id) => offline.call('POST', '/api/offline/add', { server: conn.server, token: conn.token, id: Number(id), user: conn.user?.name || '' }),
+  remove: (key) => offline.call('POST', '/api/offline/remove', { key })
+};
+window.__musikOff = (id, txt) => {
+  const f = OFFCB[id];
+  delete OFFCB[id];
+  let r = null;
+  try { r = JSON.parse(txt); } catch {}
+  f?.(r);
+};
+const goOnline = () => (window.MusikAndroid?.goOnline ? window.MusikAndroid.goOnline() : window.musikDesktop?.goOnline?.());
 let state = { route: '', cache: {} };
 
 // ---------- helpers ----------
@@ -1904,10 +1938,69 @@ views.playlist = async (params, id) => {
       title: pl.name,
       sub: `${pl.description ? `<span class="pl-desc">${esc(pl.description)}</span>` : ''}${who}${songCount(pl.tracks.length)} · ${fmtTime(pl.tracks.reduce((s, x) => s + x.duration, 0))}`,
       edit: pl.mine !== false ? `playlist:${pl.id}` : '',
-      actions: listActions('pl') + `<button class="btn" data-plshare="${pl.id}" title="${t('share')}">${icon('share')}${t('share')}</button>` + `<button class="icon-btn" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
+      actions: listActions('pl') + (offline.ok() && !offlineMode ? `<button class="btn offbtn" data-offpl="${pl.id}">${icon('download')}<span>${t('offDownload')}</span></button>` : '') + `<button class="btn" data-plshare="${pl.id}" title="${t('share')}">${icon('share')}${t('share')}</button>` + `<button class="icon-btn" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
     }) + members + trackList(pl.tracks, { playlistId: pl.id })
   );
 };
+// download switch on a playlist: on = copy kept on this device, off = copy removed
+let offTimer = 0;
+async function paintOffline() {
+  const b = $('[data-offpl]');
+  if (!b) return;
+  const sets = await offline.status();
+  const set = sets.find((x) => x.id === Number(b.dataset.offpl));
+  const loading = set?.state === 'loading';
+  b.classList.toggle('on', !!set && !loading && set.state === 'ready');
+  b.classList.toggle('busy', loading);
+  b.dataset.key = set?.key || '';
+  b.dataset.state = set?.state || '';
+  b.querySelector('span').textContent = loading ? t('offLoading', { n: set.done, total: set.total || '…' }) : set?.state === 'ready' ? t('offOn') : set ? t('offRetry') : t('offDownload');
+  b.style.setProperty('--p', loading && set.total ? (set.done / set.total) * 100 + '%' : '0%');
+  clearTimeout(offTimer);
+  // a kept playlist follows changes on the server: copied again quietly when it is older than ten minutes
+  if (set?.state === 'ready' && Date.now() - set.updated > 600000) {
+    offline.add(set.id);
+    offTimer = setTimeout(paintOffline, 1200);
+    return;
+  }
+  if (loading) offTimer = setTimeout(paintOffline, 1200);
+  else if (set && set.state !== 'ready' && b.dataset.was === 'loading') toast(t('offError'));
+  b.dataset.was = set?.state || '';
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-offpl]');
+  if (b) {
+    if (b.dataset.state === 'loading') return;
+    if (b.dataset.state === 'ready') {
+      const ok = await dialog({ title: t('offRemoveQ'), text: t('offRemoveText'), ok: t('offRemove'), danger: true });
+      if (!ok) return;
+      await offline.remove(b.dataset.key);
+    } else {
+      const r = await offline.add(b.dataset.offpl);
+      if (!r) return toast(t('offError'));
+    }
+    return paintOffline();
+  }
+  if (e.target.closest('[data-goonline]')) return goOnline();
+  const rm = e.target.closest('[data-offrm]');
+  if (rm) {
+    await offline.remove(rm.dataset.offrm);
+    return redrawOffline();
+  }
+});
+async function offlineHtml() {
+  const sets = await offline.status();
+  const size = (n) => (n > 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(n / 1e6)) + ' MB');
+  const rows = sets.map((x) => `<div class="offrow">${icon(x.state === 'loading' ? 'refresh' : 'download')}<span><b>${esc(x.name || '…')}</b><small>${x.state === 'loading' ? t('offLoading', { n: x.done, total: x.total }) : x.state === 'ready' ? `${songCount(x.total)} · ${size(x.bytes)}` : t('offError')}</small></span><button class="btn sm" data-offrm="${esc(x.key)}">${t('offRemove')}</button></div>`).join('');
+  return (
+    setRow(t('offTitle'), offlineMode ? `<button class="btn primary" data-goonline>${t('goOnline')}</button>` : '', { hint: t('offHint'), keys: 'offline download herunterladen ohne internet' }) +
+    setRow(t('offSaved'), '', { wide: true, hint: rows ? `<div class="offlist">${rows}</div>` : t('offNone'), keys: 'offline download' })
+  );
+}
+async function redrawOffline() {
+  const c = $('#set-offline');
+  if (c) c.outerHTML = setCard('offline', 'download', t('offTitle'), await offlineHtml());
+}
 // an invitation link lands here once the user is signed in
 views.join = async (params, token) => {
   state.joined = true; // the invitation wins over the first-start assistant
@@ -2626,6 +2719,7 @@ async function render() {
     main.classList.toggle('detail', !!main.querySelector('.detail-head'));
     tintAll(main);
     warmSoon(200);
+    if (main.querySelector('[data-offpl]')) paintOffline();
     main.scrollTop = 0;
     $('#content').scrollTop = 0;
     if (state.route === 'search') {
@@ -3695,6 +3789,7 @@ async function renderSettings() {
     setCard('playback', 'play', t('playback'),
       setRow(t('autoplayShort'), sw('autoplay', prefs.autoplay), { hint: t('autoplay'), keys: 'autoplay radio' }) +
       setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' })),
+    (offline.ok() ? setCard('offline', 'download', t('offTitle'), `<span class="muted small">…</span>`) : '') +
     setCard('devices', 'bluetooth', t('devices'), devicesHtml()) +
     setCard('sound', 'eq', t('equalizer'), setRow(t('equalizer'), eqHtml(), { wide: true, keys: 'eq bass treble klang sound preset' })),
     setCard('sources', 'link', t('sources'),
@@ -3726,6 +3821,7 @@ async function renderSettings() {
   ].join('');
   const q = $('#setq')?.value || '';
   s.innerHTML = `<div class="set-cards">${cards}<p class="muted empty set-none" hidden>${t('noSettings')}</p></div>`;
+  if (offline.ok()) redrawOffline();
   $('#setnav').innerHTML = [...s.querySelectorAll('.set-card')].map((c) => `<button data-setjump="${c.id}">${esc(c.querySelector('h3 span').textContent)}</button>`).join('');
   filterSettings(q);
   renderUpdates(false);
@@ -4095,7 +4191,7 @@ function buildShell() {
       <div id="side-playlists" class="side-pls"></div>
     </aside>
     <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo">Musik</span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
-    <main id="content"><div id="view"></div></main>
+    <main id="content">${offlineMode ? `<div class="offbar">${icon('download')}<span><b>${t('offMode')}</b> ${t('offModeHint')}</span><button class="btn sm" data-goonline>${t('goOnline')}</button></div>` : ''}<div id="view"></div></main>
     <footer id="player" class="player idle">
       <div id="mini-progress"><i></i></div>
       <div class="np" id="mini">
@@ -4212,6 +4308,18 @@ async function boot() {
   }
   sameOrigin = await detectSameOrigin();
   if (sameOrigin) conn.server = sameOrigin;
+  if (sameOrigin) {
+    const info = await api('GET', '/api/info', undefined, { token: null, timeout: 4000 }).catch(() => null);
+    if (info?.offline) {
+      offlineMode = true;
+      document.documentElement.classList.add('offline-mode');
+      if (!conn.token) {
+        const s = await api('POST', '/api/offline/session', {}, { token: null }).catch(() => null);
+        if (s?.token) Object.assign(conn, { token: s.token, user: s.user });
+        saveConn();
+      }
+    }
+  }
   if (conn.server && conn.token) {
     try {
       conn.user = await api('GET', '/api/me', undefined, { timeout: 8000 });

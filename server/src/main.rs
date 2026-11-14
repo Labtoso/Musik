@@ -3,6 +3,7 @@ mod auth;
 mod db;
 mod ext;
 mod library;
+mod offline;
 mod recommend;
 mod spotify;
 mod yt;
@@ -110,7 +111,9 @@ fn main() {
         std::fs::create_dir_all(d).ok();
     }
     let conn = db::open(Some(&data_dir)).expect("cannot open database");
-    ytdl::init(&data_dir);
+    if !offline::enabled() {
+        ytdl::init(&data_dir);
+    }
     let state = Arc::new(AppState {
         db: Arc::new(Mutex::new(conn)),
         library: library::Library::new(

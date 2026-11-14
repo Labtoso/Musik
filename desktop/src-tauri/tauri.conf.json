@@ -16,6 +16,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "appimage"],
+    "externalBin": ["binaries/musik-server"],
     "publisher": "LabtosoStudios",
     "copyright": "© LabtosoStudios",
     "category": "Music",

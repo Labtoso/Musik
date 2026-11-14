@@ -18,3 +18,5 @@ Thumbs.db
 server/target/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
+android/app/src/main/jniLibs/
+desktop/src-tauri/binaries/

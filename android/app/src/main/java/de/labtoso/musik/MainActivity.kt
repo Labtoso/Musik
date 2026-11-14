@@ -44,7 +44,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
 
+private const val LOCAL_PORT = 8485
+private const val LOCAL = "http://127.0.0.1:8485"
+
 class MainActivity : ComponentActivity() {
+    companion object {
+        /** The server on the phone for offline mode, started once per app process. */
+        @Volatile var proc: Process? = null
+    }
     private lateinit var web: WebView
     private lateinit var controllerFuture: ListenableFuture<MediaController>
     private var controller: MediaController? = null
@@ -99,7 +106,7 @@ class MainActivity : ComponentActivity() {
                 val url = request.url.toString()
                 val server = prefs.getString("server", null)
                 val remote = prefs.getString("remote", null)
-                if (url.startsWith("file:///android_asset/") || (server != null && url.startsWith(server)) || (remote != null && url.startsWith(remote))) return false
+                if (url.startsWith("file:///android_asset/") || url.startsWith(LOCAL) || (server != null && url.startsWith(server)) || (remote != null && url.startsWith(remote))) return false
                 // Spotify sign-in runs inside the app and comes back to the server address
                 val host = request.url.host ?: ""
                 if (host == "spotify.com" || host.endsWith(".spotify.com")) return false
@@ -174,8 +181,78 @@ class MainActivity : ComponentActivity() {
                 remote != null && check(remote) == "ok" -> remote
                 else -> null
             }
-            main.post { if (target != null) web.loadUrl("$target/") else showConnect("offline") }
+            when {
+                target != null -> main.post { web.loadUrl("$target/") }
+                // no server: the playlists kept on this phone, like Spotify's offline mode
+                hasOffline() -> openLocal()
+                else -> main.post { showConnect("offline") }
+            }
         }
+    }
+
+    // ---- offline mode: the Musik server runs on the phone itself (libmusikserver.so) and keeps copies of playlists
+    private val offKey by lazy {
+        prefs.getString("offKey", null) ?: java.util.UUID.randomUUID().toString().replace("-", "").also { prefs.edit().putString("offKey", it).apply() }
+    }
+    private fun offBinary(): File = File(applicationInfo.nativeLibraryDir, "libmusikserver.so")
+    private fun hasOffline(): Boolean = offBinary().exists() && File(filesDir, "offline/data/musik.db").exists()
+
+    @Synchronized private fun ensureLocal(): Boolean {
+        if (localUp()) return true
+        val bin = offBinary()
+        if (!bin.exists()) return false
+        val dir = File(filesDir, "offline").apply { mkdirs() }
+        runCatching { proc?.destroy() }
+        proc = runCatching {
+            ProcessBuilder(bin.absolutePath).directory(dir).redirectErrorStream(true).redirectOutput(File(dir, "server.log")).apply {
+                environment().putAll(mapOf(
+                    "MUSIK_OFFLINE" to "1", "MUSIK_KEY" to offKey, "HOST" to "127.0.0.1", "PORT" to LOCAL_PORT.toString(),
+                    "DATA_DIR" to File(dir, "data").absolutePath, "MUSIC_DIRS" to File(dir, "music").absolutePath,
+                    "SCAN_INTERVAL" to "0", "SERVER_NAME" to "Musik"
+                ))
+            }.start()
+        }.getOrNull() ?: return false
+        repeat(40) {
+            if (localUp()) return true
+            Thread.sleep(150)
+        }
+        return false
+    }
+    private fun localUp(): Boolean = runCatching {
+        val c = URL("$LOCAL/api/info").openConnection() as HttpURLConnection
+        c.connectTimeout = 400
+        c.readTimeout = 800
+        c.inputStream.bufferedReader().use { it.readText() }.contains("\"offline\":true")
+    }.getOrDefault(false)
+
+    private fun openLocal() = thread {
+        val ok = ensureLocal()
+        main.post { if (ok) web.loadUrl("$LOCAL/") else showConnect("offline") }
+    }
+
+    /** A call to the server on the phone; the app adds the key and looks up the server's address (the server has no DNS on Android). */
+    private fun localCall(method: String, path: String, body: String): String {
+        if (!path.startsWith("/api/offline/") || !ensureLocal()) return ""
+        var data = body
+        if (path == "/api/offline/add") runCatching {
+            val o = JSONObject(body)
+            val host = Uri.parse(o.optString("server")).host
+            if (!host.isNullOrEmpty()) o.put("ip", java.net.InetAddress.getByName(host).hostAddress)
+            data = o.toString()
+        }
+        return runCatching {
+            val c = URL("$LOCAL$path").openConnection() as HttpURLConnection
+            c.requestMethod = method
+            c.connectTimeout = 3000
+            c.readTimeout = 15000
+            c.setRequestProperty("x-musik-key", offKey)
+            if (data.isNotEmpty()) {
+                c.doOutput = true
+                c.setRequestProperty("Content-Type", "application/json")
+                c.outputStream.use { it.write(data.toByteArray()) }
+            }
+            (if (c.responseCode < 400) c.inputStream else c.errorStream).bufferedReader().use { it.readText() }
+        }.getOrDefault("")
     }
 
     private fun showConnect(error: String) {
@@ -521,6 +598,10 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun setPlayPref(key: String, on: Boolean) {
             if (key == "pauseOnDisconnect" || key == "resumeOnConnect") prefs.edit().putBoolean("play_$key", on).apply()
         }
+        @JavascriptInterface fun offlineCall(method: String, path: String, body: String): String = localCall(method, path, body)
+        @JavascriptInterface fun useOffline() = openLocal()
+        @JavascriptInterface fun goOnline() = main.post { lastOpen = 0; openBest() }
+        @JavascriptInterface fun canOffline(): Boolean = offBinary().exists()
         @JavascriptInterface fun getServer(): String = prefs.getString("server", "") ?: ""
         @JavascriptInterface fun changeServer() = main.post { showConnect("") }
         @JavascriptInterface fun connect(input: String) {
