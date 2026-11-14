@@ -821,7 +821,7 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
       const sub = [c.has('artist') ? artistLinks(tr) : '', reason].filter(Boolean).join(' · ');
       const xc = { year: tr.year || '', genre: esc(tr.genre || ''), added: tr.added ? fmtDate(tr.added) : '' };
       return `<div class="row ${tr.id === cur ? 'current' : ''} ${tr._off ? 'off' : ''}" data-i="${i}" data-id="${esc(String(tr.id))}" ${reorder ? 'draggable="true"' : ''}>
-        <div class="lead">${lead}<button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
+        <div class="lead">${lead}<span class="eqi" aria-hidden="true"><i></i><i></i><i></i><i></i></span><button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
         <div class="main"><div class="title">${esc(tr.title)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>
         ${showAlb ? `<div class="alb">${albumLink(tr)}</div>` : ''}
         ${extra.map((k) => `<div class="alb xcol">${xc[k]}</div>`).join('')}
@@ -3053,7 +3053,7 @@ function queueHtml() {
     `<div class="tracks" data-list="${key}" data-queue="1">${list
       .map(
         (tr, i) => `<div class="row ${offset + i === cur ? 'current' : ''}" data-i="${i}" data-q="${offset + i}" data-id="${tr.id}" draggable="${offset + i > cur}">
-        <div class="lead">${coverImg(tr.id, 'sm')}<button class="playbtn">${icon('play')}</button></div>
+        <div class="lead">${coverImg(tr.id, 'sm')}<span class="eqi" aria-hidden="true"><i></i><i></i><i></i><i></i></span><button class="playbtn">${icon('play')}</button></div>
         <div class="main"><div class="title">${esc(tr.title)}</div><div class="sub">${esc(artistName(tr))}</div></div>
         <button class="icon-btn like ${tr.liked ? 'on' : ''}" data-like="${tr.id}">${icon(tr.liked ? 'heartFill' : 'heart')}</button>
         <div class="dur">${fmtTime(tr.duration)}</div><button class="icon-btn more">${icon('more')}</button></div>`
@@ -3229,6 +3229,7 @@ function renderPlayer() {
   if ($('#fs').classList.contains('open') && $('#fs-queue').classList.contains('open')) $('#fs-queue').innerHTML = queueHtml();
 }
 function renderState() {
+  document.documentElement.classList.toggle('is-playing', !!player.playing);
   document.querySelectorAll('[data-act="toggle"]').forEach((b) => {
     b.innerHTML = icon(player.playing ? 'pause' : 'play');
     b.title = player.playing ? t('pause') : t('play');
@@ -3373,7 +3374,7 @@ function miniVizSync() {
   const box = $('#mini');
   if (!box) return;
   miniViz.attach(box);
-  const mode = prefs.miniViz || 'bars';
+  const mode = 'off'; // the mini player has no visualizer any more (it cost too much); lists show a small equalizer instead
   miniViz.setMode(mode);
   const run = mode !== 'off' && player.playing && !document.hidden && !$('#fs').classList.contains('open');
   if (run) {
@@ -4641,7 +4642,6 @@ async function renderSettings() {
       setRow(t('chill'), psw('chill', false), { hint: t('chillHint'), keys: 'chillscreen raum room zimmer vollbild fullscreen kamera camera plattenspieler' })),
     setCard('viz', 'viz', t('viz'),
       setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' }) +
-      setRow(t('miniViz'), pseg('miniViz', MINI_MODES, 'bars', (v) => t('mviz_' + v)), { hint: t('miniVizHint'), keys: 'mini player visualizer klein', wide: true }) +
       setRow(t('vizColor'), pseg('vizColor', ['accent', 'rainbow'], 'accent', (v) => t('vcol_' + v)), { keys: 'farbe color regenbogen rainbow akzent' }) +
       `<div class="rainbow-only" ${prefs.vizColor === 'rainbow' ? '' : 'hidden'}>${setRow(t('vizSpeed'), prng('vizSpeed', 0.2, 3, 0.1, 1, (v) => Number(v).toFixed(1) + '×'), { keys: 'regenbogen rainbow speed tempo' })}</div>` +
       setRow(t('vizSens'), prng('vizSens', 0.3, 2.5, 0.05, 1, pct), { hint: t('vizSensHint'), keys: 'empfindlichkeit sensitivity' }) +

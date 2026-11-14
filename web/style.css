@@ -1696,3 +1696,27 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 19px; }
 .logo .brandmark { width: 32px; height: 32px; }
 .brand .brandmark { width: 40px; height: 40px; }
+/* the song that plays: a small moving equalizer in the list, like Spotify (transform only, so it stays smooth) */
+.eqi { display: none; position: absolute; inset: 0; align-items: flex-end; justify-content: center; gap: 2px; padding: 0 0 12px; pointer-events: none; z-index: 1; }
+.row.current .eqi { display: flex; }
+.row.current .lead > .cover { filter: brightness(0.45); }
+.tracks.nocover .row.current .num, .row.current .lead > .num { visibility: hidden; }
+.eqi i { width: 3px; height: 14px; border-radius: 1px; background: var(--accent); transform-origin: bottom; transform: scaleY(0.3); will-change: transform; animation: eqi 0.9s ease-in-out infinite alternate; animation-play-state: paused; }
+.row.current .lead > .cover ~ .eqi i { background: #fff; }
+.eqi i:nth-child(2) { animation-duration: 0.7s; animation-delay: -0.3s; }
+.eqi i:nth-child(3) { animation-duration: 1.1s; animation-delay: -0.6s; }
+.eqi i:nth-child(4) { animation-duration: 0.8s; animation-delay: -0.15s; }
+html.is-playing .eqi i { animation-play-state: running; }
+@keyframes eqi { 0% { transform: scaleY(0.25); } 35% { transform: scaleY(1); } 65% { transform: scaleY(0.45); } 100% { transform: scaleY(0.85); } }
+.row.current:hover .eqi { display: none; }
+.row.current:hover .lead > .cover { filter: none; }
+@media (prefers-reduced-motion: reduce) { .eqi i { animation: none; transform: scaleY(0.6); } }
+/* queue: one compact line per song, like Spotify (cover, title and artist, like, length, menu) */
+.queue-view .tracks[data-queue] .row { grid-template-columns: 40px minmax(0, 1fr) 36px 48px 32px; gap: 10px; padding: 4px 8px; min-height: 52px; }
+.queue-view .tracks[data-queue] .row .like { opacity: 0; }
+.queue-view .tracks[data-queue] .row:hover .like, .queue-view .tracks[data-queue] .row .like.on { opacity: 1; }
+.queue-view .sec { margin-bottom: 18px; }
+@media (max-width: 899px) {
+  .queue-view .tracks[data-queue] .row { grid-template-columns: 44px minmax(0, 1fr) 32px; }
+  .queue-view .tracks[data-queue] .row .like, .queue-view .tracks[data-queue] .row .dur { display: none; }
+}
