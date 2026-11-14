@@ -978,22 +978,35 @@ details.q > div { padding: 0 16px 6px; }
     sidebar();
     toc();
     document.body.classList.remove('nav');
-    if (r.a) { const el = document.getElementById(r.a); if (el) { el.scrollIntoView(); return; } }
+    if (r.a) { const el = document.getElementById(r.a); if (el) { el.scrollIntoView(); pinned = r.a; spy && spy(); return; } }
     if (scroll) scrollTo(0, 0);
   }
 
   function toc() {
     const hs = $$('#doc h2, #doc h3');
     const box = $('#toc');
-    spy?.disconnect();
-    if (!hs.length) { box.innerHTML = ''; return; }
+    pinned = null;
+    if (!hs.length) { box.innerHTML = ''; spy = null; return; }
     box.innerHTML = `<p>${ico.list}${T[lang].onpage}</p>` + hs.map((h) => `<a href="#/${cur}/${h.id}" data-id="${h.id}" class="${h.tagName === 'H3' ? 'h3' : ''}">${esc(h.textContent.replace(/^#/, ''))}</a>`).join('') + `<button class="up" type="button">${ico.up}${T[lang].top}</button>`;
     $('.up', box).addEventListener('click', () => scrollTo({ top: 0, behavior: 'smooth' }));
     const mark = (id) => $$('a', box).forEach((a) => a.classList.toggle('on', a.dataset.id === id));
-    spy = new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && mark(e.target.id)), { rootMargin: '-70px 0px -70% 0px' });
-    hs.forEach((h) => spy.observe(h));
-    mark(hs[0].id);
+    // active heading: the last one above the top line; at the end of the page the clicked one, else the last one
+    spy = () => {
+      const line = 64 + 90;
+      const atEnd = innerHeight + scrollY >= document.documentElement.scrollHeight - 4;
+      const vis = (h) => { const r = h.getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight; };
+      let id = hs[0].id;
+      hs.forEach((h) => { if (h.getBoundingClientRect().top <= line) id = h.id; });
+      if (pinned && hs.some((h) => h.id === pinned && vis(h))) id = pinned;
+      else if (atEnd) id = hs[hs.length - 1].id;
+      mark(id);
+    };
+    spy();
   }
+  let pinned = null;
+  addEventListener('scroll', () => spy && spy(), { passive: true });
+  addEventListener('resize', () => spy && spy());
+  ['wheel', 'touchstart', 'keydown'].forEach((t) => addEventListener(t, () => { if (pinned) { pinned = null; } }, { passive: true }));
 
   // in-page anchors: scroll without leaving the page route
   document.addEventListener('click', (e) => {
@@ -1003,7 +1016,9 @@ details.q > div { padding: 0 16px 6px; }
     if ((p || '') === cur && rest.length) {
       e.preventDefault();
       history.replaceState(null, '', a.getAttribute('href'));
-      document.getElementById(rest.join('/'))?.scrollIntoView({ behavior: 'smooth' });
+      pinned = rest.join('/');
+      document.getElementById(pinned)?.scrollIntoView({ behavior: 'smooth' });
+      spy && spy();
       document.body.classList.remove('nav');
     }
   });
