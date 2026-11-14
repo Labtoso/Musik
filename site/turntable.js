@@ -43,7 +43,7 @@ function vinylTexture(accent, fontReady, img) {
   g.beginPath(); g.arc(0, 0, lr * 0.92, 0, Math.PI * 2); g.stroke();
   g.fillStyle = 'rgba(5,6,12,.92)'; g.textAlign = 'center';
   g.font = `italic 800 ${Math.round(lr * 0.36)}px ${fontReady ? 'Fraunces' : 'Georgia'}, serif`;
-  g.fillText('Musik', 0, -lr * 0.32);
+  g.fillText('Streyn', 0, -lr * 0.32);
   g.font = `500 ${Math.round(lr * 0.075)}px "JetBrains Mono", monospace`;
   g.fillText('LABTOSOSTUDIOS', 0, lr * 0.5);
   g.fillText('SIDE A  ·  33⅓ RPM', 0, lr * 0.64);
@@ -400,7 +400,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const neonTex = canvasTex(1024, 320, (g, w, h) => {
     g.clearRect(0, 0, w, h);
     g.font = 'italic 600 210px Fraunces, Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.shadowColor = '#fff'; g.shadowBlur = 24; g.fillStyle = '#fff'; g.fillText('musik', w / 2, h / 2);
+    g.shadowColor = '#fff'; g.shadowBlur = 24; g.fillStyle = '#fff'; g.fillText('streyn', w / 2, h / 2);
   });
   const neon = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.0), new THREE.MeshBasicMaterial({ map: neonTex, color: accentCol, transparent: true, depthWrite: false }));
   neon.position.set(-11, 8.2, WALL + 0.12); root.add(neon); accentBits.push(neon);

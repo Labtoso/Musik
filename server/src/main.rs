@@ -43,9 +43,14 @@ fn load_env_file(file: &Path) {
     }
 }
 
+/// Settings for the app itself: STREYN_<name>, or MUSIK_<name> from installs made before the app was renamed.
+pub fn brand_env(name: &str) -> Option<String> {
+    std::env::var(format!("STREYN_{name}")).or_else(|_| std::env::var(format!("MUSIK_{name}"))).ok()
+}
+
 fn main() {
     if std::env::args().any(|a| a == "--version" || a == "-V") {
-        println!("musik-server {VERSION}");
+        println!("streyn-server {VERSION}");
         return;
     }
     let exe_dir = std::env::current_exe()
@@ -55,7 +60,7 @@ fn main() {
     let base = std::env::current_dir().unwrap_or_else(|_| exe_dir.clone());
     load_env_file(&base.join(".env"));
     load_env_file(&exe_dir.join(".env"));
-    if let Ok(f) = std::env::var("MUSIK_ENV") {
+    if let Some(f) = brand_env("ENV") {
         load_env_file(Path::new(&f));
     }
     let var = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
@@ -98,7 +103,8 @@ fn main() {
     let scan_minutes: u64 = var("SCAN_INTERVAL")
         .and_then(|v| v.parse().ok())
         .unwrap_or(30);
-    let name = var("SERVER_NAME").unwrap_or_else(|| "Musik".into());
+    // installs from before the rename still say Musik
+    let name = var("SERVER_NAME").filter(|n| n.trim() != "Musik").unwrap_or_else(|| "Streyn".into());
     let remote = var("REMOTE_URL")
         .map(|u| u.trim().trim_end_matches('/').to_string())
         .filter(|u| u.starts_with("http"));
@@ -142,7 +148,7 @@ fn main() {
                 std::process::exit(1);
             }
         };
-        println!("Musik server {VERSION}");
+        println!("Streyn server {VERSION}");
         println!(
             "Music folders: {}",
             state

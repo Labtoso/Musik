@@ -712,7 +712,7 @@ async fn import_to_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Pa
 // ---------- fetching public data (server side because these APIs have no CORS) ----------
 pub(crate) fn http_get(url: &str) -> Result<Value, ApiError> {
     ureq::get(url)
-        .set("User-Agent", "Musik-Server")
+        .set("User-Agent", "Streyn-Server")
         .timeout(Duration::from_secs(15))
         .call()
         .map_err(|e| match e {

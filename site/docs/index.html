@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Musik Docs</title>
-<meta name="description" content="Guide for Musik: install the server, set up the apps, listen on the go, share playlists, offline mode, themes and help.">
+<title>Streyn Docs</title>
+<meta name="description" content="Guide for Streyn: install the server, set up the apps, listen on the go, share playlists, offline mode, themes and help.">
 <meta name="theme-color" content="#0d1117">
 <link rel="icon" href="../icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -63,7 +63,7 @@ svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor;
 .top { position: fixed; inset: 0 0 auto; height: var(--top); z-index: 40; display: flex; align-items: center; gap: 12px; padding: 0 20px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--head); font-weight: 700; font-size: 17px; letter-spacing: -.01em; width: calc(var(--side) - 32px); flex: none; }
 .brand:hover { text-decoration: none; }
-.brand svg { width: 30px; height: 30px; }
+.brand img { width: 30px; height: 30px; border-radius: 7px; }
 .brand small { font: 500 11px var(--mono); color: var(--muted); border: 1px solid var(--line2); border-radius: 20px; padding: 1px 8px; }
 .burger, .ibtn { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; color: var(--muted); flex: none; }
 .burger:hover, .ibtn:hover { background: var(--bg-hover); color: var(--head); }
@@ -258,7 +258,7 @@ details.q > div { padding: 0 16px 6px; }
 <body>
 <header class="top">
   <button class="burger" id="burger" aria-label="Menu"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-  <a class="brand" href="#/"><svg viewBox="0 0 512 512" aria-hidden="true"><circle cx="256" cy="256" r="248" fill="#0a0b10" stroke="#2a2e42" stroke-width="8"/><g fill="none" stroke="#252838" stroke-width="10"><circle cx="256" cy="256" r="210"/><circle cx="256" cy="256" r="170"/><circle cx="256" cy="256" r="134"/></g><circle cx="256" cy="256" r="98" fill="#4f7cff"/><circle cx="256" cy="256" r="16" fill="#0a0b10"/></svg>Musik Docs<small id="ver" hidden></small></a>
+  <a class="brand" href="#/"><img src="../icon.svg" alt="">Streyn Docs<small id="ver" hidden></small></a>
   <div class="search">
     <label id="slabel"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" autocomplete="off" spellcheck="false"><kbd id="kbd">Ctrl K</kbd></label>
     <div class="results" id="results" role="listbox"></div>
@@ -284,7 +284,7 @@ details.q > div { padding: 0 16px 6px; }
 <!-- ============================ ENGLISH ============================ -->
 
 <template data-l="en" data-p="" data-g="" data-t="Welcome">
-<p class="lead">Musik is your own music server with apps for Android, Windows, Linux and the browser. It keeps your music at home, learns your taste and plays everywhere.</p>
+<p class="lead">Streyn is your own music server with apps for Android, Windows, Linux and the browser. It keeps your music at home, learns your taste and plays everywhere.</p>
 <div class="shots"><img class="shot d" src="../shots/d-home.webp" width="1440" height="900" alt="Desktop app, start page" loading="lazy"><img class="shot m" src="../shots/m-home.webp" width="540" height="1169" alt="Android app, start page" loading="lazy"></div>
 <p class="cap">Desktop app and Android app</p>
 <h2>Where do you want to start?</h2>
@@ -329,18 +329,18 @@ details.q > div { padding: 0 16px 6px; }
   </div>
   <div role="tabpanel">
     <pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash</code></pre>
-    <p>Installs the <code>musik</code> service. Options go after <code>bash -s --</code>: <code>--music /path</code>, <code>--port 8484</code>, <code>--tailscale</code>, <code>--no-tailscale</code>, <code>--ts-authkey …</code></p>
+    <p>Installs the <code>streyn</code> service. Options go after <code>bash -s --</code>: <code>--music /path</code>, <code>--port 8484</code>, <code>--tailscale</code>, <code>--no-tailscale</code>, <code>--ts-authkey …</code></p>
   </div>
   <div role="tabpanel">
     <pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash</code></pre>
-    <p>Musik shows up as an app on the dashboard. Songs go into <code>Media/Music</code>.</p>
+    <p>Streyn shows up as an app on the dashboard. Songs go into <code>Media/Music</code>.</p>
   </div>
   <div role="tabpanel">
     <pre data-lang="bash"><code>git clone https://github.com/Labtoso/Musik.git && cd Musik && docker compose up -d --build</code></pre>
     <p>Music goes into <code>music/</code>, data into <code>data/</code>, port 8484.</p>
   </div>
   <div role="tabpanel">
-    <p>Download <code>musik-server-windows-x64.exe</code> from the <a href="https://github.com/Labtoso/Musik/releases/latest">latest release</a> and start it. It uses your Music folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> next to the exe.</p>
+    <p>Download <code>streyn-server-windows-x64.exe</code> from the <a href="https://github.com/Labtoso/Musik/releases/latest">latest release</a> and start it. It uses your Music folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> next to the exe.</p>
   </div>
 </div>
 <h2>Proxmox options</h2>
@@ -362,7 +362,7 @@ details.q > div { padding: 0 16px 6px; }
 </template>
 
 <template data-l="en" data-p="config" data-g="Server" data-t="Server settings">
-<p class="lead">Settings live in <code>/etc/musik.env</code> (container and Debian) or in a <code>.env</code> next to the server.</p>
+<p class="lead">Settings live in <code>/etc/streyn.env</code> (container and Debian) or in a <code>.env</code> next to the server.</p>
 <h2>Variables</h2>
 <table>
   <thead><tr><th>Variable</th><th>Default</th><th>Meaning</th></tr></thead>
@@ -371,22 +371,22 @@ details.q > div { padding: 0 16px 6px; }
   <tr><td><code>PORT</code></td><td>8484</td><td>Server port</td></tr>
   <tr><td><code>DATA_DIR</code></td><td><code>data</code></td><td>Database, covers, uploads</td></tr>
   <tr><td><code>SCAN_INTERVAL</code></td><td>30</td><td>Minutes between automatic scans</td></tr>
-  <tr><td><code>SERVER_NAME</code></td><td>Musik</td><td>Name in the apps and on share pages</td></tr>
+  <tr><td><code>SERVER_NAME</code></td><td>Streyn</td><td>Name in the apps and on share pages</td></tr>
   <tr><td><code>REMOTE_URL</code></td><td>–</td><td>Address on the go (set by the installer with Tailscale)</td></tr>
   <tr><td><code>PUBLIC_URL</code></td><td>–</td><td>Address for public links (set by the installer)</td></tr>
   <tr><td><code>HOST</code></td><td>0.0.0.0</td><td>Address it listens on</td></tr>
   </tbody>
 </table>
 <h2>Apply a change</h2>
-<pre data-lang="bash"><code>systemctl restart musik</code></pre>
+<pre data-lang="bash"><code>systemctl restart streyn</code></pre>
 <h2>Where things are</h2>
 <table>
   <thead><tr><th>What</th><th>Container and Debian</th></tr></thead>
   <tbody>
-  <tr><td>Settings</td><td><code>/etc/musik.env</code></td></tr>
-  <tr><td>Data</td><td><code>/var/lib/musik</code></td></tr>
-  <tr><td>Music</td><td><code>/srv/musik</code></td></tr>
-  <tr><td>Logs</td><td><code>journalctl -u musik -f</code></td></tr>
+  <tr><td>Settings</td><td><code>/etc/streyn.env</code></td></tr>
+  <tr><td>Data</td><td><code>/var/lib/streyn</code></td></tr>
+  <tr><td>Music</td><td><code>/srv/streyn</code></td></tr>
+  <tr><td>Logs</td><td><code>journalctl -u streyn -f</code></td></tr>
   </tbody>
 </table>
 </template>
@@ -397,13 +397,13 @@ details.q > div { padding: 0 16px 6px; }
 <table>
   <thead><tr><th>Device</th><th>File</th><th>How</th></tr></thead>
   <tbody>
-  <tr><td>Android</td><td><code>Musik.apk</code></td><td>Open it and allow installs from this source. Plays in the background with lock screen controls.</td></tr>
-  <tr><td>Windows</td><td><code>Musik.exe</code></td><td>Run the setup. Media keys work.</td></tr>
-  <tr><td>Linux</td><td><code>Musik.AppImage</code></td><td>Make it executable and start it.</td></tr>
+  <tr><td>Android</td><td><code>Streyn.apk</code></td><td>Open it and allow installs from this source. Plays in the background with lock screen controls.</td></tr>
+  <tr><td>Windows</td><td><code>Streyn.exe</code></td><td>Run the setup. Media keys work.</td></tr>
+  <tr><td>Linux</td><td><code>Streyn.AppImage</code></td><td>Make it executable and start it.</td></tr>
   <tr><td>Browser</td><td>–</td><td>Open the server address, or <strong>Web player</strong> on the home page.</td></tr>
   </tbody>
 </table>
-<pre data-lang="bash"><code>chmod +x Musik.AppImage && ./Musik.AppImage</code></pre>
+<pre data-lang="bash"><code>chmod +x Streyn.AppImage && ./Streyn.AppImage</code></pre>
 <h2>First start</h2>
 <p>Each app asks for the server address once, for example <code>192.168.1.50:8484</code>, then runs the setup assistant. Change the address later under <span class="path">Settings → Change server</span>.</p>
 <div class="shots"><img class="shot m2" src="../shots/m-np1.webp" width="540" height="1169" alt="Full screen player" loading="lazy"><img class="shot m2" src="../shots/m-album.webp" width="540" height="1169" alt="Album page" loading="lazy"></div>
@@ -418,7 +418,7 @@ details.q > div { padding: 0 16px 6px; }
   <li>Open the link it shows and sign in to Tailscale (free).</li>
   <li>If the installer asks, click <strong>Enable HTTPS</strong> on <a href="https://login.tailscale.com/admin/dns">login.tailscale.com/admin/dns</a> and press Enter.</li>
   <li>Install the Tailscale app on your phone and sign in with the same account.</li>
-  <li>Open Musik once at home. Away from home it switches to the Tailscale address by itself.</li>
+  <li>Open Streyn once at home. Away from home it switches to the Tailscale address by itself.</li>
 </ol>
 <p>The address is shown under <span class="path">Settings → On the go</span>.</p>
 <h2>Without a link</h2>
@@ -462,7 +462,7 @@ details.q > div { padding: 0 16px 6px; }
 <div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Good to know</span><p>Only songs stored as files on your server are kept. The web player in the browser has no offline mode.</p></div></div>
 </template>
 
-<template data-l="en" data-p="sources" data-g="Using Musik" data-t="Music and sources">
+<template data-l="en" data-p="sources" data-g="Using Streyn" data-t="Music and sources">
 <p class="lead">Your own files always come first. Spotify, YouTube and others are optional, switched on under <span class="path">Settings → Sources</span>.</p>
 <h2>Your own files</h2>
 <p>Put them into the music folder (scanned every 30 minutes, or right away with <strong>Rescan library</strong>) or use <span class="path">Settings → Upload music</span>. MP3, FLAC, M4A/AAC, OGG, WAV and WebM work. Title, artist, album, cover and lyrics come from the tags.</p>
@@ -488,7 +488,7 @@ details.q > div { padding: 0 16px 6px; }
 </table>
 </template>
 
-<template data-l="en" data-p="listen" data-g="Using Musik" data-t="Mix, radio and playlists">
+<template data-l="en" data-p="listen" data-g="Using Streyn" data-t="Mix, radio and playlists">
 <p class="lead">The more you listen, the better the mix gets.</p>
 <h2>Recommendations</h2>
 <ul>
@@ -507,7 +507,7 @@ details.q > div { padding: 0 16px 6px; }
 <p>Right click on the computer, long press on the phone, or tap the <strong>…</strong> button. Works on songs, albums, artists and playlists.</p>
 </template>
 
-<template data-l="en" data-p="player" data-g="Using Musik" data-t="Devices, sound and lyrics">
+<template data-l="en" data-p="player" data-g="Using Streyn" data-t="Devices, sound and lyrics">
 <p class="lead">Tap the small player (phone) or the cover (computer) to open the full screen player with lyrics, queue and visualizer.</p>
 <h2>Devices</h2>
 <p><span class="path">Settings → Devices</span> shows where the music plays. Pick headphones or a Bluetooth device. Optional: pause when a device disconnects, continue when it comes back within ten minutes.</p>
@@ -520,7 +520,7 @@ details.q > div { padding: 0 16px 6px; }
 <div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Android permissions</span><p>Android asks once for “record audio” for the visualizer and for Bluetooth to show full device names. Nothing is recorded.</p></div></div>
 </template>
 
-<template data-l="en" data-p="look" data-g="Using Musik" data-t="Themes and colours">
+<template data-l="en" data-p="look" data-g="Using Streyn" data-t="Themes and colours">
 <p class="lead">Change the look under <span class="path">Settings → General → Theme</span> or in the setup assistant.</p>
 <h2>Themes</h2>
 <table>
@@ -548,28 +548,28 @@ details.q > div { padding: 0 16px 6px; }
   <thead><tr><th>What</th><th>How</th></tr></thead>
   <tbody>
   <tr><td>Proxmox</td><td>Run the installer again</td></tr>
-  <tr><td>Debian / Ubuntu</td><td><code>musik-update</code></td></tr>
+  <tr><td>Debian / Ubuntu</td><td><code>streyn-update</code></td></tr>
   <tr><td>Docker</td><td><code>git pull && docker compose up -d --build</code></td></tr>
   <tr><td>Apps</td><td>Install the new version from the website over the old one</td></tr>
   </tbody>
 </table>
-<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Android before 1.8.0</span><p>Uninstall Musik once and install the new <code>Musik.apk</code>. From then on updates install over it.</p></div></div>
+<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Android before 1.8.0</span><p>Uninstall Streyn once and install the new <code>Streyn.apk</code>. From then on updates install over it.</p></div></div>
 <h2>Backup</h2>
-<p>The data folder is enough: <code>/var/lib/musik</code> or <code>data/</code>. It holds the database, covers and uploaded songs. Easiest is a Proxmox backup of the container.</p>
+<p>The data folder is enough: <code>/var/lib/streyn</code> or <code>data/</code>. It holds the database, covers and uploaded songs. Easiest is a Proxmox backup of the container.</p>
 </template>
 
 <template data-l="en" data-p="help" data-g="Maintenance" data-t="Help and FAQ">
 <p class="lead">The most common problems and how to fix them.</p>
 <h2>Connection</h2>
-<details class="q"><summary>The app cannot find the server</summary><div><p>Check the address including the port (<code>:8484</code>) and that the phone is on the same Wi-Fi. <code>http://ADDRESS:8484/api/info</code> in a browser must show <code>"app":"musik"</code>. In the container run <code>systemctl status musik</code>.</p></div></details>
+<details class="q"><summary>The app cannot find the server</summary><div><p>Check the address including the port (<code>:8484</code>) and that the phone is on the same Wi-Fi. <code>http://ADDRESS:8484/api/info</code> in a browser must show <code>"app":"musik"</code>. In the container run <code>systemctl status streyn</code>.</p></div></details>
 <details class="q"><summary>Nothing works on the go</summary><div><p>Is Tailscale on and signed in with the same account on the phone? Exclude it from battery saving on Android. In the container run <code>tailscale status</code>.</p></div></details>
 <h2>Music</h2>
 <details class="q"><summary>New songs do not show up</summary><div><p>Press <strong>Rescan library</strong> in Settings. With a host folder, check that <code>MUSIC_HOST_DIR</code> was set and is readable.</p></div></details>
 <details class="q"><summary>Spotify does not connect</summary><div><p>The redirect URI in the Spotify dashboard must be exactly <code>https://musik.labtoso.de/spotify.html</code>, and your Spotify account must be added as a user of the developer app.</p></div></details>
 <details class="q"><summary>The wrong version of a song plays</summary><div><p>Report the song with its name in a GitHub issue. The server prefers official uploads and skips covers, live and remix versions.</p></div></details>
 <h2>Apps</h2>
-<details class="q"><summary>Android will not install the update</summary><div><p>Versions before 1.8.0 were signed with a different key. Uninstall Musik once and install the new <code>Musik.apk</code>.</p></div></details>
-<details class="q"><summary>Where are the logs?</summary><div><pre data-lang="bash"><code>journalctl -u musik -f</code></pre></div></details>
+<details class="q"><summary>Android will not install the update</summary><div><p>Versions before 1.8.0 were signed with a different key. Uninstall Streyn once and install the new <code>Streyn.apk</code>.</p></div></details>
+<details class="q"><summary>Where are the logs?</summary><div><pre data-lang="bash"><code>journalctl -u streyn -f</code></pre></div></details>
 <h2>Still stuck?</h2>
 <p>Open an <a href="https://github.com/Labtoso/Musik/issues">issue on GitHub</a>.</p>
 </template>
@@ -577,7 +577,7 @@ details.q > div { padding: 0 16px 6px; }
 <!-- ============================ DEUTSCH ============================ -->
 
 <template data-l="de" data-p="" data-g="" data-t="Willkommen">
-<p class="lead">Musik ist dein eigener Musik-Server mit Apps für Android, Windows, Linux und den Browser. Deine Musik bleibt zuhause, der Server lernt deinen Geschmack und spielt überall.</p>
+<p class="lead">Streyn ist dein eigener Musik-Server mit Apps für Android, Windows, Linux und den Browser. Deine Musik bleibt zuhause, der Server lernt deinen Geschmack und spielt überall.</p>
 <div class="shots"><img class="shot d" src="../shots/d-home.webp" width="1440" height="900" alt="Desktop-App, Startseite" loading="lazy"><img class="shot m" src="../shots/m-home.webp" width="540" height="1169" alt="Android-App, Startseite" loading="lazy"></div>
 <p class="cap">Desktop-App und Android-App</p>
 <h2>Womit willst du anfangen?</h2>
@@ -622,22 +622,22 @@ details.q > div { padding: 0 16px 6px; }
   </div>
   <div role="tabpanel">
     <pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash</code></pre>
-    <p>Installiert den Dienst <code>musik</code>. Optionen hinter <code>bash -s --</code>: <code>--music /pfad</code>, <code>--port 8484</code>, <code>--tailscale</code>, <code>--no-tailscale</code>, <code>--ts-authkey …</code></p>
+    <p>Installiert den Dienst <code>streyn</code>. Optionen hinter <code>bash -s --</code>: <code>--music /pfad</code>, <code>--port 8484</code>, <code>--tailscale</code>, <code>--no-tailscale</code>, <code>--ts-authkey …</code></p>
   </div>
   <div role="tabpanel">
     <pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash</code></pre>
-    <p>Musik erscheint als App auf dem Dashboard. Songs kommen nach <code>Media/Music</code>.</p>
+    <p>Streyn erscheint als App auf dem Dashboard. Songs kommen nach <code>Media/Music</code>.</p>
   </div>
   <div role="tabpanel">
     <pre data-lang="bash"><code>git clone https://github.com/Labtoso/Musik.git && cd Musik && docker compose up -d --build</code></pre>
     <p>Musik in <code>music/</code>, Daten in <code>data/</code>, Port 8484.</p>
   </div>
   <div role="tabpanel">
-    <p><code>musik-server-windows-x64.exe</code> vom <a href="https://github.com/Labtoso/Musik/releases/latest">neuesten Release</a> laden und starten. Er nimmt deinen Musik-Ordner. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine <code>.env</code> neben der exe schreiben.</p>
+    <p><code>streyn-server-windows-x64.exe</code> vom <a href="https://github.com/Labtoso/Musik/releases/latest">neuesten Release</a> laden und starten. Er nimmt deinen Musik-Ordner. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine <code>.env</code> neben der exe schreiben.</p>
   </div>
 </div>
 <h2>Optionen für Proxmox</h2>
-<p>Vor den Befehl setzen, zum Beispiel <code>MUSIC_HOST_DIR=/mnt/nas/musik bash -c "…"</code>.</p>
+<p>Vor den Befehl setzen, zum Beispiel <code>MUSIC_HOST_DIR=/mnt/nas/music bash -c "…"</code>.</p>
 <table>
   <thead><tr><th>Option</th><th>Bedeutung</th></tr></thead>
   <tbody>
@@ -655,7 +655,7 @@ details.q > div { padding: 0 16px 6px; }
 </template>
 
 <template data-l="de" data-p="config" data-g="Server" data-t="Einstellungen des Servers">
-<p class="lead">Die Einstellungen stehen in <code>/etc/musik.env</code> (Container und Debian) oder in einer <code>.env</code> neben dem Server.</p>
+<p class="lead">Die Einstellungen stehen in <code>/etc/streyn.env</code> (Container und Debian) oder in einer <code>.env</code> neben dem Server.</p>
 <h2>Variablen</h2>
 <table>
   <thead><tr><th>Variable</th><th>Standard</th><th>Bedeutung</th></tr></thead>
@@ -664,22 +664,22 @@ details.q > div { padding: 0 16px 6px; }
   <tr><td><code>PORT</code></td><td>8484</td><td>Port des Servers</td></tr>
   <tr><td><code>DATA_DIR</code></td><td><code>data</code></td><td>Datenbank, Cover, Uploads</td></tr>
   <tr><td><code>SCAN_INTERVAL</code></td><td>30</td><td>Minuten zwischen automatischen Scans</td></tr>
-  <tr><td><code>SERVER_NAME</code></td><td>Musik</td><td>Name in den Apps und auf Teilen-Seiten</td></tr>
+  <tr><td><code>SERVER_NAME</code></td><td>Streyn</td><td>Name in den Apps und auf Teilen-Seiten</td></tr>
   <tr><td><code>REMOTE_URL</code></td><td>–</td><td>Adresse für unterwegs (setzt der Installer bei Tailscale)</td></tr>
   <tr><td><code>PUBLIC_URL</code></td><td>–</td><td>Adresse für öffentliche Links (setzt der Installer)</td></tr>
   <tr><td><code>HOST</code></td><td>0.0.0.0</td><td>Adresse, auf der er lauscht</td></tr>
   </tbody>
 </table>
 <h2>Änderung übernehmen</h2>
-<pre data-lang="bash"><code>systemctl restart musik</code></pre>
+<pre data-lang="bash"><code>systemctl restart streyn</code></pre>
 <h2>Wo was liegt</h2>
 <table>
   <thead><tr><th>Was</th><th>Container und Debian</th></tr></thead>
   <tbody>
-  <tr><td>Einstellungen</td><td><code>/etc/musik.env</code></td></tr>
-  <tr><td>Daten</td><td><code>/var/lib/musik</code></td></tr>
-  <tr><td>Musik</td><td><code>/srv/musik</code></td></tr>
-  <tr><td>Logs</td><td><code>journalctl -u musik -f</code></td></tr>
+  <tr><td>Einstellungen</td><td><code>/etc/streyn.env</code></td></tr>
+  <tr><td>Daten</td><td><code>/var/lib/streyn</code></td></tr>
+  <tr><td>Musik</td><td><code>/srv/streyn</code></td></tr>
+  <tr><td>Logs</td><td><code>journalctl -u streyn -f</code></td></tr>
   </tbody>
 </table>
 </template>
@@ -690,13 +690,13 @@ details.q > div { padding: 0 16px 6px; }
 <table>
   <thead><tr><th>Gerät</th><th>Datei</th><th>So geht’s</th></tr></thead>
   <tbody>
-  <tr><td>Android</td><td><code>Musik.apk</code></td><td>Öffnen und Installation aus dieser Quelle erlauben. Spielt im Hintergrund, mit Steuerung auf dem Sperrbildschirm.</td></tr>
-  <tr><td>Windows</td><td><code>Musik.exe</code></td><td>Setup starten. Medientasten gehen.</td></tr>
-  <tr><td>Linux</td><td><code>Musik.AppImage</code></td><td>Ausführbar machen und starten.</td></tr>
+  <tr><td>Android</td><td><code>Streyn.apk</code></td><td>Öffnen und Installation aus dieser Quelle erlauben. Spielt im Hintergrund, mit Steuerung auf dem Sperrbildschirm.</td></tr>
+  <tr><td>Windows</td><td><code>Streyn.exe</code></td><td>Setup starten. Medientasten gehen.</td></tr>
+  <tr><td>Linux</td><td><code>Streyn.AppImage</code></td><td>Ausführbar machen und starten.</td></tr>
   <tr><td>Browser</td><td>–</td><td>Server-Adresse öffnen oder <strong>Webplayer</strong> auf der Startseite.</td></tr>
   </tbody>
 </table>
-<pre data-lang="bash"><code>chmod +x Musik.AppImage && ./Musik.AppImage</code></pre>
+<pre data-lang="bash"><code>chmod +x Streyn.AppImage && ./Streyn.AppImage</code></pre>
 <h2>Erster Start</h2>
 <p>Jede App fragt einmal nach der Server-Adresse, zum Beispiel <code>192.168.1.50:8484</code>, dann läuft der Startassistent. Die Adresse änderst du später unter <span class="path">Einstellungen → Server wechseln</span>.</p>
 <div class="shots"><img class="shot m2" src="../shots/m-np1.webp" width="540" height="1169" alt="Vollbild-Player" loading="lazy"><img class="shot m2" src="../shots/m-album.webp" width="540" height="1169" alt="Albumseite" loading="lazy"></div>
@@ -711,7 +711,7 @@ details.q > div { padding: 0 16px 6px; }
   <li>Den angezeigten Link öffnen und bei Tailscale anmelden (kostenlos).</li>
   <li>Fragt der Installer danach, auf <a href="https://login.tailscale.com/admin/dns">login.tailscale.com/admin/dns</a> <strong>Enable HTTPS</strong> klicken und Enter drücken.</li>
   <li>Tailscale-App aufs Handy und mit demselben Konto anmelden.</li>
-  <li>Musik einmal zuhause öffnen. Unterwegs wechselt die App von selbst auf die Tailscale-Adresse.</li>
+  <li>Streyn einmal zuhause öffnen. Unterwegs wechselt die App von selbst auf die Tailscale-Adresse.</li>
 </ol>
 <p>Die Adresse steht unter <span class="path">Einstellungen → Unterwegs</span>.</p>
 <h2>Ohne Link</h2>
@@ -841,28 +841,28 @@ details.q > div { padding: 0 16px 6px; }
   <thead><tr><th>Was</th><th>Wie</th></tr></thead>
   <tbody>
   <tr><td>Proxmox</td><td>Installer noch mal ausführen</td></tr>
-  <tr><td>Debian / Ubuntu</td><td><code>musik-update</code></td></tr>
+  <tr><td>Debian / Ubuntu</td><td><code>streyn-update</code></td></tr>
   <tr><td>Docker</td><td><code>git pull && docker compose up -d --build</code></td></tr>
   <tr><td>Apps</td><td>Neue Version von der Website drüber installieren</td></tr>
   </tbody>
 </table>
-<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Android vor 1.8.0</span><p>Musik einmal deinstallieren und die neue <code>Musik.apk</code> installieren. Ab dann gehen Updates direkt drüber.</p></div></div>
+<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Android vor 1.8.0</span><p>Streyn einmal deinstallieren und die neue <code>Streyn.apk</code> installieren. Ab dann gehen Updates direkt drüber.</p></div></div>
 <h2>Sicherung</h2>
-<p>Der Datenordner reicht: <code>/var/lib/musik</code> bzw. <code>data/</code>. Darin liegen Datenbank, Cover und hochgeladene Songs. Am einfachsten ist ein Proxmox-Backup des Containers.</p>
+<p>Der Datenordner reicht: <code>/var/lib/streyn</code> bzw. <code>data/</code>. Darin liegen Datenbank, Cover und hochgeladene Songs. Am einfachsten ist ein Proxmox-Backup des Containers.</p>
 </template>
 
 <template data-l="de" data-p="help" data-g="Pflege" data-t="Hilfe und FAQ">
 <p class="lead">Die häufigsten Probleme und wie du sie löst.</p>
 <h2>Verbindung</h2>
-<details class="q"><summary>Die App findet den Server nicht</summary><div><p>Adresse mit Port (<code>:8484</code>) prüfen und ob das Handy im selben WLAN ist. <code>http://ADRESSE:8484/api/info</code> im Browser muss <code>"app":"musik"</code> zeigen. Im Container <code>systemctl status musik</code> ausführen.</p></div></details>
+<details class="q"><summary>Die App findet den Server nicht</summary><div><p>Adresse mit Port (<code>:8484</code>) prüfen und ob das Handy im selben WLAN ist. <code>http://ADRESSE:8484/api/info</code> im Browser muss <code>"app":"musik"</code> zeigen. Im Container <code>systemctl status streyn</code> ausführen.</p></div></details>
 <details class="q"><summary>Unterwegs geht nichts</summary><div><p>Ist Tailscale auf dem Handy an und mit demselben Konto angemeldet? Auf Android von der Akku-Optimierung ausnehmen. Im Container <code>tailscale status</code> ausführen.</p></div></details>
 <h2>Musik</h2>
 <details class="q"><summary>Neue Songs tauchen nicht auf</summary><div><p>In den Einstellungen <strong>Bibliothek neu einlesen</strong> drücken. Bei einem Host-Ordner prüfen, ob <code>MUSIC_HOST_DIR</code> gesetzt war und lesbar ist.</p></div></details>
 <details class="q"><summary>Spotify verbindet sich nicht</summary><div><p>Die Redirect URI im Spotify-Dashboard muss genau <code>https://musik.labtoso.de/spotify.html</code> sein, und dein Spotify-Konto muss als Nutzer der Entwickler-App eingetragen sein.</p></div></details>
 <details class="q"><summary>Es läuft die falsche Version eines Songs</summary><div><p>Melde den Song mit Namen in einem GitHub-Issue. Der Server nimmt offizielle Uploads zuerst und überspringt Cover-, Live- und Remix-Versionen.</p></div></details>
 <h2>Apps</h2>
-<details class="q"><summary>Android installiert das Update nicht</summary><div><p>Versionen vor 1.8.0 hatten einen anderen Schlüssel. Musik einmal deinstallieren und die neue <code>Musik.apk</code> installieren.</p></div></details>
-<details class="q"><summary>Wo sind die Logs?</summary><div><pre data-lang="bash"><code>journalctl -u musik -f</code></pre></div></details>
+<details class="q"><summary>Android installiert das Update nicht</summary><div><p>Versionen vor 1.8.0 hatten einen anderen Schlüssel. Streyn einmal deinstallieren und die neue <code>Streyn.apk</code> installieren.</p></div></details>
+<details class="q"><summary>Wo sind die Logs?</summary><div><pre data-lang="bash"><code>journalctl -u streyn -f</code></pre></div></details>
 <h2>Hängst du fest?</h2>
 <p>Öffne ein <a href="https://github.com/Labtoso/Musik/issues">Issue auf GitHub</a>.</p>
 </template>
@@ -974,7 +974,7 @@ details.q > div { padding: 0 16px 6px; }
       <nav class="pn">${prev ? `<a class="prev" href="#/${prev.id}"><small>← ${T[lang].prev}</small>${esc(prev.title)}</a>` : ''}${next ? `<a class="next" href="#/${next.id}"><small>${T[lang].next} →</small>${esc(next.title)}</a>` : ''}</nav>
       <div class="foot"><span>© LabtosoStudios</span><span><a href="../">musik.labtoso.de</a> · <a href="https://github.com/Labtoso/Musik/releases">Releases</a></span></div>`);
     enhance(doc);
-    document.title = page.id ? `${page.title} · Musik Docs` : 'Musik Docs';
+    document.title = page.id ? `${page.title} · Streyn Docs` : 'Streyn Docs';
     sidebar();
     toc();
     document.body.classList.remove('nav');

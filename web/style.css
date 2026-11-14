@@ -341,8 +341,10 @@ body.auth #app { height: 100%; }
 .fs.open { transform: none; visibility: visible; }
 .fs-top { display: flex; align-items: center; justify-content: space-between; }
 .fs-cover { flex: 1; min-height: 0; display: grid; place-items: center; }
-.fs-cover .cover.huge { max-width: min(100%, 52vh); }
+.fs-cover .cover.huge { width: var(--cov, min(100%, 52vh)); max-width: 100%; max-height: 100%; }
 .fs-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* title and line start and end where the cover does */
+.fs-meta, .fs .timeline { width: var(--cov, 100%); max-width: 100%; margin-inline: auto; }
 .fs-meta > div { min-width: 0; }
 .fs-meta .title { font-size: 21px; }
 .fs-meta .sub { color: var(--muted); }
@@ -689,16 +691,20 @@ body:has(.fs.open) .toast { top: calc(64px + var(--safe-t)); bottom: auto; }
 .frameless { --tb: 48px; }
 .frameless .shell { height: calc(100dvh - var(--tb)); }
 .titlebar {
-  height: var(--tb); display: grid; grid-template-columns: 1fr minmax(0, 520px) 1fr; align-items: center; gap: 12px;
-  padding-left: 10px; background: #000; user-select: none; -webkit-user-select: none;
+  height: var(--tb); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px) minmax(0, 1fr); align-items: center; gap: 12px;
+  padding: 0; background: #000; user-select: none; -webkit-user-select: none;
 }
 .tb-left, .tb-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tb-left { padding-left: 10px; }
 .tb-right { justify-content: flex-end; height: 100%; }
 .tb-logo { display: grid; place-items: center; width: 30px; height: 30px; color: var(--accent); }
 .tb-btn { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface); color: var(--muted); }
 .tb-btn:hover { color: var(--text); }
 .tb-btn.fwd .ic { transform: scaleX(-1); }
-.tb-mid { display: flex; align-items: center; gap: 8px; }
+/* the search field sits exactly in the middle of the bar, the home button hangs off its left side */
+.tb-mid { position: relative; display: flex; align-items: center; justify-content: center; height: 100%; }
+.tb-mid .tb-home { position: absolute; right: calc(100% + 8px); top: 50%; margin-top: -20px; }
+.tb-mid .tb-search { width: 100%; }
 .tb-home { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--surface); color: var(--text); flex: none; transition: transform 0.1s; }
 .tb-home:hover { transform: scale(1.05); }
 .tb-search { flex: 1; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 14px; text-align: left; border: 1px solid transparent; transition: border-color 0.12s, background 0.12s; min-width: 0; }
@@ -1325,7 +1331,8 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
   .fs .seek::-webkit-slider-runnable-track { height: 6px; border-radius: 6px; }
   .fs .seek::-webkit-slider-thumb { width: 14px; height: 14px; margin-top: -4px; opacity: 1; }
   /* in the big player the line is only as wide as the cover and the title above it */
-  .fs-meta, .fs .timeline, .fs-buttons, .fs-bottom { width: min(100%, 52vh); margin-inline: auto; }
+  .fs-meta, .fs .timeline { width: var(--cov, min(100%, 52vh)); margin-inline: auto; }
+  .fs-buttons, .fs-bottom { width: min(100%, max(var(--cov, 52vh), 340px)); margin-inline: auto; }
 }
 @media (max-width: 899px) {
   .fs .seek { height: 22px; }
@@ -1670,3 +1677,20 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 .prng input[type='range']::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--accent) var(--p), color-mix(in srgb, var(--text) 18%, transparent) var(--p)); }
 .prng input[type='range']::-webkit-slider-thumb { opacity: 1; width: 16px; height: 16px; margin-top: -6px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
 .prng input[type='range']::-moz-range-progress { background: var(--accent); }
+
+/* ---------- playlists in your own order: drag in the sidebar or the library ---------- */
+[data-sortpl] > [data-ref] { -webkit-user-drag: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+[data-sortpl] > [data-ref] img { -webkit-user-drag: none; pointer-events: none; }
+[data-sortpl] > .pl-armed { transform: scale(0.97); transition: transform 0.15s ease; }
+[data-sortpl] > .pl-dragging { position: relative; z-index: 5; background: var(--surface2); border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line); transform: scale(1.03); cursor: grabbing; }
+.pl-sorting-body, .pl-sorting-body * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
+.sorthint { margin: 14px 2px 0; }
+@media (pointer: fine) { .sorthint { display: none; } }
+
+/* Streyn logo */
+.brandmark { width: 26px; height: 26px; border-radius: 6px; flex: none; display: block; }
+.brandmark.big { width: 56px; height: 56px; border-radius: 14px; }
+.tb-logo .brandmark { width: 22px; height: 22px; border-radius: 5px; }
+.logo { display: inline-flex; align-items: center; gap: 9px; }
+.logo .brandmark { width: 24px; height: 24px; }
+.frameless .side-top .logo .brandmark { display: none; }

@@ -20,7 +20,7 @@ use tower::ServiceExt;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeFile;
 
-pub const VERSION: &str = match option_env!("MUSIK_VERSION") {
+pub const VERSION: &str = match option_env!("STREYN_VERSION") {
     Some(v) => v,
     None => env!("CARGO_PKG_VERSION"),
 };

@@ -1039,8 +1039,8 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-editprofile]') && (await profileDialog())) renderSettings();
 });
 function openProfile() {
-  // already open: another press does not slide it in again
-  if (document.querySelector('.profile-wrap:not(.closing)')) return;
+  // a second tap on the picture closes the panel instead of stacking another one
+  if (document.querySelector('.profile-wrap:not(.closing)')) return closeProfile();
   closeProfile();
   const name = (conn.user && conn.user.name) || '';
   const initial = avatarInner();
@@ -1072,11 +1072,11 @@ function openProfile() {
   });
 }
 function closeProfile() {
-  const w = $('.profile-wrap');
-  if (!w) return;
-  w.classList.remove('open');
-  w.classList.add('closing');
-  setTimeout(() => w.remove(), 200);
+  document.querySelectorAll('.profile-wrap:not(.closing)').forEach((w) => {
+    w.classList.add('closing');
+    w.classList.remove('open');
+    setTimeout(() => w.remove(), 200);
+  });
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-profile]')) openProfile();
@@ -2033,8 +2033,12 @@ views.library = async (params) => {
     const [lists, imps] = await Promise.all([get('/api/playlists'), get('/api/imports').catch(() => [])]);
     const kept = imps.filter((im) => im.kept);
     for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
-    body = `<div class="cards libgrid"><a class="card" href="#/likes"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
-      ${lists.map((p) => `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`).join('')}${kept.map((im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`).join('')}</div>`;
+    body = `<div class="cards libgrid" data-sortpl><a class="card" href="#/likes"><div class="cover lg ph accent">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
+      ${byPlOrder([
+        ...lists.map((p) => ['playlist:' + p.id, `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`]),
+        ...kept.map((im) => ['import:' + im.id, `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`])
+      ], (x) => x[0]).map((x) => x[1]).join('')}</div>
+      ${lists.length + kept.length > 1 ? `<p class="muted small sorthint">${t('dragToSort')}</p>` : ''}`;
   }
   return `${pageHead(t('yourLibrary'), `<button class="icon-btn" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button>`)}<div class="tabs">${LIB_TABS.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
 };
@@ -2493,7 +2497,7 @@ views.welcome = async (params) => {
   const i = wizIndex(params);
   const step = WIZ[i];
   if (step === 'hello') {
-    return wizFrame(i, `<div class="wiz-hero">${icon('note', 'big')}<h1>${t('wizHello')}</h1><p class="muted lead">${t('wizHelloText')}</p></div>
+    return wizFrame(i, `<div class="wiz-hero"><img class="brandmark big" src="icon.svg" alt=""><h1>${t('wizHello')}</h1><p class="muted lead">${t('wizHelloText')}</p></div>
       ${wizQ(t('wizLangAsk'), `<div class="seg">${['en', 'de'].map((l) => `<button data-wlang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`)}
       ${wizQ(t('wizNameAsk'), `<input id="wizname" class="textin" maxlength="40" value="${esc(conn.user?.name || '')}" autocomplete="nickname">`)}`);
   }
@@ -3194,7 +3198,7 @@ function renderPlayer() {
     $('#np-artist').textContent = '';
     $('#fs-title').textContent = t('nothingPlaying');
     $('#fs-artist').textContent = '';
-    document.title = 'Musik';
+    document.title = 'Streyn';
     applyDyn(null);
   }
   const liked = isLiked(tr);
@@ -3412,8 +3416,28 @@ document.addEventListener('change', (e) => {
   if (e.target.value !== 'off') prefs.vizLast = e.target.value;
   setViz(e.target.value);
 });
+// Big player: the cover takes the free space between the top bar and the title, never more, and on wide
+// screens the title, line and buttons are exactly as wide as the cover, so everything lines up in every theme.
+let fsFit = null;
+function fitFsCover() {
+  const box = $('#fs-cover');
+  const fs = $('#fs');
+  if (!box || !fs) return;
+  const r = box.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const cap = innerWidth >= 900 ? innerHeight * 0.52 : Infinity;
+  fs.style.setProperty('--cov', Math.max(140, Math.floor(Math.min(r.width, r.height, cap))) + 'px');
+}
+function watchFsCover() {
+  fsFit?.disconnect();
+  const box = $('#fs-cover');
+  if (!box || !window.ResizeObserver) return;
+  fsFit = new ResizeObserver(() => fitFsCover());
+  fsFit.observe(box);
+}
 function openFs(open) {
   $('#fs').classList.toggle('open', open);
+  if (open) fitFsCover();
   vizSync();
   if (!open) $('#fs-queue').classList.remove('open');
   if (!open) $('#fs-lyrics').classList.remove('open');
@@ -3588,12 +3612,152 @@ async function renderSidebarPlaylists() {
     const item = (ref, href, cov, name, sub) =>
       hidden.has(ref) ? '' : `<a href="${href}" class="side-pl" data-ref="${ref}">${coverImg(cov, 'xs')}<span class="spl-t"><b>${esc(name)}</b><small>${sub}</small></span></a>`;
     for (const im of imps) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
-    box.innerHTML =
-      lists.map((p) => item('playlist:' + p.id, '#/playlist/' + p.id, artKey('playlist', p.id, p.art) || p.cover_id, p.name, `${t('playlist')} · ${songCount(p.tracks)}`)).join('') +
-      imps.map((im) => item('import:' + im.id, '#/imported/' + im.id, artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), im.name, `${im.kept || t('src_' + im.source) === 'src_' + im.source ? t('playlist') : t('src_' + im.source)} · ${songCount(im.total)}`)).join('');
+    const all = [
+      ...lists.map((p) => ['playlist:' + p.id, () => item('playlist:' + p.id, '#/playlist/' + p.id, artKey('playlist', p.id, p.art) || p.cover_id, p.name, `${t('playlist')} · ${songCount(p.tracks)}`)]),
+      ...imps.map((im) => ['import:' + im.id, () => item('import:' + im.id, '#/imported/' + im.id, artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), im.name, `${im.kept || t('src_' + im.source) === 'src_' + im.source ? t('playlist') : t('src_' + im.source)} · ${songCount(im.total)}`)])
+    ];
+    box.innerHTML = byPlOrder(all, (x) => x[0]).map((x) => x[1]()).join('');
+    box.dataset.sortpl = '';
   } catch {
     box.innerHTML = '';
   }
+}
+
+// ---------- own order of playlists: drag them in the sidebar or in the library ----------
+// The order is kept in the account settings, so it is the same on every device.
+// Playlists without a place yet (new ones) come first, like a new playlist at the top.
+function byPlOrder(items, refOf) {
+  const pos = new Map((settings.plOrder || []).map((r, i) => [r, i]));
+  return items
+    .map((x, i) => [x, i])
+    .sort((a, b) => {
+      const pa = pos.has(refOf(a[0])) ? pos.get(refOf(a[0])) : -1;
+      const pb = pos.has(refOf(b[0])) ? pos.get(refOf(b[0])) : -1;
+      return pa === pb ? a[1] - b[1] : pa - pb;
+    })
+    .map((x) => x[0]);
+}
+function savePlOrder(box) {
+  const now = [...box.children].map((c) => c.dataset.ref).filter(Boolean);
+  const seen = new Set(now);
+  // playlists that are not in this list (hidden ones, imports) keep their places,
+  // the slots of the ones in this list are filled in the new order
+  const prev = (settings.plOrder || []).filter((r) => r);
+  const order = [];
+  let k = 0;
+  for (const r of prev) order.push(seen.has(r) ? now[k++] : r);
+  while (k < now.length) order.push(now[k++]);
+  saveSettings({ plOrder: order.filter((r, i) => r && order.indexOf(r) === i) }).catch(() => {});
+  if (box.id !== 'side-playlists') renderSidebarPlaylists();
+  else if (state.route === 'library' && /tab=playlists/.test(location.hash)) render();
+}
+{
+  let d = null; // { box, el, id, x0, y0, on, touch, armed, timer }
+  const items = (box) => [...box.children].filter((c) => c.dataset.ref);
+  const flip = (box, move) => {
+    const els = items(box);
+    const before = new Map(els.map((e) => [e, e.getBoundingClientRect()]));
+    move();
+    for (const e of els) {
+      if (e === d?.el) continue;
+      const a = before.get(e), b = e.getBoundingClientRect();
+      const dx = a.left - b.left, dy = a.top - b.top;
+      if (!dx && !dy) continue;
+      e.style.transition = 'none';
+      e.style.transform = `translate(${dx}px, ${dy}px)`;
+      requestAnimationFrame(() => {
+        e.style.transition = 'transform 0.18s ease';
+        e.style.transform = '';
+      });
+    }
+  };
+  const start = () => {
+    d.on = true;
+    d.el.classList.add('pl-dragging');
+    d.box.classList.add('pl-sorting');
+    document.body.classList.add('pl-sorting-body');
+    navigator.vibrate?.(10);
+  };
+  const moveTo = (x, y) => {
+    const el = d.el;
+    el.style.pointerEvents = 'none';
+    const under = document.elementFromPoint(x, y)?.closest('[data-ref]');
+    el.style.pointerEvents = '';
+    // keep the list scrolling when the finger is at its edge
+    const sc = d.box.closest('.side, #content, .side-pls') || d.box;
+    const r = sc.getBoundingClientRect();
+    if (y < r.top + 40) sc.scrollTop -= 10;
+    else if (y > r.bottom - 40) sc.scrollTop += 10;
+    if (!under || under === el || under.parentElement !== d.box) return;
+    const ur = under.getBoundingClientRect();
+    const grid = d.box.classList.contains('libgrid') && getComputedStyle(d.box).display === 'grid';
+    const after = grid && ur.height < r.height / 2 && Math.abs(ur.top - el.getBoundingClientRect().top) < 4 ? x > ur.left + ur.width / 2 : y > ur.top + ur.height / 2;
+    // already right there
+    if ((after && under.nextSibling === el) || (!after && under.previousSibling === el)) return;
+    flip(d.box, () => d.box.insertBefore(el, after ? under.nextSibling : under));
+  };
+  const end = (drop) => {
+    if (!d) return;
+    clearTimeout(d.timer);
+    const x = d;
+    d = null;
+    if (!x.on) return;
+    x.el.classList.remove('pl-dragging');
+    x.box.classList.remove('pl-sorting');
+    document.body.classList.remove('pl-sorting-body');
+    // the click that ends a drag does not open the playlist
+    const stop = (e) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    document.addEventListener('click', stop, { capture: true, once: true });
+    setTimeout(() => document.removeEventListener('click', stop, { capture: true }), 400);
+    if (drop) savePlOrder(x.box);
+  };
+  document.addEventListener('pointerdown', (e) => {
+    if (d || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const el = e.target.closest('[data-sortpl] > [data-ref]');
+    if (!el) return;
+    const touch = e.pointerType !== 'mouse';
+    d = { box: el.parentElement, el, id: e.pointerId, x0: e.clientX, y0: e.clientY, on: false, touch, armed: !touch, timer: 0 };
+    // finger: hold a moment, then drag. Mouse: just drag.
+    if (touch) d.timer = setTimeout(() => d && !d.on && ((d.armed = true), d.el.classList.add('pl-armed')), 380);
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    const far = Math.hypot(e.clientX - d.x0, e.clientY - d.y0);
+    if (!d.on) {
+      if (!d.armed) {
+        if (far > 10) end(false); // a scroll, not a drag
+        return;
+      }
+      // past the 10 px at which a held finger no longer counts as a long press for the menu
+      if (far < 12) return;
+      d.el.classList.remove('pl-armed');
+      start();
+    }
+    if (document.querySelector('.menu')) closeMenu();
+    e.preventDefault();
+    moveTo(e.clientX, e.clientY);
+  });
+  // while a finger drags, the page must not scroll
+  document.addEventListener('touchmove', (e) => {
+    if (d && (d.on || d.armed)) e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('pointerup', (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    d.el.classList.remove('pl-armed');
+    end(true);
+  });
+  document.addEventListener('pointercancel', () => {
+    if (!d) return;
+    d.el.classList.remove('pl-armed');
+    end(true);
+  });
+  // no browser drag image for links and pictures while sorting
+  document.addEventListener('dragstart', (e) => {
+    if (e.target.closest?.('[data-sortpl]')) e.preventDefault();
+  });
 }
 
 async function saveImportAsPlaylist(id) {
@@ -4513,7 +4677,7 @@ async function renderSettings() {
           ? setRow(t('remoteAddr'), `<button class="btn" data-copyremote="${esc(info.remote)}">${t('copy')}</button>`, { hint: `<code class="addr">${esc(info.remote)}</code><br>${t('remoteOn')}`, keys: 'tailscale unterwegs remote' })
           : setRow(t('remoteAddr'), `<a class="btn" href="${GUIDE}" target="_blank" rel="noopener">${t('guide')}</a>`, { hint: t('remoteOff'), keys: 'tailscale unterwegs remote' })) +
       (conn.user?.admin
-        ? setRow(t('publicLinks'), `<div class="remoteedit"><input id="publicurl" class="textin" value="${esc(info?.public || '')}" placeholder="https://musik.tail1234.ts.net:8443" autocomplete="off" spellcheck="false" inputmode="url"><button class="btn primary" data-savepublic>${t('save')}</button></div>`, { hint: `${info?.public ? t('publicOn') : t('publicOff')} <a href="${GUIDE}#public" target="_blank" rel="noopener">${t('guide')}</a>`, keys: 'öffentlich public teilen share funnel link', wide: true })
+        ? setRow(t('publicLinks'), `<div class="remoteedit"><input id="publicurl" class="textin" value="${esc(info?.public || '')}" placeholder="https://streyn.tail1234.ts.net:8443" autocomplete="off" spellcheck="false" inputmode="url"><button class="btn primary" data-savepublic>${t('save')}</button></div>`, { hint: `${info?.public ? t('publicOn') : t('publicOff')} <a href="${GUIDE}#public" target="_blank" rel="noopener">${t('guide')}</a>`, keys: 'öffentlich public teilen share funnel link', wide: true })
         : '')),
     user.admin ? setCard('users', 'user', t('users'), setRow(t('users'), `<button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button>`, { hint: '<span id="userlist">…</span>', keys: 'nutzer users admin konto' })) : '',
     setCard('updates', 'download', t('updates'),
@@ -4867,7 +5031,7 @@ async function showLogin(errorMsg = '') {
     : '';
   const mode = !info ? 'server' : info.setup ? 'setup' : 'login';
   app.innerHTML = `<div class="auth-wrap"><form class="auth-card" novalidate>
-    <div class="brand">${icon('note')}<span>Musik</span></div>
+    <div class="brand"><img class="brandmark" src="icon.svg" alt=""><span>Streyn</span></div>
     <h2>${mode === 'setup' ? t('firstAccount') : mode === 'login' ? t('login') : t('connect')}</h2>
     ${mode === 'setup' ? `<p class="muted small">${t('firstAccountHelp')}</p>` : ''}
     ${mode === 'server' ? serverField : `${sameOrigin ? '' : `<p class="muted small srv">${esc(conn.server)} · <a href="#" data-editserver>${t('changeServer')}</a></p>`}
@@ -4922,7 +5086,7 @@ function buildShell() {
   document.documentElement.classList.toggle('frameless', frameless);
   $('#app').innerHTML = `
   ${frameless ? `<div class="titlebar" data-drag>
-    <div class="tb-left"><span class="tb-logo">${icon('note')}</span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
+    <div class="tb-left"><span class="tb-logo"><img class="brandmark" src="icon.svg" alt=""></span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
     <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><label class="tb-search">${icon('search')}<input id="tbq" type="search" placeholder="${t('searchPlaceholder_' + searchMode())}" autocomplete="off" spellcheck="false"></label></div>
     <div class="tb-right"><button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
       <button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
@@ -4931,12 +5095,12 @@ function buildShell() {
   </div>` : ''}
   <div class="shell">
     <aside class="side">
-      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo">Musik</span></div>
+      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><img class="brandmark" src="icon.svg" alt="">Streyn</span></div>
       <nav class="side-nav">${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}${nav('likes', 'heart', t('likes'))}${nav('queue', 'queue', t('queue'))}</nav>
       <div class="side-head">${t('playlists')}<button class="icon-btn sm" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button></div>
       <div id="side-playlists" class="side-pls"></div>
     </aside>
-    <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo">Musik</span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
+    <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><img class="brandmark" src="icon.svg" alt="">Streyn</span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
     <main id="content">${offlineMode ? `<div class="offbar">${icon('download')}<span id="offbar-text"><b>${t('offMode')}</b> ${t('offModeHint')}</span><button class="btn sm" data-goonline>${t('goOnline')}</button></div>` : ''}<div id="view"></div></main>
     <footer id="player" class="player idle">
       <div id="mini-progress"><i></i></div>
@@ -4994,6 +5158,7 @@ function buildShell() {
   }
   renderSidebarPlaylists();
   paintDevice();
+  watchFsCover();
 }
 
 // offline with nothing downloaded: keep the normal app, but say so in the bar
@@ -5020,6 +5185,8 @@ function startApp() {
   if (offlineMode) offlineEmptyNote();
   loadSettings()
     .then(async () => {
+      // the playlists in the sidebar in the order kept in the account
+      if (settings.plOrder?.length) renderSidebarPlaylists();
       if (SMODES.includes(settings.searchIn)) prefs.searchIn = settings.searchIn;
       if (Array.isArray(settings.cols)) prefs.cols = settings.cols;
       // the account's language wins, so it survives reinstalls and other addresses (home / on the go)

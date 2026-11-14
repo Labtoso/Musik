@@ -71,7 +71,14 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
     let conn = match data_dir {
         Some(d) => {
             std::fs::create_dir_all(d).ok();
-            Connection::open(d.join("musik.db"))?
+            // the file was called musik.db before the app was renamed
+            let db = d.join("streyn.db");
+            if !db.exists() && d.join("musik.db").exists() {
+                for ext in ["", "-wal", "-shm"] {
+                    let _ = std::fs::rename(d.join(format!("musik.db{ext}")), d.join(format!("streyn.db{ext}")));
+                }
+            }
+            Connection::open(db)?
         }
         None => Connection::open_in_memory()?,
     };

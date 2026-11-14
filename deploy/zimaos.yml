@@ -1,18 +1,18 @@
-# Musik for ZimaOS and CasaOS.
+# Streyn for ZimaOS and CasaOS.
 # Install:  curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash
 # or paste this file into the app store under "Install a customized app" → Import.
 # The container fetches the newest server on every start, so restarting the app updates it.
-name: musik
+name: streyn
 services:
-  musik:
+  streyn:
     image: buildpack-deps:bookworm-curl
-    container_name: musik
+    container_name: streyn
     restart: unless-stopped
     environment:
       PORT: "8484"
       DATA_DIR: /data
       MUSIC_DIRS: /music
-      MUSIK_DOCKER: "1"
+      STREYN_DOCKER: "1"
       # REMOTE_URL: http://100.x.y.z:8484   # Tailscale address for on the go
     ports:
       - target: 8484
@@ -20,7 +20,7 @@ services:
         protocol: tcp
     volumes:
       - type: bind
-        source: /DATA/AppData/musik/data
+        source: /DATA/AppData/streyn/data
         target: /data
       - type: bind
         source: /DATA/Media/Music
@@ -31,8 +31,8 @@ services:
       - |
         case "$$(uname -m)" in aarch64|arm64) A=arm64 ;; *) A=x64 ;; esac
         mkdir -p /data/app
-        B=/data/app/musik-server
-        if curl -fsSL --retry 3 --max-time 300 -o "$$B.new" "https://github.com/Labtoso/Musik/releases/latest/download/musik-server-linux-$$A" && [ -s "$$B.new" ]; then
+        B=/data/app/streyn-server
+        if curl -fsSL --retry 3 --max-time 300 -o "$$B.new" "https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-linux-$$A" && [ -s "$$B.new" ]; then
           chmod +x "$$B.new" && mv -f "$$B.new" "$$B"
         else
           echo "Could not fetch the newest server, starting the one that is already here."
@@ -44,14 +44,14 @@ services:
         fi
         exec "$$B"
 x-casaos:
-  id: de.labtoso.musik
-  main: musik
+  id: de.labtoso.streyn
+  main: streyn
   index: /
   port_map: "8484"
   scheme: http
   icon: https://musik.labtoso.de/icon.svg
   title:
-    en_US: Musik
+    en_US: Streyn
   tagline:
     en_US: Your own music server with apps for Android, Windows and Linux
     de_DE: Dein eigener Musik-Server mit Apps für Android, Windows und Linux

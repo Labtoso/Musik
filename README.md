@@ -1,4 +1,4 @@
-# Musik
+# Streyn
 
 Your own music app, written mostly in Rust: a server for Proxmox (or any Linux, Docker, Windows), an Android app, a desktop app for Windows and Linux, and a web app. A recommendation engine learns from what you play, skip and like.
 
@@ -17,13 +17,13 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deplo
 Run it again to update. Optional: `MUSIC_HOST_DIR=/mnt/pve/nas/music` mounts a host folder read-only into the container.
 
 **Debian / Ubuntu:** `curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash`
-(settings in `/etc/musik.env`, update with `musik-update`)
+(settings in `/etc/streyn.env`, update with `streyn-update`)
 
 **ZimaOS / CasaOS:** `curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash` (shows up as an app on the dashboard, songs in `Media/Music`)
 
 **Docker:** `docker compose up -d --build` (music in `./music`, data in `./data`)
 
-**Windows:** download `musik-server-windows-x64.exe` from the release and start it. It uses your Music folder (or set `MUSIC_DIRS` in a `.env` next to the exe).
+**Windows:** download `streyn-server-windows-x64.exe` from the release and start it. It uses your Music folder (or set `MUSIC_DIRS` in a `.env` next to the exe).
 
 **On the go (Tailscale):** answer `y` when the Proxmox script asks, or add `--tailscale` to the Debian command. The apps then switch to the Tailscale address by themselves when you are away. Step by step guide (German): [docs/tailscale.md](docs/tailscale.md)
 
@@ -39,9 +39,9 @@ Open `http://<server>:8484` and create the first account. It is the admin and ca
 
 | App | File | Notes |
 |---|---|---|
-| Android | `Musik.apk` | Background playback, notification and lock screen controls |
-| Windows | `Musik.exe` | Setup, media keys work |
-| Linux | `Musik.AppImage` | Runs without install |
+| Android | `Streyn.apk` | Background playback, notification and lock screen controls |
+| Windows | `Streyn.exe` | Setup, media keys work |
+| Linux | `Streyn.AppImage` | Runs without install |
 
 Each app asks for the server address once (for example `http://192.168.1.50:8484`).
 

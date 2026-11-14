@@ -1,8 +1,8 @@
 {
-  "name": "musik-desktop",
+  "name": "streyn-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "Musik desktop app (Tauri)",
+  "description": "Streyn desktop app (Tauri)",
   "author": "LabtosoStudios",
   "license": "MIT",
   "scripts": {

@@ -1,6 +1,6 @@
 > Die komplette Anleitung mit Suche, auf Englisch und Deutsch: https://musik.labtoso.de/docs/#/away
 
-# Musik unterwegs hören (Tailscale)
+# Streyn unterwegs hören (Tailscale)
 
 Zuhause im WLAN finden die Apps deinen Server direkt. Damit das auch unterwegs klappt, verbindet Tailscale dein Handy und deinen Server über ein privates Netz. Es braucht keine Portfreigabe am Router, keine eigene Domain und kein Zertifikat. Für den privaten Gebrauch ist Tailscale kostenlos.
 
@@ -23,11 +23,11 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deplo
 Bei der Frage **„Set up Tailscale? [y/N]“** gibst du `y` ein. Das geht bei einer neuen Installation und auch bei einem schon laufenden Container.
 
 1. Der Installer gibt dem Container Zugriff auf das Tunnel-Gerät, das Tailscale braucht, und startet ihn einmal neu.
-2. Danach erscheint ein Link `https://login.tailscale.com/a/...`. Öffne ihn, melde dich an und bestätige das Gerät **musik**.
+2. Danach erscheint ein Link `https://login.tailscale.com/a/...`. Öffne ihn, melde dich an und bestätige das Gerät **streyn**.
 3. Am Ende steht die Adresse für unterwegs, zum Beispiel:
 
    ```
-   On the go:  https://musik.tail1234.ts.net
+   On the go:  https://streyn.tail1234.ts.net
    ```
 
 Du findest sie auch in der Proxmox-Oberfläche in den Notizen des Containers.
@@ -63,7 +63,7 @@ Die Adresse `100.x.y.z` zeigt dir die Tailscale-App auf diesem Rechner an. Start
    - Android: [Play Store](https://play.google.com/store/apps/details?id=com.tailscale.ipn)
    - Windows, Linux, macOS: [tailscale.com/download](https://tailscale.com/download)
 2. Melde dich mit demselben Konto an und schalte Tailscale ein.
-3. Öffne Musik einmal zuhause im WLAN. Dabei merkt sich die App die Adresse für unterwegs.
+3. Öffne Streyn einmal zuhause im WLAN. Dabei merkt sich die App die Adresse für unterwegs.
 
 Das war's. Unterwegs probiert die App zuerst die Adresse zuhause und wechselt dann nach ein paar Sekunden auf Tailscale.
 
@@ -98,7 +98,7 @@ Führe den Installer noch einmal aus (Proxmox wie oben) und antworte bei **„Sw
 PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
 ```
 
-Fragt Tailscale beim ersten Mal nach einer Freigabe für **Funnel**, öffnest du den angezeigten Link und bestätigst. Danach steht am Ende `Public links: https://musik.….ts.net:8443`. In der App findest du die Adresse unter **Einstellungen → Unterwegs → Öffentliche Links**.
+Fragt Tailscale beim ersten Mal nach einer Freigabe für **Funnel**, öffnest du den angezeigten Link und bestätigst. Danach steht am Ende `Public links: https://streyn.….ts.net:8443`. In der App findest du die Adresse unter **Einstellungen → Unterwegs → Öffentliche Links**.
 
 ### Teilen
 

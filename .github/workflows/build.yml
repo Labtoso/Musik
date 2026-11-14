@@ -56,9 +56,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - { name: linux-x64, os: ubuntu-latest, target: x86_64-unknown-linux-musl, file: musik-server-linux-x64 }
-          - { name: linux-arm64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, file: musik-server-linux-arm64 }
-          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, file: musik-server-windows-x64.exe }
+          - { name: linux-x64, os: ubuntu-latest, target: x86_64-unknown-linux-musl, file: streyn-server-linux-x64 }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, file: streyn-server-linux-arm64 }
+          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, file: streyn-server-windows-x64.exe }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -77,7 +77,7 @@ jobs:
         run: |
           cargo build --release --target ${{ matrix.target }}
           ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
-          cp "target/${{ matrix.target }}/release/musik-server$ext" "../${{ matrix.file }}"
+          cp "target/${{ matrix.target }}/release/streyn-server$ext" "../${{ matrix.file }}"
       - uses: actions/upload-artifact@v4
         with:
           name: server-${{ matrix.name }}
@@ -98,8 +98,8 @@ jobs:
       - name: Server for offline mode
         run: |
           mkdir -p android/app/src/main/jniLibs/arm64-v8a android/app/src/main/jniLibs/x86_64
-          cp srv/musik-server-linux-arm64 android/app/src/main/jniLibs/arm64-v8a/libmusikserver.so
-          cp srv/musik-server-linux-x64 android/app/src/main/jniLibs/x86_64/libmusikserver.so
+          cp srv/streyn-server-linux-arm64 android/app/src/main/jniLibs/arm64-v8a/libmusikserver.so
+          cp srv/streyn-server-linux-x64 android/app/src/main/jniLibs/x86_64/libmusikserver.so
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -110,8 +110,8 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/musik.jks"
-            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/musik.jks" >> "$GITHUB_ENV"
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/streyn.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/streyn.jks" >> "$GITHUB_ENV"
           fi
       # Without a release key in the secrets the app is signed with a key that is kept between builds,
       # so every new APK installs over the last one.
@@ -123,7 +123,7 @@ jobs:
       - name: Create the signing key once
         run: |
           mkdir -p ~/.android
-          [ -f ~/.android/debug.keystore ] || keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 20000 -dname "CN=Musik, O=Labtoso"
+          [ -f ~/.android/debug.keystore ] || keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 20000 -dname "CN=Streyn, O=Labtoso"
           keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -i fingerprint
           # the build signs with exactly this file unless a release key came from the secrets
           [ -n "$ANDROID_KEYSTORE_FILE" ] || echo "ANDROID_KEYSTORE_FILE=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
@@ -138,13 +138,13 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
-          cp app/build/outputs/apk/release/app-release.apk ../Musik.apk
+          cp app/build/outputs/apk/release/app-release.apk ../Streyn.apk
           # the fingerprint of the finished app, to compare between versions
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs ../Musik.apk 2>/dev/null | grep -i "SHA-256" | tail -1 || true
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs ../Streyn.apk 2>/dev/null | grep -i "SHA-256" | tail -1 || true
       - uses: actions/upload-artifact@v4
         with:
           name: android
-          path: Musik.apk
+          path: Streyn.apk
 
   desktop:
     name: Desktop ${{ matrix.name }}
@@ -152,8 +152,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - { name: windows, os: windows-latest, bundle: nsis, out: Musik.exe, srv: server-windows-x64, bin: musik-server-windows-x64.exe, triple: x86_64-pc-windows-msvc, ext: .exe }
-          - { name: linux, os: ubuntu-22.04, bundle: appimage, out: Musik.AppImage, srv: server-linux-x64, bin: musik-server-linux-x64, triple: x86_64-unknown-linux-gnu, ext: '' }
+          - { name: windows, os: windows-latest, bundle: nsis, out: Streyn.exe, srv: server-windows-x64, bin: streyn-server-windows-x64.exe, triple: x86_64-pc-windows-msvc, ext: .exe }
+          - { name: linux, os: ubuntu-22.04, bundle: appimage, out: Streyn.AppImage, srv: server-linux-x64, bin: streyn-server-linux-x64, triple: x86_64-unknown-linux-gnu, ext: '' }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -166,7 +166,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p desktop/src-tauri/binaries
-          cp "srv/${{ matrix.bin }}" "desktop/src-tauri/binaries/musik-server-${{ matrix.triple }}${{ matrix.ext }}"
+          cp "srv/${{ matrix.bin }}" "desktop/src-tauri/binaries/streyn-server-${{ matrix.triple }}${{ matrix.ext }}"
           chmod +x desktop/src-tauri/binaries/*
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -210,9 +210,14 @@ jobs:
         run: |
           cp deploy/proxmox.sh out/proxmox.sh
           cp deploy/install.sh out/install.sh
+          # apps and servers from before the rename to Streyn look for the old file names
+          cp out/Streyn.apk out/Musik.apk
+          cp out/Streyn.exe out/Musik.exe
+          cp out/Streyn.AppImage out/Musik.AppImage
+          for f in out/streyn-server-*; do cp "$f" "out/musik-server-${f#out/streyn-server-}"; done
           NOTES=".github/releases/v$V.md"
           [ -f "$NOTES" ] || NOTES=/dev/null
-          gh release create "v$V" out/* --target "$GITHUB_SHA" --title "Musik $V" --notes-file "$NOTES" --latest
+          gh release create "v$V" out/* --target "$GITHUB_SHA" --title "Streyn $V" --notes-file "$NOTES" --latest
       # the download page shows the new version right away
       - name: Download page
         env:

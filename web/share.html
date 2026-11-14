@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#111214">
 <meta name="color-scheme" content="dark">
-<title>Musik</title>
+<title>Streyn</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
   :root { --bg:#111214; --surface:#1d1f23; --surface2:#25272c; --line:#2c2f35; --text:#ececee; --muted:#9a9ca3; --accent:#4c8dff; --ink:#0b1220; color-scheme:dark; }
@@ -85,7 +85,7 @@
 </div><div class="in" style="display:block"><div class="prog" id="prog"><i id="pi"></i></div></div></div>
 <div class="toast" id="toast"></div>
 <audio id="au" preload="none"></audio>
-<!-- The same page is served by every Musik server at /s/<token> and by the download site at
+<!-- The same page is served by every Streyn server at /s/<token> and by the download site at
      musik.labtoso.de/s/#<token>@<public host>. Keep web/share.html and site/s/index.html equal. -->
 <script>
 (() => {
@@ -94,10 +94,10 @@
   const de = pl === 'de' || (!pl && /^de\b/i.test(navigator.language || ''));
   const T = de
     ? { play: 'Abspielen', save: 'In meiner Bibliothek speichern', saved: 'Gespeichert', open: 'In der App öffnen', notFound: 'Dieser Link ist nicht (mehr) gültig.', offline: 'Der Server dieser Playlist ist gerade nicht erreichbar. Versuch es später noch einmal.', song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', login: 'Melde dich in der App an, um zu speichern.', songs: 'Songs', on: 'Geteilt von', join: 'Mitwirken', joinHint: 'Du wurdest eingeladen, an dieser Playlist mitzuwirken. Du kannst Songs hinzufügen, entfernen und alles anhören.',
-        joinTitle: 'Mitwirken', joinText: 'Leg ein Konto auf diesem Musik-Server an oder melde dich an. Danach öffnet sich die Playlist in der App.', newAcc: 'Neues Konto', haveAcc: 'Ich habe ein Konto', name: 'Name', pass: 'Passwort', create: 'Konto anlegen und mitwirken', signin: 'Anmelden und mitwirken',
+        joinTitle: 'Mitwirken', joinText: 'Leg ein Konto auf diesem Streyn-Server an oder melde dich an. Danach öffnet sich die Playlist in der App.', newAcc: 'Neues Konto', haveAcc: 'Ich habe ein Konto', name: 'Name', pass: 'Passwort', create: 'Konto anlegen und mitwirken', signin: 'Anmelden und mitwirken',
         e: { name_taken: 'Den Namen gibt es schon. Nimm einen anderen oder melde dich an.', invalid_name: 'Der Name braucht 2 bis 32 Zeichen (Buchstaben, Zahlen, Leerzeichen, . _ -).', password_short: 'Das Passwort braucht mindestens 4 Zeichen.', wrong_login: 'Name oder Passwort stimmt nicht.', local_only: 'Dieses Konto kann sich nur zuhause anmelden.', too_many: 'Zu viele Versuche. Warte eine Minute.', invite_used_up: 'Diese Einladung wurde schon zu oft benutzt.', not_found: 'Diese Einladung gilt nicht mehr.' } }
     : { play: 'Play', save: 'Save to my library', saved: 'Saved', open: 'Open in the app', notFound: 'This link is not valid (anymore).', offline: "The server of this playlist can't be reached right now. Try again later.", song: 'Song', album: 'Album', playlist: 'Playlist', import: 'Playlist', login: 'Sign in in the app to save.', songs: 'songs', on: 'Shared from', join: 'Join as collaborator', joinHint: 'You were invited to work on this playlist. You can add and remove songs and listen to everything.',
-        joinTitle: 'Join as collaborator', joinText: 'Create an account on this Musik server or sign in. The playlist then opens in the app.', newAcc: 'New account', haveAcc: 'I have an account', name: 'Name', pass: 'Password', create: 'Create account and join', signin: 'Sign in and join',
+        joinTitle: 'Join as collaborator', joinText: 'Create an account on this Streyn server or sign in. The playlist then opens in the app.', newAcc: 'New account', haveAcc: 'I have an account', name: 'Name', pass: 'Password', create: 'Create account and join', signin: 'Sign in and join',
         e: { name_taken: 'That name is taken. Pick another one or sign in.', invalid_name: 'The name needs 2 to 32 characters (letters, digits, spaces, . _ -).', password_short: 'The password needs at least 4 characters.', wrong_login: 'Wrong name or password.', local_only: 'This account can only sign in at home.', too_many: 'Too many tries. Wait a minute.', invite_used_up: 'This invitation has been used too often.', not_found: 'This invitation is no longer valid.' } };
   document.documentElement.lang = de ? 'de' : 'en';
   const SRC = { spotify: 'Spotify', youtube: 'YouTube', ytmusic: 'YT Music', soundcloud: 'SoundCloud', deezer: 'Deezer', apple: 'Apple Music', tidal: 'Tidal' };
@@ -138,7 +138,7 @@
 
   function render() {
     const d = data;
-    document.title = d.title + ' · Musik';
+    document.title = d.title + ' · Streyn';
     // one list: songs from the server and platform songs (those play through the server too)
     list = d.tracks.map((t) => ({ title: t.title, artist: t.artist, album: t.album, duration: t.duration, cover: t.cover ? base + '/cover/' + t.i : '', src: base + '/stream/' + t.i }))
       .concat(d.external.map((e, k) => ({ title: e.title, artist: e.artist, album: '', duration: e.duration, cover: /^https:\/\//.test(e.cover) ? e.cover : '', src: base + '/song/' + k, badge: SRC[e.source] || e.source })));
@@ -156,7 +156,7 @@
         <div class="err" id="jerr"></div><button class="go" id="jgo">${T.create}</button></form>`;
     h += list.map((x, i) => `<div class="row" data-i="${i}"><span class="n">${i + 1}</span><span class="c" style="${x.cover ? `background-image:url('${esc(x.cover)}')` : ''}"></span>
       <div style="min-width:0"><div class="t">${esc(x.title)}</div><div class="a">${x.badge ? `<span class="src">${esc(x.badge)}</span>` : ''}${esc(x.artist)}</div></div><span class="d">${x.duration ? fmt(x.duration) : ''}</span></div>`).join('');
-    h += `<div class="foot">${T.on} ${esc(d.server || 'Musik')}</div>`;
+    h += `<div class="foot">${T.on} ${esc(d.server || 'Streyn')}</div>`;
     $('root').innerHTML = h;
     if (firstCover) tint(firstCover);
     $('playall')?.addEventListener('click', () => (cur >= 0 ? toggle() : play(0)));

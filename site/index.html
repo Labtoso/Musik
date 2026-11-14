@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0d0c0b">
-<meta name="description" content="Musik: deine eigene Musik-App. Server auf Proxmox, Apps für Android, Windows und Linux, und ein Mix, der lernt, was du magst.">
-<title>Musik · Deine Musik auf deinem Server</title>
+<meta name="description" content="Streyn: deine eigene Musik-App. Server auf Proxmox, Apps für Android, Windows und Linux, und ein Mix, der lernt, was du magst.">
+<title>Streyn · Deine Musik auf deinem Server</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -37,8 +37,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .bar { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: flex; align-items: center; gap: 18px; height: 64px; padding: 0 var(--gut); color: var(--paper); background: linear-gradient(rgba(6,7,13,.82), rgba(6,7,13,0)); }
 .gear { width: 36px; height: 36px; display: grid; place-items: center; margin-left: -8px; transition: transform .5s cubic-bezier(.3,1.4,.5,1); }
 .gear:hover { transform: rotate(90deg); }
-.disc { width: 30px; height: 30px; animation: spin 5s linear infinite; }
-.word:hover .disc { animation-duration: 1.2s; }
+.disc { width: 30px; height: 30px; border-radius: 7px; }
 .gear svg { width: 21px; height: 21px; }
 .word { display: inline-flex; align-items: center; gap: 10px; font: italic 800 24px/1 var(--serif); font-variation-settings: 'SOFT' 100, 'WONK' 1; letter-spacing: -.02em; }
 .bar nav { margin-left: auto; display: flex; gap: 6px; }
@@ -356,7 +355,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 
 <header class="bar">
   <button class="gear" id="gear" aria-label="Einstellungen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-  <a class="word" href="#"><svg class="disc" viewBox="0 0 512 512" aria-hidden="true"><circle cx="256" cy="256" r="248" fill="#0a0b10" stroke="#2a2e42" stroke-width="8"/><g fill="none" stroke="#252838" stroke-width="10"><circle cx="256" cy="256" r="210"/><circle cx="256" cy="256" r="170"/><circle cx="256" cy="256" r="134"/></g><path d="M256 20a236 236 0 0 1 200 110" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="14" stroke-linecap="round"/><circle cx="256" cy="256" r="98" fill="var(--accent)"/><circle cx="256" cy="256" r="16" fill="#0a0b10"/></svg>Musik</a>
+  <a class="word" href="#"><img class="disc mark" src="icon.svg" alt="">Streyn</a>
   <nav class="cats">
     <div class="cat"><button class="cbtn" aria-expanded="false"><span data-t="catA"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
       <div class="menu"><a href="#a1"><b data-t="nav1"></b><small data-t="navd1"></small></a><a href="#player"><b data-t="navP"></b><small data-t="navdP"></small></a><a href="#a2"><b data-t="nav2"></b><small data-t="navd2"></small></a></div></div>
@@ -383,7 +382,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
     <button data-a="purple"><i style="background:#9b7bff"></i><span data-t="purple"></span></button>
     <button data-dyn><i class="dynsw"></i><span data-t="dynColor"></span></button>
   </div></div>
-  <small>Musik · LabtosoStudios</small>
+  <small>Streyn · LabtosoStudios</small>
 </aside>
 
 <section class="hero" id="hero">
@@ -401,7 +400,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
     <canvas id="tt"></canvas>
     <div class="deck" aria-hidden="true">
       <div class="record"></div>
-      <div class="label"><span>Musik</span><small>Side A · 33⅓</small></div>
+      <div class="label"><span>Streyn</span><small>Side A · 33⅓</small></div>
       <div class="sheen"></div>
       <svg class="arm" viewBox="0 0 120 280" fill="none">
         <circle cx="94" cy="28" r="22" fill="#24221f" stroke="#3a3733"/>
@@ -481,11 +480,11 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
   <div class="th rv"><div class="no"><b>B1</b>8:10 – 9:44</div><div><h2 data-h="b1h"></h2><p data-t="b1p"></p></div></div>
   <div class="body rv">
     <div class="dls">
-      <a class="dl" data-os="android" href="https://github.com/Labtoso/Musik/releases/latest/download/Musik.apk"><div class="n">Android</div><div class="d"><p data-t="android"></p><small>Musik.apk · Android 8+</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
-      <a class="dl" data-os="windows" href="https://github.com/Labtoso/Musik/releases/latest/download/Musik.exe"><div class="n">Windows</div><div class="d"><p data-t="windows"></p><small>Musik.exe · Windows 10 / 11</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
-      <a class="dl" data-os="linux" href="https://github.com/Labtoso/Musik/releases/latest/download/Musik.AppImage"><div class="n">Linux</div><div class="d"><p data-t="linux"></p><small>Musik.AppImage · x64</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
+      <a class="dl" data-os="android" href="https://github.com/Labtoso/Musik/releases/latest/download/Streyn.apk"><div class="n">Android</div><div class="d"><p data-t="android"></p><small>Streyn.apk · Android 8+</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
+      <a class="dl" data-os="windows" href="https://github.com/Labtoso/Musik/releases/latest/download/Streyn.exe"><div class="n">Windows</div><div class="d"><p data-t="windows"></p><small>Streyn.exe · Windows 10 / 11</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
+      <a class="dl" data-os="linux" href="https://github.com/Labtoso/Musik/releases/latest/download/Streyn.AppImage"><div class="n">Linux</div><div class="d"><p data-t="linux"></p><small>Streyn.AppImage · x64</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
     </div>
-    <div class="binr"><span data-t="bins"></span><a href="https://github.com/Labtoso/Musik/releases/latest/download/musik-server-linux-x64">linux-x64</a><a href="https://github.com/Labtoso/Musik/releases/latest/download/musik-server-linux-arm64">linux-arm64</a><a href="https://github.com/Labtoso/Musik/releases/latest/download/musik-server-windows-x64.exe">windows-x64.exe</a></div>
+    <div class="binr"><span data-t="bins"></span><a href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-linux-x64">linux-x64</a><a href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-linux-arm64">linux-arm64</a><a href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe">windows-x64.exe</a></div>
   </div>
 </section>
 
@@ -497,7 +496,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
       <div class="term"><div class="term-h">root@pve<button data-copy="px" data-t="copy"></button></div>
 <pre><span class="p">#</span> <span data-cmd="px">bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</span>
 <span class="o">==> Creating container 120 (Debian 12)
-==> Installing Musik server
+==> Installing Streyn server
 ==> Done
 
     http://192.168.1.50:8484</span></pre></div>
@@ -520,7 +519,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
     </div>
     <div class="pane" data-pane="win">
       <div class="term"><div class="term-h">PowerShell<button data-copy="win" data-t="copy"></button></div>
-<pre><span class="p">&gt;</span> <span data-cmd="win">.\musik-server-windows-x64.exe</span></pre></div>
+<pre><span class="p">&gt;</span> <span data-cmd="win">.\streyn-server-windows-x64.exe</span></pre></div>
       <ol class="steps"><li data-h="win1"></li><li data-h="win2"></li></ol>
     </div>
   </div>
@@ -542,7 +541,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
 
 <footer>
   <div class="fl"><span>© LabtosoStudios</span><span><a href="https://github.com/Labtoso/Musik">GitHub</a> &nbsp;/&nbsp; <a href="https://github.com/Labtoso/Musik/releases" data-t="all"></a></span></div>
-  <div class="big">Musik</div>
+  <div class="big">Streyn</div>
 </footer>
 
 <script>
@@ -575,18 +574,18 @@ const T = {
     yours: 'Dein Gerät', bins: 'Nur der Server →',
     b2h: 'Server in<br><em>einer Minute.</em>', b2p: 'Ein Befehl richtet alles ein. Den gleichen Befehl später noch mal ausführen bringt den Server auf die neueste Version.',
     copy: 'Markieren', copied: 'Kopiert', marked: 'Markiert · Strg+C', markedTouch: 'Markiert · Kopieren tippen',
-    px1: 'In Proxmox die Node anklicken und <b>Shell</b> öffnen. Befehl einfügen, Enter. Der Installer fragt, ob du Musik auch unterwegs nutzen willst (mit Tailscale) oder nur zuhause.',
-    px2: 'Liegt deine Musik schon auf dem Host, schreib den Ordner davor: <code>MUSIC_HOST_DIR=/mnt/nas/musik</code>. Sonst lädst du Songs in der App hoch.',
+    px1: 'In Proxmox die Node anklicken und <b>Shell</b> öffnen. Befehl einfügen, Enter. Der Installer fragt, ob du Streyn auch unterwegs nutzen willst (mit Tailscale) oder nur zuhause.',
+    px2: 'Liegt deine Musik schon auf dem Host, schreib den Ordner davor: <code>MUSIC_HOST_DIR=/mnt/nas/music</code>. Sonst lädst du Songs in der App hoch.',
     px3: 'Am Ende steht die Adresse. Die trägst du in der App ein und legst beim ersten Start deinen Account an.',
-    deb1: 'Installiert den Server nach <code>/opt/musik</code> und startet ihn als Dienst.',
-    deb2: 'Musik nach <code>/srv/musik</code> legen oder <code>MUSIC_DIRS</code> in <code>/etc/musik.env</code> ändern.',
-    deb3: 'Update später mit <code>sudo musik-update</code>.',
-    zima1: 'In ZimaOS oder CasaOS das <b>Terminal</b> öffnen (oder per SSH verbinden), Befehl einfügen, Enter. Musik erscheint danach als App im Dashboard.',
+    deb1: 'Installiert den Server nach <code>/opt/streyn</code> und startet ihn als Dienst.',
+    deb2: 'Musik nach <code>/srv/streyn</code> legen oder <code>MUSIC_DIRS</code> in <code>/etc/streyn.env</code> ändern.',
+    deb3: 'Update später mit <code>sudo streyn-update</code>.',
+    zima1: 'In ZimaOS oder CasaOS das <b>Terminal</b> öffnen (oder per SSH verbinden), Befehl einfügen, Enter. Streyn erscheint danach als App im Dashboard.',
     zima2: 'Songs in den Ordner <code>Media/Music</code> legen. Ohne Terminal geht es auch: im App Store <b>Eigene App installieren</b> → <b>Import</b> und die Datei <code>deploy/zimaos.yml</code> einfügen.',
     zima3: 'Aktualisieren: die App im Dashboard neu starten, sie holt beim Start die neueste Version.',
     dock1: 'Musik in den Ordner <code>music/</code> neben der <code>docker-compose.yml</code> legen.',
     dock2: 'Der Server läuft dann auf Port <code>8484</code>.',
-    win1: '<code>musik-server-windows-x64.exe</code> laden und starten. Er nimmt deinen Musik-Ordner.',
+    win1: '<code>streyn-server-windows-x64.exe</code> laden und starten. Er nimmt deinen Musik-Ordner.',
     win2: 'Andere Ordner kommen in eine <code>.env</code> neben der exe: <code>MUSIC_DIRS=D:\\Musik</code>.',
     b3h: 'Liner <em>Notes.</em>',
     q1: 'Wo liegt meine Musik?', a1: 'Deine Dateien nur auf deinem Server, die Apps streamen direkt von dir. Andere Plattformen kommen nur dazu, wenn du sie einschaltest.',
@@ -629,18 +628,18 @@ const T = {
     yours: 'Your device', bins: 'Server only →',
     b2h: 'A server in<br><em>one minute.</em>', b2p: 'One command sets everything up. Running it again later updates the server to the newest version.',
     copy: 'Select', copied: 'Copied', marked: 'Selected · Ctrl+C', markedTouch: 'Selected · tap Copy',
-    px1: 'In Proxmox click the node and open <b>Shell</b>. Paste the command, hit Enter. The installer asks whether you want Musik on the go too (with Tailscale) or only at home.',
+    px1: 'In Proxmox click the node and open <b>Shell</b>. Paste the command, hit Enter. The installer asks whether you want Streyn on the go too (with Tailscale) or only at home.',
     px2: 'If your music is already on the host, put the folder in front: <code>MUSIC_HOST_DIR=/mnt/nas/music</code>. Otherwise upload songs in the app.',
     px3: 'At the end it prints the address. Enter it in the app and create your account on first launch.',
-    deb1: 'Installs the server to <code>/opt/musik</code> and starts it as a service.',
-    deb2: 'Put music in <code>/srv/musik</code> or change <code>MUSIC_DIRS</code> in <code>/etc/musik.env</code>.',
-    deb3: 'Update later with <code>sudo musik-update</code>.',
-    zima1: 'Open the <b>terminal</b> in ZimaOS or CasaOS (or connect over SSH), paste the command, hit Enter. Musik then shows up as an app on the dashboard.',
+    deb1: 'Installs the server to <code>/opt/streyn</code> and starts it as a service.',
+    deb2: 'Put music in <code>/srv/streyn</code> or change <code>MUSIC_DIRS</code> in <code>/etc/streyn.env</code>.',
+    deb3: 'Update later with <code>sudo streyn-update</code>.',
+    zima1: 'Open the <b>terminal</b> in ZimaOS or CasaOS (or connect over SSH), paste the command, hit Enter. Streyn then shows up as an app on the dashboard.',
     zima2: 'Put your songs into <code>Media/Music</code>. It works without a terminal too: in the app store pick <b>Install a customized app</b> → <b>Import</b> and paste the file <code>deploy/zimaos.yml</code>.',
     zima3: 'Updating: restart the app on the dashboard, it fetches the newest version on start.',
     dock1: 'Put your music into <code>music/</code> next to <code>docker-compose.yml</code>.',
     dock2: 'The server then runs on port <code>8484</code>.',
-    win1: 'Download <code>musik-server-windows-x64.exe</code> and run it. It uses your Music folder.',
+    win1: 'Download <code>streyn-server-windows-x64.exe</code> and run it. It uses your Music folder.',
     win2: 'Other folders go into a <code>.env</code> next to the exe: <code>MUSIC_DIRS=D:\\Music</code>.',
     b3h: 'Liner <em>notes.</em>',
     q1: 'Where is my music?', a1: 'Your files stay on your server, the apps stream straight from you. Other platforms only join in when you switch them on.',
@@ -667,7 +666,7 @@ window.siteDyn = () => dyn;
 const ua = navigator.userAgent;
 const os = /Android/i.test(ua) ? 'android' : /Windows/i.test(ua) ? 'windows' : (/Linux/i.test(ua) && !/CrOS/i.test(ua)) ? 'linux' : null;
 const names = { android: 'Android', windows: 'Windows', linux: 'Linux' };
-const files = { android: 'Musik.apk', windows: 'Musik.exe', linux: 'Musik.AppImage' };
+const files = { android: 'Streyn.apk', windows: 'Streyn.exe', linux: 'Streyn.AppImage' };
 let release = null;
 
 /* ── sound: a small generated loop, analysed for the visuals ── */

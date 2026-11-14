@@ -5,7 +5,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 
-const BIN = process.env.MUSIK_BIN || path.resolve(import.meta.dirname, '../target/debug/musik-server' + (process.platform === 'win32' ? '.exe' : ''));
+const BIN = process.env.STREYN_BIN || path.resolve(import.meta.dirname, '../target/debug/streyn-server' + (process.platform === 'win32' ? '.exe' : ''));
 
 export function writeWav(file, seconds = 2, rate = 8000) {
   const samples = seconds * rate;
@@ -39,7 +39,7 @@ const freePort = () =>
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function startServer(opts = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'musik-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'streyn-test-'));
   const music = path.join(root, 'music');
   fs.mkdirSync(music, { recursive: true });
   if (opts.files) for (const f of opts.files) writeWav(path.join(music, f), 2);

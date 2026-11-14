@@ -190,12 +190,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ---- offline mode: the Musik server runs on the phone itself (libmusikserver.so) and keeps copies of playlists
+    // ---- offline mode: the Streyn server runs on the phone itself (libmusikserver.so) and keeps copies of playlists
     private val offKey by lazy {
         prefs.getString("offKey", null) ?: java.util.UUID.randomUUID().toString().replace("-", "").also { prefs.edit().putString("offKey", it).apply() }
     }
     private fun offBinary(): File = File(applicationInfo.nativeLibraryDir, "libmusikserver.so")
-    private fun hasOffline(): Boolean = offBinary().exists() && File(filesDir, "offline/data/musik.db").exists()
+    private fun hasOffline(): Boolean = offBinary().exists() && (File(filesDir, "offline/data/streyn.db").exists() || File(filesDir, "offline/data/musik.db").exists())
 
     @Synchronized private fun ensureLocal(): Boolean {
         if (localUp()) return true
@@ -206,9 +206,9 @@ class MainActivity : ComponentActivity() {
         proc = runCatching {
             ProcessBuilder(bin.absolutePath).directory(dir).redirectErrorStream(true).redirectOutput(File(dir, "server.log")).apply {
                 environment().putAll(mapOf(
-                    "MUSIK_OFFLINE" to "1", "MUSIK_KEY" to offKey, "HOST" to "127.0.0.1", "PORT" to LOCAL_PORT.toString(),
+                    "STREYN_OFFLINE" to "1", "STREYN_KEY" to offKey, "HOST" to "127.0.0.1", "PORT" to LOCAL_PORT.toString(),
                     "DATA_DIR" to File(dir, "data").absolutePath, "MUSIC_DIRS" to File(dir, "music").absolutePath,
-                    "SCAN_INTERVAL" to "0", "SERVER_NAME" to "Musik"
+                    "SCAN_INTERVAL" to "0", "SERVER_NAME" to "Streyn"
                 ))
             }.start()
         }.getOrNull() ?: return false
@@ -339,8 +339,8 @@ class MainActivity : ComponentActivity() {
         }
         try {
             val dir = File(cacheDir, "updates").apply { mkdirs() }
-            val out = File(dir, "Musik.apk")
-            var url = URL("https://github.com/Labtoso/Musik/releases/latest/download/Musik.apk")
+            val out = File(dir, "Streyn.apk")
+            var url = URL("https://github.com/Labtoso/Musik/releases/latest/download/Streyn.apk")
             lateinit var conn: HttpURLConnection
             var hops = 0
             while (true) {
@@ -348,7 +348,7 @@ class MainActivity : ComponentActivity() {
                 conn.instanceFollowRedirects = false
                 conn.connectTimeout = 15000
                 conn.readTimeout = 30000
-                conn.setRequestProperty("User-Agent", "Musik-Android")
+                conn.setRequestProperty("User-Agent", "Streyn-Android")
                 val code = conn.responseCode
                 if (code in 300..399 && hops < 8) {
                     url = URL(url, conn.getHeaderField("Location"))
@@ -568,7 +568,7 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun copy(text: String) {
             main.post {
                 val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("Musik", text))
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Streyn", text))
             }
         }
         @JavascriptInterface fun appVersion(): String =

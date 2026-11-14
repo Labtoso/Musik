@@ -101,7 +101,7 @@ async fn start(Auth(u, _): Auth, req: Request) -> R {
 
 fn page(ok: bool, msg: &str) -> Response {
     let html = format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>Musik</title>
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>Streyn</title>
 <style>html,body{{background:#111214;color:#ececee;font:16px/1.5 system-ui,sans-serif;margin:0;height:100%;display:grid;place-items:center;text-align:center}}div{{padding:24px;max-width:420px}}b{{display:block;font-size:22px;margin-bottom:8px;color:{}}}</style></head>
 <body><div><b>{}</b>{}</div></body></html>"#,
         if ok { "#3dbb7a" } else { "#ff6b6b" },
@@ -152,7 +152,7 @@ async fn callback(State(st): State<St>, Query(q): Query<HashMap<String, String>>
          ON CONFLICT(user_id) DO UPDATE SET client_id = excluded.client_id, access = excluded.access, refresh = excluded.refresh, exp = excluded.exp",
         params![p.user, p.client, access, v["refresh_token"].as_str().unwrap_or(""), exp],
     ).ok();
-    page(true, "You can close this window and go back to Musik. · Du kannst dieses Fenster schließen und zurück zu Musik gehen.")
+    page(true, "You can close this window and go back to Streyn. · Du kannst dieses Fenster schließen und zurück zu Streyn gehen.")
 }
 
 fn html_escape(s: &str) -> String {

@@ -4,7 +4,7 @@ fn main() {
     if let Ok(v) = std::fs::read_to_string("../VERSION") {
         let v = v.trim();
         if !v.is_empty() {
-            println!("cargo:rustc-env=MUSIK_VERSION={v}");
+            println!("cargo:rustc-env=STREYN_VERSION={v}");
         }
     }
 }

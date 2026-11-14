@@ -30,7 +30,7 @@ export function normalizeServer(input) {
   }
 }
 
-/** True when this page is served by a Musik server itself (browser use). */
+/** True when this page is served by a Streyn server itself (browser use). */
 export async function detectSameOrigin() {
   if (!/^https?:$/.test(location.protocol) || location.hostname === 'appassets.androidplatform.net') return null;
   try {

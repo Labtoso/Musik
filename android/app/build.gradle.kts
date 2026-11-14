@@ -35,7 +35,7 @@ android {
         }
     }
 
-    // the Musik server for offline mode ships as libmusikserver.so and must be unpacked to run
+    // the Streyn server for offline mode ships as libmusikserver.so and must be unpacked to run
     packaging {
         jniLibs {
             useLegacyPackaging = true

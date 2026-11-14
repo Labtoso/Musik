@@ -225,7 +225,7 @@ export class SpotifyAdapter extends Adapter {
         document.head.appendChild(s);
         setTimeout(() => rej(new Error('timeout')), 12000);
       });
-      this.player = new window.Spotify.Player({ name: 'Musik', getOAuthToken: (cb) => spotify.token().then(cb).catch(() => {}), volume: 1 });
+      this.player = new window.Spotify.Player({ name: 'Streyn', getOAuthToken: (cb) => spotify.token().then(cb).catch(() => {}), volume: 1 });
       const ok = await new Promise((res) => {
         this.player.addListener('ready', ({ device_id }) => ((this.device = device_id), res(true)));
         ['initialization_error', 'authentication_error', 'account_error'].forEach((e) => this.player.addListener(e, () => res(false)));

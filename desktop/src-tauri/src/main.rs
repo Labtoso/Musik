@@ -1,4 +1,4 @@
-// Musik desktop: asks once for the server address, then shows the web app served by the server.
+// Streyn desktop: asks once for the server address, then shows the web app served by the server.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod discord;
@@ -103,7 +103,7 @@ fn saved_server(app: AppHandle) -> String {
 // ---- self-update: download the latest build from the release page and swap it in
 fn download(url: &str, dest: &std::path::Path, win: &WebviewWindow) -> Result<(), String> {
     use std::io::{Read, Write};
-    let res = ureq::get(url).set("User-Agent", "Musik-Desktop").timeout(Duration::from_secs(600)).call().map_err(|_| "offline".to_string())?;
+    let res = ureq::get(url).set("User-Agent", "Streyn-Desktop").timeout(Duration::from_secs(600)).call().map_err(|_| "offline".to_string())?;
     let total: u64 = res.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(0);
     let mut r = res.into_reader();
     let mut f = std::fs::File::create(dest).map_err(|_| "write".to_string())?;
@@ -133,8 +133,8 @@ fn do_update(app: &AppHandle, win: &WebviewWindow) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        let installer = std::env::temp_dir().join("Musik-update.exe");
-        download("https://github.com/Labtoso/Musik/releases/latest/download/Musik.exe", &installer, win)?;
+        let installer = std::env::temp_dir().join("Streyn-update.exe");
+        download("https://github.com/Labtoso/Musik/releases/latest/download/Streyn.exe", &installer, win)?;
         let exe = std::env::current_exe().map_err(|_| "write".to_string())?;
         // wait until this app has closed, install silently, start the new version
         let cmd = format!(
@@ -149,7 +149,7 @@ fn do_update(app: &AppHandle, win: &WebviewWindow) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         let target = std::env::var_os("APPIMAGE").map(PathBuf::from).ok_or_else(|| "unsupported".to_string())?;
         let new = target.with_extension("new");
-        download("https://github.com/Labtoso/Musik/releases/latest/download/Musik.AppImage", &new, win)?;
+        download("https://github.com/Labtoso/Musik/releases/latest/download/Streyn.AppImage", &new, win)?;
         std::fs::set_permissions(&new, std::fs::Permissions::from_mode(0o755)).map_err(|_| "write".to_string())?;
         std::fs::rename(&new, &target).map_err(|_| "write".to_string())?;
         std::process::Command::new("sh").arg("-c").arg("sleep 1; exec \"$0\"").arg(&target).spawn().map_err(|_| "write".to_string())?;
@@ -197,7 +197,7 @@ fn open_browser(url: &str) {
     }
 }
 
-// ---- offline mode: the Musik server runs on this computer (sidecar "musik-server") and keeps copies of playlists
+// ---- offline mode: the Streyn server runs on this computer (sidecar "streyn-server") and keeps copies of playlists
 const LOCAL: &str = "http://127.0.0.1:8485";
 static LOCAL_PROC: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
 
@@ -222,11 +222,11 @@ fn off_key(app: &AppHandle) -> String {
     k
 }
 fn has_offline(app: &AppHandle) -> bool {
-    off_dir(app).map(|d| d.join("data").join("musik.db").exists()).unwrap_or(false) && server_bin().is_file()
+    off_dir(app).map(|d| ["streyn.db", "musik.db"].iter().any(|f| d.join("data").join(f).exists())).unwrap_or(false) && server_bin().is_file()
 }
 fn server_bin() -> PathBuf {
     let dir = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)).unwrap_or_default();
-    dir.join(if cfg!(windows) { "musik-server.exe" } else { "musik-server" })
+    dir.join(if cfg!(windows) { "streyn-server.exe" } else { "streyn-server" })
 }
 fn local_up() -> bool {
     ureq::get(&format!("{LOCAL}/api/info"))
@@ -252,8 +252,8 @@ fn ensure_local(app: &AppHandle) -> bool {
     }
     let mut cmd = std::process::Command::new(&bin);
     cmd.current_dir(&dir)
-        .env("MUSIK_OFFLINE", "1")
-        .env("MUSIK_KEY", off_key(app))
+        .env("STREYN_OFFLINE", "1")
+        .env("STREYN_KEY", off_key(app))
         .env("HOST", "127.0.0.1")
         .env("PORT", "8485")
         .env("DATA_DIR", dir.join("data"))
@@ -344,7 +344,73 @@ fn home_url() -> &'static str {
     }
 }
 
+// ---- Musik is now Streyn: move the old settings and hand over from the old installation
+const OLD_ID: &str = "de.labtoso.musik";
+const NEW_ID: &str = "de.labtoso.streyn";
+
+/// Folders that carry the app id: settings, offline playlists and the web view's saved logins.
+fn id_dirs(id: &str) -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    #[cfg(windows)]
+    for var in ["APPDATA", "LOCALAPPDATA"] {
+        if let Some(d) = std::env::var_os(var) {
+            v.push(PathBuf::from(d).join(id));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let cfg = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
+        let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"));
+        let cache = std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".cache"));
+        v.extend([cfg.join(id), data.join(id), cache.join(id)]);
+    }
+    v
+}
+
+fn migrate_from_musik() {
+    for (old, new) in id_dirs(OLD_ID).into_iter().zip(id_dirs(NEW_ID)) {
+        if old.is_dir() && !new.exists() {
+            let _ = std::fs::rename(&old, &new);
+        }
+    }
+}
+
+/// Windows: the old Musik updater starts its old file once after installing Streyn. That copy
+/// opens the real Streyn and removes the old folder. Returns true when this start was that copy.
+#[cfg(windows)]
+fn hand_over_from_musik() -> bool {
+    use std::os::windows::process::CommandExt;
+    let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) else { return false };
+    let old_dir = local.join("Musik");
+    let me = std::env::current_exe().ok();
+    let in_old = me.as_ref().and_then(|p| p.parent()).map(|d| d == old_dir.as_path() || d.file_name().map(|n| n.eq_ignore_ascii_case("Musik")).unwrap_or(false)).unwrap_or(false);
+    let real = local.join("Streyn").join("streyn.exe");
+    let cleanup = |dir: &std::path::Path| {
+        let _ = std::process::Command::new("cmd")
+            .arg("/C")
+            .raw_arg(format!("ping -n 4 127.0.0.1 >nul & rmdir /s /q \"{}\"", dir.display()))
+            .creation_flags(0x0800_0000)
+            .spawn();
+    };
+    if in_old && real.is_file() {
+        let _ = std::process::Command::new(&real).spawn();
+        cleanup(&old_dir);
+        return true;
+    }
+    // leftovers of the old folder without its uninstaller (Streyn was installed by hand)
+    if !in_old && old_dir.is_dir() && !old_dir.join("uninstall.exe").exists() {
+        cleanup(&old_dir);
+    }
+    false
+}
+
 fn main() {
+    #[cfg(windows)]
+    if hand_over_from_musik() {
+        return;
+    }
+    migrate_from_musik();
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![connect, saved_server, self_update, open_saved, use_offline, can_offline])
         .setup(|app| {
@@ -363,7 +429,7 @@ fn main() {
             );
             let wh = app.handle().clone();
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Musik")
+                .title("Streyn")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(380.0, 560.0)
                 // dark from the first frame, no white flash before the page has loaded
@@ -371,7 +437,7 @@ fn main() {
                 .background_color(tauri::window::Color(17, 18, 20, 255))
                 // own dark title bar like Spotify, drawn by the web app (window.musikDesktop.win)
                 .decorations(false)
-                // the Spotify sign-in belongs in the real browser, Musik waits for it
+                // the Spotify sign-in belongs in the real browser, Streyn waits for it
                 .on_navigation(move |url| {
                     // window buttons of the web app's own title bar
                     if url.scheme() == "musik-win" {
@@ -418,7 +484,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while running Musik")
+        .expect("error while running Streyn")
         .run(|_, ev| {
             // the offline server ends with the app
             if let tauri::RunEvent::Exit = ev {

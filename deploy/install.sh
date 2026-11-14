@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Musik server installer for Debian/Ubuntu (also used inside the Proxmox container).
+# Streyn server installer for Debian/Ubuntu (also used inside the Proxmox container).
 # Run again to update. Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash
 #   options: --music <dir>  --port <port>  --version <tag, e.g. v1.0.0>
@@ -12,11 +12,11 @@ set -euo pipefail
 
 REPO="Labtoso/Musik"
 VERSION="latest"
-APP_DIR="/opt/musik"
-DATA_DIR="/var/lib/musik"
-MUSIC_DIR="/srv/musik"
+APP_DIR="/opt/streyn"
+DATA_DIR="/var/lib/streyn"
+MUSIC_DIR="/srv/streyn"
 PORT="8484"
-ENV_FILE="/etc/musik.env"
+ENV_FILE="/etc/streyn.env"
 TAILSCALE=""
 TS_AUTHKEY="${TS_AUTHKEY:-}"
 PUBLIC="${PUBLIC:-}"
@@ -38,22 +38,56 @@ while [ $# -gt 0 ]; do
 done
 
 cat <<'BANNER'
-  __  __           _ _
- |  \/  |_   _ ___(_) | __
- | |\/| | | | / __| | |/ /
- | |  | | |_| \__ \ |   <
- |_|  |_|\__,_|___/_|_|\_\   server installer
+  ____  _
+ / ___|| |_ _ __ ___ _   _ _ __
+ \___ \| __| '__/ _ \ | | | '_ \
+  ___) | |_| | |  __/ |_| | | | |
+ |____/ \__|_|  \___|\__, |_| |_|
+                     |___/   server installer
 BANNER
 
-# clean install or update?
+PRE_VERSION=""
 info_version() { # port -> version of the running server, empty if none answers
   command -v curl >/dev/null || return 0
   curl -fsS --max-time 3 "http://127.0.0.1:${1:-8484}/api/info" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p'  || true
 }
+
+# Musik is now Streyn: an older installation moves to the new names once.
+# Settings, accounts, playlists and the music folder stay as they are.
+if [ ! -e /opt/streyn ] && { [ -d /opt/musik ] || [ -f /etc/musik.env ]; }; then
+  [ "$(id -u)" -eq 0 ] || { echo "Please run as root (sudo)." >&2; exit 1; }
+  echo
+  echo "==> Moving the Musik installation to its new name Streyn"
+  PRE_VERSION="$(info_version "$(awk -F= '/^PORT=/{print $2}' /etc/musik.env 2>/dev/null || true)")"
+  systemctl stop musik >/dev/null 2>&1 || true
+  systemctl disable musik >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/musik.service
+  if [ -d /opt/musik ]; then
+    mv /opt/musik /opt/streyn
+    [ -f /opt/streyn/musik-server ] && mv -f /opt/streyn/musik-server /opt/streyn/streyn-server
+  fi
+  [ -d /var/lib/musik ] && [ ! -e /var/lib/streyn ] && mv /var/lib/musik /var/lib/streyn
+  if [ -f /etc/musik.env ]; then
+    mv /etc/musik.env /etc/streyn.env
+    sed -i 's|^DATA_DIR=/var/lib/musik$|DATA_DIR=/var/lib/streyn|; s|^SERVER_NAME=Musik$|SERVER_NAME=Streyn|; s|^# Musik server settings.*|# Streyn server settings. Restart after changes: systemctl restart streyn|' /etc/streyn.env
+  fi
+  if id musik >/dev/null 2>&1 && ! id streyn >/dev/null 2>&1; then
+    usermod -l streyn -d /var/lib/streyn musik >/dev/null 2>&1 || true
+    groupmod -n streyn musik >/dev/null 2>&1 || true
+  fi
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+# clean install or update?
 OLD_PORT="$(awk -F= '/^PORT=/{print $2}' "$ENV_FILE" 2>/dev/null || true)"
-if [ -x "$APP_DIR/musik-server" ] || [ -f "$ENV_FILE" ]; then
+# an existing installation keeps its music folder
+if [ "$MUSIC_DIR" = /srv/streyn ] && [ -f "$ENV_FILE" ]; then
+  m="$(awk -F= '/^MUSIC_DIRS=/{print $2}' "$ENV_FILE" | cut -d: -f1)"
+  [ -n "$m" ] && MUSIC_DIR="$m"
+fi
+if [ -x "$APP_DIR/streyn-server" ] || [ -f "$ENV_FILE" ]; then
   MODE=update
-  OLD_VERSION="$(info_version "${OLD_PORT:-8484}")"
+  OLD_VERSION="${PRE_VERSION:-$(info_version "${OLD_PORT:-8484}")}"
   echo
   echo "==> Existing installation found${OLD_VERSION:+ (version $OLD_VERSION)}: UPDATE."
   echo "    Settings, accounts, playlists and your music stay as they are."
@@ -68,7 +102,7 @@ fi
 if [ -z "$TAILSCALE" ] && ! grep -q '^REMOTE_URL=' "$ENV_FILE" 2>/dev/null && [ -r /dev/tty ]; then
     echo
     echo "─────────────────────────────────────────────────────────────"
-    echo " Use Musik away from home?"
+    echo " Use Streyn away from home?"
     echo
     echo " 1) Without Tailscale: the apps work at home (same Wi-Fi)."
     echo " 2) With Tailscale:    the apps also work on mobile data and"
@@ -98,53 +132,55 @@ case "$(uname -m)" in
   *) echo "Unsupported CPU: $(uname -m)" >&2; exit 1 ;;
 esac
 if [ "$VERSION" = "latest" ]; then
-  URL="https://github.com/$REPO/releases/latest/download/musik-server-linux-$ARCH"
+  URL="https://github.com/$REPO/releases/latest/download/streyn-server-linux-$ARCH"
 else
-  URL="https://github.com/$REPO/releases/download/$VERSION/musik-server-linux-$ARCH"
+  URL="https://github.com/$REPO/releases/download/$VERSION/streyn-server-linux-$ARCH"
 fi
 
-step "Downloading Musik server ($VERSION, $ARCH)"
+step "Downloading Streyn server ($VERSION, $ARCH)"
 mkdir -p "$APP_DIR"
-curl -fL --progress-bar -o "$APP_DIR/musik-server.new" "$URL"
-chmod +x "$APP_DIR/musik-server.new"
-mv -f "$APP_DIR/musik-server.new" "$APP_DIR/musik-server"
-curl -fsSL -o /usr/local/bin/musik-update "https://raw.githubusercontent.com/$REPO/main/deploy/install.sh"
-chmod +x /usr/local/bin/musik-update
+curl -fL --progress-bar -o "$APP_DIR/streyn-server.new" "$URL"
+chmod +x "$APP_DIR/streyn-server.new"
+mv -f "$APP_DIR/streyn-server.new" "$APP_DIR/streyn-server"
+curl -fsSL -o /usr/local/bin/streyn-update "https://raw.githubusercontent.com/$REPO/main/deploy/install.sh"
+chmod +x /usr/local/bin/streyn-update
+# the old command name keeps working
+ln -sfn streyn-update /usr/local/bin/musik-update
 
 step "Setting up service"
-id musik >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin musik
+id streyn >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin streyn
 # the server may replace its own binary (update button in the apps)
-chown -R musik:musik "$APP_DIR"
+chown -R streyn:streyn "$APP_DIR"
 mkdir -p "$DATA_DIR" "$MUSIC_DIR"
-chown -R musik:musik "$DATA_DIR"
+chown -R streyn:streyn "$DATA_DIR"
 # Only fix ownership of the music folder when it is empty (never touch a mounted collection).
-if [ -z "$(ls -A "$MUSIC_DIR" 2>/dev/null)" ]; then chown musik:musik "$MUSIC_DIR" 2>/dev/null || true; fi
+if [ -z "$(ls -A "$MUSIC_DIR" 2>/dev/null)" ]; then chown streyn:streyn "$MUSIC_DIR" 2>/dev/null || true; fi
 
 if [ ! -f "$ENV_FILE" ]; then
   cat > "$ENV_FILE" <<ENV
-# Musik server settings. Restart after changes: systemctl restart musik
+# Streyn server settings. Restart after changes: systemctl restart streyn
 PORT=$PORT
 DATA_DIR=$DATA_DIR
 # Several folders: separate with :
 MUSIC_DIRS=$MUSIC_DIR
 # Rescan interval in minutes (0 = only on start and on demand)
 SCAN_INTERVAL=30
-SERVER_NAME=Musik
+SERVER_NAME=Streyn
 ENV
 fi
 
-cat > /etc/systemd/system/musik.service <<UNIT
+cat > /etc/systemd/system/streyn.service <<UNIT
 [Unit]
-Description=Musik server
+Description=Streyn server
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=musik
-Group=musik
-Environment=MUSIK_ENV=$ENV_FILE
+User=streyn
+Group=streyn
+Environment=STREYN_ENV=$ENV_FILE
 EnvironmentFile=$ENV_FILE
-ExecStart=$APP_DIR/musik-server
+ExecStart=$APP_DIR/streyn-server
 WorkingDirectory=$DATA_DIR
 Restart=always
 RestartSec=3
@@ -154,8 +190,8 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable musik >/dev/null 2>&1
-systemctl restart musik
+systemctl enable streyn >/dev/null 2>&1
+systemctl restart streyn
 
 PORT_NOW="$(awk -F= '/^PORT=/{print $2}' "$ENV_FILE")"
 
@@ -173,10 +209,10 @@ if [ "$TAILSCALE" = "1" ]; then
     systemctl enable --now tailscaled >/dev/null 2>&1 || true
     if ! tailscale status >/dev/null 2>&1; then
       if [ -n "$TS_AUTHKEY" ]; then
-        tailscale up --hostname=musik --authkey="$TS_AUTHKEY"
+        tailscale up --hostname=streyn --authkey="$TS_AUTHKEY"
       else
         echo; echo "┌─ Your turn ─────────────────────────────────────────────────"; echo "│ Open the link below and log in to Tailscale (same account as on your phone)."; echo "│ The installer continues by itself after the login."; echo "└─────────────────────────────────────────────────────────────"
-        tailscale up --hostname=musik
+        tailscale up --hostname=streyn
       fi
     fi
     # HTTPS name inside your tailnet. It needs HTTPS switched on in the Tailscale account; the script
@@ -252,12 +288,12 @@ if [ "$TAILSCALE" = "1" ]; then
         sed -i '/^PUBLIC_URL=/d' "$ENV_FILE"
       fi
     fi
-    [ -n "$REMOTE" ] || echo "Using the Tailscale IP for now. Run musik-update later to switch to https."
+    [ -n "$REMOTE" ] || echo "Using the Tailscale IP for now. Run streyn-update later to switch to https."
     if [ -z "$REMOTE" ]; then
       TSIP="$(tailscale ip -4 2>/dev/null | head -n1)"
       [ -n "$TSIP" ] && REMOTE="http://$TSIP:${PORT_NOW:-8484}"
     fi
-    if [ -n "$REMOTE" ]; then setenv REMOTE_URL "$REMOTE"; systemctl restart musik; fi
+    if [ -n "$REMOTE" ]; then setenv REMOTE_URL "$REMOTE"; systemctl restart streyn; fi
   fi
 fi
 REMOTE="$(awk -F= '/^REMOTE_URL=/{print $2}' "$ENV_FILE")"
@@ -271,13 +307,13 @@ echo
 NEW_VERSION="$(info_version "${PORT_NOW:-8484}")"
 if [ -n "$NEW_VERSION" ]; then
   if [ "$MODE" = "update" ]; then
-    if [ -n "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then echo "Musik updated: $OLD_VERSION -> $NEW_VERSION. It is running."
-    else echo "Musik $NEW_VERSION is up to date and running."; fi
+    if [ -n "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then echo "Streyn updated: $OLD_VERSION -> $NEW_VERSION. It is running."
+    else echo "Streyn $NEW_VERSION is up to date and running."; fi
   else
-    echo "Musik $NEW_VERSION is installed and running."
+    echo "Streyn $NEW_VERSION is installed and running."
   fi
 else
-  echo "Musik did not answer yet. Check: journalctl -u musik -n 50"
+  echo "Streyn did not answer yet. Check: journalctl -u streyn -n 50"
 fi
 echo "  Open:          http://${IP:-<server-ip>}:${PORT_NOW:-8484}"
 [ -n "$REMOTE" ] && echo "  On the go:     $REMOTE   (Tailscale on, the apps switch to it by themselves)"
@@ -285,5 +321,5 @@ PUB="$(awk -F= '/^PUBLIC_URL=/{print $2}' "$ENV_FILE")"
 [ -n "$PUB" ] && echo "  Public links:  $PUB   (shared playlists open for anyone at musik.labtoso.de)"
 echo "  Music folder:  $(awk -F= '/^MUSIC_DIRS=/{print $2}' "$ENV_FILE")"
 echo "  Settings:      $ENV_FILE"
-echo "  Update:        musik-update"
-echo "  Logs:          journalctl -u musik -f"
+echo "  Update:        streyn-update"
+echo "  Logs:          journalctl -u streyn -f"

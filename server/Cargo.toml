@@ -1,13 +1,13 @@
 [package]
-name = "musik-server"
+name = "streyn-server"
 version = "1.0.0"
 edition = "2021"
-description = "Musik server: library, streaming and recommendations"
+description = "Streyn server: library, streaming and recommendations"
 authors = ["LabtosoStudios"]
 license = "MIT"
 
 [[bin]]
-name = "musik-server"
+name = "streyn-server"
 path = "src/main.rs"
 
 [dependencies]

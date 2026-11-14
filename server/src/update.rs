@@ -19,11 +19,11 @@ pub fn routes() -> Router<St> {
 /// Release file with the server for this platform.
 fn asset() -> Option<&'static str> {
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Some("musik-server-linux-x64")
+        Some("streyn-server-linux-x64")
     } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
-        Some("musik-server-linux-arm64")
+        Some("streyn-server-linux-arm64")
     } else if cfg!(all(windows, target_arch = "x86_64")) {
-        Some("musik-server-windows-x64.exe")
+        Some("streyn-server-windows-x64.exe")
     } else {
         None
     }
@@ -40,14 +40,14 @@ pub fn newer(latest: &str, current: &str) -> bool {
 
 /// How this server can be updated: self, docker, readonly or unsupported.
 fn how() -> &'static str {
-    if std::path::Path::new("/.dockerenv").exists() || std::env::var_os("MUSIK_DOCKER").is_some() {
+    if std::path::Path::new("/.dockerenv").exists() || crate::brand_env("DOCKER").is_some() {
         return "docker";
     }
     if asset().is_none() {
         return "unsupported";
     }
     let Some(dir) = exe().and_then(|e| e.parent().map(PathBuf::from)) else { return "unsupported" };
-    let probe = dir.join(".musik-update-test");
+    let probe = dir.join(".streyn-update-test");
     match std::fs::File::create(&probe) {
         Ok(_) => {
             let _ = std::fs::remove_file(probe);
@@ -73,7 +73,7 @@ fn latest(force: bool) -> Result<Value, ApiError> {
         }
     }
     let r: Value = ureq::get(&format!("https://api.github.com/repos/{REPO}/releases/latest"))
-        .set("User-Agent", "Musik-Server")
+        .set("User-Agent", "Streyn-Server")
         .set("Accept", "application/vnd.github+json")
         .timeout(Duration::from_secs(15))
         .call()
@@ -146,7 +146,7 @@ fn install(version: &str) -> Result<(), ApiError> {
     let exe = exe().ok_or(ApiError::new(500, "update_failed"))?;
     let url = format!("https://github.com/{REPO}/releases/download/v{version}/{name}");
     let res = ureq::get(&url)
-        .set("User-Agent", "Musik-Server")
+        .set("User-Agent", "Streyn-Server")
         .timeout(Duration::from_secs(300))
         .call()
         .map_err(|_| ApiError::new(502, "update_unreachable"))?;

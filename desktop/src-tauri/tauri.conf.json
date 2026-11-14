@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Musik",
+  "productName": "Streyn",
   "version": "1.0.0",
-  "identifier": "de.labtoso.musik",
+  "identifier": "de.labtoso.streyn",
   "build": {
     "frontendDist": "../ui"
   },
@@ -16,16 +16,17 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "appimage"],
-    "externalBin": ["binaries/musik-server"],
+    "externalBin": ["binaries/streyn-server"],
     "publisher": "LabtosoStudios",
     "copyright": "© LabtosoStudios",
     "category": "Music",
-    "shortDescription": "Musik",
-    "longDescription": "Desktop app for your own Musik server.",
+    "shortDescription": "Streyn",
+    "longDescription": "Desktop app for your own Streyn server.",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "windows/hooks.nsh"
       }
     }
   }

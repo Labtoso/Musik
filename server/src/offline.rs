@@ -1,4 +1,4 @@
-// Offline mode: the apps start this server on the device itself (MUSIK_OFFLINE=1, only on 127.0.0.1).
+// Offline mode: the apps start this server on the device itself (STREYN_OFFLINE=1, only on 127.0.0.1).
 // It copies playlists from the real server so they play without a connection.
 use crate::api::{body_json, ApiError, St, R};
 use crate::db::now_ms;
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS offline_files (
 "#;
 
 pub fn enabled() -> bool {
-    std::env::var("MUSIK_OFFLINE").map(|v| v == "1").unwrap_or(false)
+    crate::brand_env("OFFLINE").map(|v| v == "1").unwrap_or(false)
 }
 
 pub fn routes() -> Router<St> {
@@ -46,12 +46,12 @@ pub fn routes() -> Router<St> {
         .route("/offline/remove", post(remove))
 }
 
-/// Only the app that started this server knows the key (MUSIK_KEY).
+/// Only the app that started this server knows the key (STREYN_KEY).
 fn check_key(h: &HeaderMap) -> Result<(), ApiError> {
     if !enabled() {
         return Err(ApiError::new(404, "not_found"));
     }
-    let want = std::env::var("MUSIK_KEY").unwrap_or_default();
+    let want = crate::brand_env("KEY").unwrap_or_default();
     let got = h.get("x-musik-key").and_then(|v| v.to_str().ok()).unwrap_or("");
     if want.is_empty() || got != want {
         return Err(ApiError::new(403, "forbidden"));
@@ -66,9 +66,9 @@ fn device_user(db: &Connection, name: &str) -> i64 {
     }
     let mut pw = [0u8; 24];
     rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut pw);
-    let name = if name.trim().chars().count() >= 2 { name.trim() } else { "Musik" };
+    let name = if name.trim().chars().count() >= 2 { name.trim() } else { "Streyn" };
     crate::auth::create_user(db, name, &hex::encode(pw), true)
-        .or_else(|_| crate::auth::create_user(db, "Musik", &hex::encode(pw), true))
+        .or_else(|_| crate::auth::create_user(db, "Streyn", &hex::encode(pw), true))
         .map(|u| u.id)
         .unwrap_or(1)
 }
