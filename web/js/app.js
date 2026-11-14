@@ -541,6 +541,7 @@ async function pickPlaylist(tracks) {
 function trackMenu(anchor, tr, ctx = {}) {
   const items = [
     { label: t('playNext'), icon: 'next', run: () => (player.playNext([tr]), toast(t('playsNext'))) },
+    !tr._off && { label: isLiked(tr) ? t('unlike') : t('like'), icon: isLiked(tr) ? 'heartFill' : 'heart', run: () => toggleLike(tr) },
     { label: t('addQueue'), icon: 'queue', run: () => (player.add([tr]), toast(t('addedQueue'))) },
     {
       label: t('addPlaylist'),
@@ -584,15 +585,35 @@ async function startRadio(tr) {
   }
 }
 
+// songs from Spotify, Deezer and YouTube can be liked too: kept on the server with their names and cover
+const extLikes = new Map();
+async function loadExtLikes() {
+  const list = await get('/api/extlikes').catch(() => null);
+  if (!list) return;
+  extLikes.clear();
+  for (const x of list) if (x?.id) extLikes.set(x.id, x);
+}
+const isLiked = (tr) => !!tr && (tr.ext ? extLikes.has(tr.id) : !!tr.liked);
 async function toggleLike(tr) {
-  if (tr.ext || tr._off) return;
-  const liked = !tr.liked;
+  if (!tr || tr._off) return;
+  const liked = !isLiked(tr);
   try {
-    if (liked) await put(`/api/likes/${tr.id}`);
-    else await del(`/api/likes/${tr.id}`);
+    if (tr.ext) {
+      if (liked) {
+        const data = { id: tr.id, title: tr.title, artist: tr.artist || '', album: tr.album || '', duration: tr.duration || 0, cover: extCovers.get(tr.id) || '', ext: tr.ext };
+        await put('/api/extlikes', { key: tr.id, data });
+        extLikes.set(tr.id, data);
+      } else {
+        await del('/api/extlikes?key=' + encodeURIComponent(tr.id));
+        extLikes.delete(tr.id);
+      }
+    } else {
+      if (liked) await put(`/api/likes/${tr.id}`);
+      else await del(`/api/likes/${tr.id}`);
+    }
     tr.liked = liked;
     player.patch(tr.id, { liked });
-    document.querySelectorAll(`[data-like="${tr.id}"]`).forEach((b) => {
+    document.querySelectorAll(`[data-like="${CSS.escape(String(tr.id))}"]`).forEach((b) => {
       b.classList.toggle('on', liked);
       b.innerHTML = icon(liked ? 'heartFill' : 'heart');
       b.title = liked ? t('unlike') : t('like');
@@ -632,8 +653,10 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
     .map((tr, i) => {
       const reason = reasons && tr.reason ? `<span class="reason">${esc(t('reason_' + tr.reason, { artist: artistName(tr) }))}</span>` : '';
       const src = tr.ext?.source || tr._src;
-      const side = tr.ext || tr._off
+      const side = tr._off || (tr.ext && !extLikes.has(tr.id))
         ? `<span class="like-slot">${c.has('source') ? srcBadge(src) : ''}</span>`
+        : tr.ext
+        ? `<button class="icon-btn like on" data-like="${esc(String(tr.id))}" title="${t('unlike')}">${icon('heartFill')}</button>`
         : `<button class="icon-btn like ${tr.liked ? 'on' : ''}" data-like="${tr.id}" title="${tr.liked ? t('unlike') : t('like')}">${icon(tr.liked ? 'heartFill' : 'heart')}</button>`;
       const lead = numbers || !c.has('cover') ? `<span class="num">${(numbers && tr.track_no) || i + 1}</span>` : coverImg(tr.id, 'sm');
       const sub = [c.has('artist') ? artistLinks(tr) : '', reason].filter(Boolean).join(' · ');
@@ -960,6 +983,7 @@ async function favouriteArtists(h) {
     for (const a of String(name || '').split(/,|&| feat\.? | x /i).map((x) => x.trim()).filter(Boolean).slice(0, 1)) score.set(a, (score.get(a) || 0) + n);
   };
   (h?.topArtists || []).forEach((a, i) => add(a, 12 - i));
+  (follows || []).forEach((f, i) => add(f.name, Math.max(2, 8 - i)));
   extHistory().forEach((x, i) => add(x.artist, Math.max(1, 6 - i / 10)));
   if (score.size < 3) {
     const imps = await get('/api/imports').catch(() => []);
@@ -976,11 +1000,14 @@ async function forYouSections(h) {
   const r = await get('/api/catalog/foryou?artists=' + encodeURIComponent(names.join('|'))).catch(() => null);
   if (!r) return '';
   let html = '';
-  for (const row of r.rows || []) {
-    const tracks = row.tracks.map(extTrack);
-    html += section(t('becauseYouListen', { name: row.because }), trackCards(tracks, 'fy' + Math.random().toString(36).slice(2, 7)));
-  }
+  const rows = (r.rows || []).map((row) => ({ ...row, tracks: row.tracks.map(extTrack) }));
+  // single songs first: one from each artist in turn, so the list is mixed
+  const songs = [];
+  for (let k = 0; songs.length < 8 && k < 12; k++) for (const row of rows) if (row.tracks[k] && songs.length < 8) songs.push(row.tracks[k]);
+  if (songs.length) html += section(t('songsForYou'), trackList(songs));
+  if (r.playlists?.length) html += section(t('playlistsForYou'), plainAlbumCards(r.playlists.map(catPlaylist), true));
   if (r.artists?.length) html += section(t('suggestedArtists'), artistCards(r.artists.map(catArtist), true));
+  for (const row of rows) html += section(t('becauseYouListen', { name: row.because }), trackCards(row.tracks, 'fy' + Math.random().toString(36).slice(2, 7)));
   return html;
 }
 
@@ -992,67 +1019,104 @@ const homeReloadBtn = () => `<button class="icon-btn desktop-only" data-homerelo
 async function reloadHome() {
   dropHome();
   laterDone.clear();
-  await render();
+  const v = $('#view');
+  if (state.route !== 'home' || !v) return render();
+  // like a web page that loads again: the old page stays, dims while the new one is fetched, then the new one fades in
+  v.classList.add('reloading');
+  try {
+    const html = keepHome(await buildHome()).html;
+    if (state.route === 'home') {
+      v.innerHTML = html;
+      tintAll(v);
+      warmSoon(200);
+    }
+  } finally {
+    v.classList.remove('reloading');
+    v.classList.remove('reloaded');
+    void v.offsetWidth;
+    v.classList.add('reloaded');
+    setTimeout(() => v.classList.remove('reloaded'), 450);
+  }
 }
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('[data-homereload]');
   if (!b) return;
   b.classList.add('spin');
-  await Promise.all([reloadHome(), new Promise((r) => setTimeout(r, 600))]);
+  await Promise.all([reloadHome().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
   document.querySelector('[data-homereload]')?.classList.remove('spin');
 });
-// phone: pull the start page down to load it again
+// phone: pull the start page down to load it again, with the round arrow a browser shows
 (() => {
-  let y0 = null, pull = 0, busy = false, ind = null;
-  const NEED = 64;
-  const show = () => {
+  const NEED = 70, MAX = 118;
+  let g = null, busy = false, ind = null;
+  const make = () => {
     if (!ind) {
       ind = document.createElement('div');
       ind.className = 'ptr';
-      ind.innerHTML = icon('refresh');
+      ind.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle class="ptr-arc" cx="12" cy="12" r="7.5" pathLength="100"/><path class="ptr-head" d="M12 1.6 15.4 4.5 12 7.4Z"/></svg>';
       document.body.appendChild(ind);
     }
     return ind;
   };
   const set = (px, anim) => {
-    const i = show();
-    i.style.transition = anim ? 'transform .28s cubic-bezier(.2,.9,.3,1), opacity .2s' : 'none';
-    i.style.transform = `translate(-50%, ${px}px) rotate(${px * 3.2}deg)`;
-    i.style.opacity = String(Math.min(1, px / 40));
+    const i = make();
+    const p = Math.min(1, px / NEED);
+    i.style.transition = anim ? 'transform .32s cubic-bezier(.2,.9,.3,1), opacity .22s' : 'none';
+    i.style.transform = `translate(-50%, ${px}px) scale(${0.55 + 0.45 * p})`;
+    i.style.opacity = px > 6 ? String(Math.min(1, 0.25 + p)) : '0';
+    i.style.setProperty('--arc', String(Math.round(8 + p * 72)));
+    i.style.setProperty('--rot', `${Math.round(px * 2.6)}deg`);
     i.classList.toggle('ready', px >= NEED);
   };
+  const blocked = () => state.route !== 'home' || document.querySelector('.modal-wrap, .menu, .profile-wrap.open, .fs.open, .settings.open');
   document.addEventListener('touchstart', (e) => {
-    y0 = null;
-    if (busy || state.route !== 'home' || e.touches.length !== 1) return;
-    const c = $('#content');
-    if (!c || c.scrollTop > 0 || !e.target.closest?.('#content') || document.querySelector('.modal-wrap, .menu, .profile-wrap.open, .fs.open')) return;
-    y0 = e.touches[0].clientY;
-    pull = 0;
+    g = null;
+    if (busy || e.touches.length !== 1 || !e.target.closest?.('#content') || e.target.closest('input') || blocked()) return;
+    const tc = e.touches[0];
+    g = { x0: tc.clientX, y0: null, sy: tc.clientY, pull: 0, dir: null };
+    if ($('#content').scrollTop <= 0) g.y0 = tc.clientY;
+    const c = $('#content').getBoundingClientRect();
+    make().style.top = `${Math.max(0, c.top) - 44}px`;
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
-    if (y0 == null) return;
-    const d = e.touches[0].clientY - y0;
+    if (!g) return;
+    const tc = e.touches[0];
+    if (!g.dir) {
+      const dx = Math.abs(tc.clientX - g.x0), dy = Math.abs(tc.clientY - g.sy);
+      if (dx < 8 && dy < 8) return;
+      g.dir = dx > dy ? 'x' : 'y';
+    }
+    if (g.dir === 'x') return void (g = null);
+    // scrolled back up to the top during the same swipe: from here on it pulls, like in a browser
+    if (g.y0 == null) {
+      if ($('#content').scrollTop > 0) return;
+      g.y0 = tc.clientY;
+    }
+    const d = tc.clientY - g.y0;
     if (d <= 0 || $('#content').scrollTop > 0) {
-      if (pull) set(0, true);
-      pull = 0;
+      if (g.pull) set(0, true);
+      g.pull = 0;
+      if (d < -4) g.y0 = null;
       return;
     }
-    pull = Math.min(96, d * 0.5);
-    set(pull, false);
+    g.pull = MAX * (1 - Math.exp(-d / (MAX * 1.25)));
+    set(g.pull, false);
   }, { passive: true });
   const end = async () => {
-    if (y0 == null) return;
-    y0 = null;
+    if (!g) return;
+    const pull = g.pull;
+    g = null;
     if (pull < NEED) return pull && set(0, true);
     busy = true;
-    pull = 0;
     set(NEED, true);
     ind.classList.add('spin');
     navigator.vibrate?.(8);
-    await Promise.all([reloadHome().catch(() => {}), new Promise((r) => setTimeout(r, 700))]);
+    await Promise.all([reloadHome().catch(() => {}), new Promise((r) => setTimeout(r, 650))]);
     ind.classList.remove('spin');
-    set(0, true);
-    busy = false;
+    ind.style.transition = 'transform .25s ease-in, opacity .25s';
+    ind.style.transform = 'translate(-50%, 34px) scale(0.3)';
+    ind.style.opacity = '0';
+    setTimeout(() => (busy = false), 260);
   };
   document.addEventListener('touchend', end);
   document.addEventListener('touchcancel', end);
@@ -1232,6 +1296,11 @@ function catArtist(a) {
   const id = 'dzartist:' + a.id;
   if (a.picture) extCovers.set(id, a.picture);
   return { name: a.name, cover: id, href: `#/cartist?id=${a.id}`, sub: t('artist') };
+}
+function catPlaylist(p) {
+  const id = 'dzpl:' + p.id;
+  if (p.cover) extCovers.set(id, p.cover);
+  return { title: p.title, artist: [p.owner, p.count ? songCount(p.count) : ''].filter(Boolean).join(' · '), cover: id, href: `#/cplaylist?id=${p.id}` };
 }
 function catAlbum(a) {
   const id = 'dzalbum:' + a.id;
@@ -1575,6 +1644,16 @@ views.calbum = async (params) => {
   html += section(t('tracks'), trackList(tracks, { numbers: true }), `<span class="muted small">${t('catalogHint')}</span>`);
   return html;
 };
+views.cplaylist = async (params) => {
+  const r = await get('/api/fetch/deezer?type=playlist&id=' + encodeURIComponent(params.get('id') || ''));
+  const tracks = (r.items || []).map(extTrack);
+  const cid = 'dzpl:' + params.get('id');
+  if (r.cover) extCovers.set(cid, r.cover);
+  state.detail = { cplaylist: tracks };
+  state.spPending = { source: 'deezer', name: r.name, cover: r.cover || '', items: r.items || [], url: 'https://www.deezer.com/playlist/' + params.get('id') };
+  const total = tracks.reduce((n, x) => n + (x.duration || 0), 0);
+  return detailHeader({ coverId: cid, kind: t('playlist'), title: r.name, sub: `${songCount(tracks.length)}${total ? ', ' + fmtLong(total) : ''}`, actions: tracks.length ? listActions('cplaylist') + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>` : '' }) + trackList(tracks);
+};
 views.spartist = async (params) => {
   const id = params.get('id') || '';
   const r = await spotifyArtist(id);
@@ -1632,7 +1711,7 @@ document.addEventListener('click', async (e) => {
   const r = state.spPending;
   try {
     importStatus(t('importMatching', { n: r.items.length }));
-    const res = await saveImport({ source: 'spotify', name: r.name, url: r.url, cover: r.cover || '', meta: r.meta || {}, items: r.items });
+    const res = await saveImport({ source: r.source || 'spotify', name: r.name, url: r.url, cover: r.cover || '', meta: r.meta || {}, items: r.items });
     importStatus(null);
     renderSidebarPlaylists();
     toast(t('importDone', { name: r.name }));
@@ -1789,7 +1868,8 @@ document.addEventListener('click', (e) => {
 });
 
 views.likes = async () => {
-  const tracks = await get('/api/likes');
+  const [local] = await Promise.all([get('/api/likes'), loadExtLikes()]);
+  const tracks = [...[...extLikes.values()].map(histTrack), ...local];
   state.detail = { likes: tracks };
   return (
     detailHeader({ coverId: null, kind: t('playlist'), title: t('likes'), sub: songCount(tracks.length), actions: listActions('likes') }).replace(
@@ -1845,7 +1925,7 @@ document.addEventListener('click', async (e) => {
   }
 });
 // ---------- sources (first start + settings) ----------
-function sourcesForm(welcome) {
+function sourcesBody() {
   const on = settings.sources || {};
   const cards = SOURCES.map(
     (s) => `<label class="srccard ${s === 'local' || on[s] ? 'on' : ''}"><input type="checkbox" data-src="${s}" ${s === 'local' || on[s] ? 'checked' : ''} ${s === 'local' ? 'disabled' : ''}>
@@ -1860,15 +1940,204 @@ function sourcesForm(welcome) {
     <div class="access ${ytOn ? '' : 'hide'}" data-for="youtube"><h3>YouTube</h3>
       <label class="field"><span>${t('youtubeKey')}</span><span class="secret"><input id="ytkey" type="password" value="${esc(settings.youtubeKey || '')}" autocomplete="off" spellcheck="false"><button type="button" class="icon-btn" data-eye title="${t('showHide')}">${icon('eye')}</button></span></label>
       <p class="muted small">${t('youtubeKeyHelp')}</p></div>`;
-  return `${pageHead(welcome ? t('welcomeTitle') : t('sources'))}
-    <p class="muted lead">${welcome ? t('welcomeText') : t('sourcesHint')}</p>
-    ${welcome ? `<h2 class="wizhead">${t('themeAsk')}</h2><p class="muted small">${t('themeHint')}</p>${themePicker()}<h2 class="wizhead">${t('sources')}</h2>` : ''}
-    <div class="srcgrid">${cards}</div>
-    <div class="accesses">${access}</div>
-    <div class="stack wizard-actions">${welcome ? `<button class="btn primary" data-wizdone>${t('welcomeDone')}</button><button class="btn ghost" data-wizskip>${t('welcomeSkip')}</button>` : `<a class="btn primary" href="#/add">${icon('download')}${t('importAdd')}</a>`}</div>`;
+  return `<div class="srcgrid">${cards}</div><div class="accesses">${access}</div>`;
 }
-views.welcome = async () => sourcesForm(true);
-views.sources = async () => sourcesForm(false);
+function sourcesForm() {
+  return `${pageHead(t('sources'))}
+    <p class="muted lead">${t('sourcesHint')}</p>
+    ${sourcesBody()}
+    <div class="stack wizard-actions"><a class="btn primary" href="#/add">${icon('download')}${t('importAdd')}</a></div>`;
+}
+// ---------- first start: a setup assistant that asks one thing after another ----------
+const WIZ = ['hello', 'look', 'genres', 'artists', 'sources', 'how', 'done'];
+// genres of the public catalog, so the picked ones give real artists right away
+const GENRES = { pop: 132, rap: 116, rock: 152, alt: 85, dance: 113, electro: 106, rnb: 165, soul: 169, metal: 464, jazz: 129, classic: 98, latin: 197, reggae: 144, folk: 466, country: 84, blues: 153, film: 173, asia: 16, africa: 2, kids: 95 };
+const ACCENTS = ['cover', 'blue', 'green', 'purple', 'orange', 'pink', 'red', 'teal'];
+const wiz = { list: null, listFor: '', found: null };
+function wizIndex(params) {
+  return Math.max(0, Math.min(WIZ.length - 1, Number(params?.get('s')) || 0));
+}
+function wizFrame(i, body, { next = true, skip = false } = {}) {
+  const dots = WIZ.map((_, n) => `<i class="${n < i ? 'done' : n === i ? 'on' : ''}"></i>`).join('');
+  return `<div class="wiz" data-wiz="${WIZ[i]}">
+    <div class="wiz-top"><div class="wiz-dots">${dots}</div><span class="muted small">${t('wizStep', { n: i + 1, total: WIZ.length })}</span></div>
+    <div class="wiz-body">${body}</div>
+    <div class="wiz-nav">${i > 0 ? `<button class="btn ghost" data-wizgo="${i - 1}">${icon('back')}${t('wizBack')}</button>` : '<span></span>'}
+      <div class="stack">${skip ? `<button class="btn ghost" data-wizgo="${i + 1}">${t('wizSkipStep')}</button>` : ''}${next ? `<button class="btn primary" data-wizgo="${i + 1}">${t('wizNext')}</button>` : ''}</div></div>
+  </div>`;
+}
+const wizQ = (title, body, hint = '') => `<div class="wiz-q"><h2>${title}</h2>${hint ? `<p class="muted small">${hint}</p>` : ''}${body}</div>`;
+function wizArtistCards(list) {
+  if (!list?.length) return `<p class="muted small">${t('wizArtistNone')}</p>`;
+  return list
+    .map((a) => {
+      const id = 'dzartist:' + a.id;
+      if (a.picture) extCovers.set(id, a.picture);
+      const on = isFollowed('deezer', a.id);
+      return `<button type="button" class="wiz-artist ${on ? 'on' : ''}" data-wart="${esc(String(a.id))}" data-wname="${esc(a.name)}" data-wpic="${esc(a.picture || '')}">${coverImg(id, 'lg round')}<span class="wa-check">${icon('check')}</span><span class="c-title">${esc(a.name)}</span></button>`;
+    })
+    .join('');
+}
+async function wizArtists() {
+  const picked = (settings.genres || []).filter((g) => GENRES[g]);
+  const key = picked.join(',');
+  if (!wiz.list || wiz.listFor !== key) {
+    wiz.list = await get('/api/catalog/genre-artists?ids=' + picked.map((g) => GENRES[g]).join(',')).catch(() => []);
+    wiz.listFor = key;
+  }
+  return wiz.list;
+}
+views.welcome = async (params) => {
+  const i = wizIndex(params);
+  const step = WIZ[i];
+  if (step === 'hello') {
+    return wizFrame(i, `<div class="wiz-hero">${icon('note', 'big')}<h1>${t('wizHello')}</h1><p class="muted lead">${t('wizHelloText')}</p></div>
+      ${wizQ(t('wizLangAsk'), `<div class="seg">${['en', 'de'].map((l) => `<button data-wlang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`)}
+      ${wizQ(t('wizNameAsk'), `<input id="wizname" class="textin" maxlength="40" value="${esc(conn.user?.name || '')}" autocomplete="nickname">`)}`);
+  }
+  if (step === 'look') {
+    return wizFrame(i, `<h1>${t('wizLookTitle')}</h1><p class="muted lead">${t('wizLookText')}</p>
+      ${wizQ(t('themeAsk'), themePicker(), t('themeHint'))}
+      ${wizQ(t('mode'), `<div class="seg">${['dark', 'light'].map((m) => `<button data-mode-pick="${m}" class="${(prefs.mode === 'light' ? 'light' : 'dark') === m ? 'on' : ''}">${icon(m === 'light' ? 'sun' : 'moon')}${t('mode_' + m)}</button>`).join('')}</div>`)}
+      ${wizQ(t('wizAccentAsk'), `<div class="swatches">${ACCENTS.map((a) => `<button class="swatch ${a} ${prefs.accent === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, t('accentHint'))}
+      ${wizQ(t('dynColor'), `<label class="wiz-sw">${sw('dyncolor', prefs.dynamic)}<span>${t('wizDynAsk')}</span></label>`)}`);
+  }
+  if (step === 'genres') {
+    const on = new Set(settings.genres || []);
+    return wizFrame(i, `<h1>${t('wizGenreTitle')}</h1><p class="muted lead">${t('wizGenreText')}</p>
+      <div class="wiz-genres">${Object.keys(GENRES).map((g) => `<button type="button" class="chip ${on.has(g) ? 'on' : ''}" data-wgenre="${g}">${t('g_' + g)}</button>`).join('')}</div>`, { skip: !on.size });
+  }
+  if (step === 'artists') {
+    await loadFollows(true);
+    const list = await wizArtists();
+    const n = (follows || []).filter((f) => f.kind === 'deezer').length;
+    return wizFrame(i, `<h1>${t('wizArtistTitle')}</h1><p class="muted lead">${t('wizArtistText')}</p>
+      <div class="searchbar wiz-search">${icon('search')}<input id="wizq" type="search" placeholder="${t('wizArtistSearch')}" autocomplete="off"></div>
+      <p class="muted small wiz-count">${t('wizArtistPicked', { n })}</p>
+      <div class="wiz-artists" id="wizartists">${wizArtistCards(list)}</div>`, { skip: !n });
+  }
+  if (step === 'sources') return wizFrame(i, `<h1>${t('wizSrcTitle')}</h1><p class="muted lead">${t('welcomeText')}</p>${sourcesBody()}`);
+  if (step === 'how') {
+    const eq = prefs.eq?.on ? prefs.eq.preset : 'flat';
+    return wizFrame(i, `<h1>${t('wizHowTitle')}</h1><p class="muted lead">${t('wizHowText')}</p>
+      ${wizQ(t('autoplayShort'), `<label class="wiz-sw">${sw('autoplay', prefs.autoplay)}<span>${t('wizAutoplayAsk')}</span></label>`)}
+      ${wizQ(t('wizSearchAsk'), `<div class="seg wiz-wrap">${SMODES.map((m) => `<button data-smode="${m}" class="${searchMode() === m ? 'on' : ''}">${t('smode_' + m)}</button>`).join('')}</div>`, t('searchInHint'))}
+      ${wizQ(t('wizVizAsk'), `<div class="seg wiz-wrap">${VIZ_MODES.map((m) => `<button data-wviz="${m}" class="${(prefs.viz || 'off') === m ? 'on' : ''}">${t('viz_' + m)}</button>`).join('')}</div>`)}
+      ${wizQ(t('wizEqAsk'), `<div class="seg wiz-wrap">${['flat', 'bass', 'treble', 'vocal', 'night'].map((k) => `<button data-weq="${k}" class="${eq === k ? 'on' : ''}">${t('eq_' + k)}</button>`).join('')}</div>`, t('eqHint'))}`);
+  }
+  const any = Object.entries(settings.sources || {}).some(([k, v]) => v && k !== 'local');
+  return wizFrame(i, `<div class="wiz-hero">${icon('check', 'big')}<h1>${t('wizDoneTitle')}</h1><p class="muted lead">${t('wizDoneText')}</p></div>
+    <div class="wiz-ends">
+      <button class="wiz-end primary" data-wizend="home">${icon('play')}<span>${t('wizStartListen')}</span></button>
+      ${any ? `<button class="wiz-end" data-wizend="add">${icon('download')}<span>${t('wizStartImport')}</span></button>` : ''}
+      <button class="wiz-end" data-wizend="search">${icon('search')}<span>${t('wizStartSearch')}</span></button>
+      <button class="wiz-end" data-wizend="upload">${icon('upload')}<span>${t('wizStartUpload')}</span></button>
+    </div>`, { next: false });
+};
+async function wizLeave(from) {
+  // what was typed on a step is kept when it is left
+  if (WIZ[from] === 'hello') {
+    const name = $('#wizname')?.value.trim();
+    if (name && conn.user && name !== conn.user.name) {
+      await put('/api/me', { name }).catch(() => {});
+      conn.user = await get('/api/me').catch(() => conn.user);
+      saveConn();
+      paintAvatars();
+    }
+  }
+}
+document.addEventListener('click', async (e) => {
+  const go_ = e.target.closest('[data-wizgo]');
+  if (go_) {
+    const from = wizIndex(new URLSearchParams(location.hash.split('?')[1] || ''));
+    await wizLeave(from);
+    return go('#/welcome?s=' + go_.dataset.wizgo);
+  }
+  const wl = e.target.closest('[data-wlang]');
+  if (wl) {
+    const name = $('#wizname')?.value;
+    rememberLang(wl.dataset.wlang);
+    applyPrefs();
+    buildShell();
+    await render();
+    if (name != null && $('#wizname')) $('#wizname').value = name;
+    return;
+  }
+  const g = e.target.closest('[data-wgenre]');
+  if (g) {
+    const set = new Set(settings.genres || []);
+    set.has(g.dataset.wgenre) ? set.delete(g.dataset.wgenre) : set.add(g.dataset.wgenre);
+    g.classList.toggle('on', set.has(g.dataset.wgenre));
+    saveSettings({ genres: [...set] }).catch(() => {});
+    document.querySelectorAll('.wiz-nav .stack [data-wizgo]').forEach((b) => b.classList.contains('primary') || b.toggleAttribute('hidden', set.size > 0));
+    return;
+  }
+  const a = e.target.closest('[data-wart]');
+  if (a) {
+    const on = !a.classList.contains('on');
+    a.classList.toggle('on', on);
+    navigator.vibrate?.(6);
+    const body = { kind: 'deezer', ref: a.dataset.wart, name: a.dataset.wname, cover: a.dataset.wpic };
+    try {
+      if (on) await put('/api/follows', body);
+      else await del(`/api/follows?kind=deezer&ref=${encodeURIComponent(body.ref)}`);
+      await loadFollows(true);
+      dropHome();
+    } catch {
+      a.classList.toggle('on', !on);
+    }
+    const n = (follows || []).filter((f) => f.kind === 'deezer').length;
+    const c = $('.wiz-count');
+    if (c) c.textContent = t('wizArtistPicked', { n });
+    document.querySelectorAll('.wiz-nav .stack [data-wizgo]').forEach((b) => b.classList.contains('primary') || b.toggleAttribute('hidden', n > 0));
+    return;
+  }
+  const v = e.target.closest('[data-wviz]');
+  if (v) {
+    if (v.dataset.wviz !== 'off') prefs.vizLast = v.dataset.wviz;
+    setViz(v.dataset.wviz);
+    v.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === v));
+    return;
+  }
+  const q = e.target.closest('[data-weq]');
+  if (q) {
+    const k = q.dataset.weq;
+    eqChanged({ on: k !== 'flat', preset: k, gains: EQ_PRESETS[k].slice() });
+    q.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === q));
+    return;
+  }
+  const end = e.target.closest('[data-wizend]');
+  if (end) {
+    await saveSettings({ setupDone: true }).catch(() => {});
+    dropHome();
+    const where = end.dataset.wizend;
+    if (where === 'upload') {
+      go('#/home');
+      return pickUpload();
+    }
+    go('#/' + where);
+  }
+});
+// artist search on the "which artists" step
+{
+  let timer = 0, seq = 0;
+  document.addEventListener('input', (e) => {
+    if (e.target.id !== 'wizq') return;
+    clearTimeout(timer);
+    const q = e.target.value.trim();
+    timer = setTimeout(async () => {
+      const my = ++seq;
+      const list = q ? (await get('/api/catalog/search?q=' + encodeURIComponent(q)).catch(() => ({ artists: [] }))).artists : await wizArtists();
+      if (my !== seq) return;
+      const box = $('#wizartists');
+      if (box) {
+        box.innerHTML = wizArtistCards(list);
+        tintAll(box);
+      }
+    }, 280);
+  });
+}
+views.sources = async () => sourcesForm();
 document.addEventListener('change', async (e) => {
   const c = e.target.closest('[data-src]');
   if (c) {
@@ -1910,15 +2179,6 @@ document.addEventListener('click', async (e) => {
       spotify.setToken(r.token);
       render();
     }
-  }
-  if (e.target.closest('[data-wizdone]')) {
-    await saveSettings({ setupDone: true }).catch(() => {});
-    const any = Object.entries(settings.sources).some(([k, v]) => v && k !== 'local');
-    go(any ? '#/add' : '#/home');
-  }
-  if (e.target.closest('[data-wizskip]')) {
-    await saveSettings({ setupDone: true, sources: { local: true } }).catch(() => {});
-    go('#/home');
   }
 });
 
@@ -2326,6 +2586,7 @@ function go(hash) {
   if (location.hash === hash) render();
   else location.hash = hash;
 }
+const TABS = ['home', 'search', 'library'];
 let renderSeq = 0;
 async function render() {
   closeMenu();
@@ -2336,8 +2597,12 @@ async function render() {
   const view = views[name] || views.home;
   const seq = ++renderSeq;
   state.route = name || 'home';
-  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === state.route));
-  document.querySelector('.bottomnav')?.classList.toggle('nohome', !document.querySelector('.bottomnav a.on'));
+  // pages without their own tab (album, artist, playlist …) keep the tab they were opened from, so the blob never vanishes
+  if (TABS.includes(state.route)) state.tab = state.route;
+  else if (state.route === 'likes' || state.route === 'imported' || state.route === 'playlist') state.tab = 'library';
+  const tab = state.tab || 'home';
+  document.querySelectorAll('.side-nav [data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === state.route));
+  document.querySelectorAll('.bottomnav [data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === tab));
   navBlob.place();
   glassPanes.scan();
   const main = $('#view');
@@ -2429,11 +2694,12 @@ function renderPlayer() {
     document.title = 'Musik';
     applyDyn(null);
   }
+  const liked = isLiked(tr);
   document.querySelectorAll('[data-act="like"]').forEach((b) => {
-    b.style.visibility = tr?.ext ? 'hidden' : '';
-    b.dataset.like = tr?.id || '';
-    b.classList.toggle('on', !!tr?.liked);
-    b.innerHTML = icon(tr?.liked ? 'heartFill' : 'heart');
+    b.dataset.like = tr?.id ?? '';
+    b.classList.toggle('on', liked);
+    b.innerHTML = icon(liked ? 'heartFill' : 'heart');
+    b.title = liked ? t('unlike') : t('like');
   });
   document.querySelectorAll('[data-act="shuffle"]').forEach((b) => b.classList.toggle('on', player.shuffled));
   document.querySelectorAll('[data-act="repeat"]').forEach((b) => {
@@ -2479,7 +2745,8 @@ function renderTime() {
   });
   document.querySelectorAll('.t-pos').forEach((e) => (e.textContent = fmtTime(p)));
   document.querySelectorAll('.t-dur').forEach((e) => (e.textContent = fmtTime(d)));
-  $('#mini-progress').style.width = d ? (p / d) * 100 + '%' : '0';
+  const mp = $('#mini-progress i');
+  if (mp) mp.style.transform = `scaleX(${d ? Math.min(1, p / d) : 0})`;
 }
 
 function bindPlayer() {
@@ -3108,8 +3375,19 @@ function contextTarget(el) {
     if (!tr || tr._off) return null;
     return (pt) => trackMenu(pt, tr, { queueIndex: listEl.dataset.queue ? Number(row.dataset.q) : null, playlistId: listEl.dataset.playlist ? Number(listEl.dataset.playlist) : null, position: i });
   };
+  const tcard = el.closest('[data-cards] > .card');
+  if (tcard) return () => {
+    const tr = state.lists?.[tcard.parentElement.dataset.cards]?.[Number(tcard.dataset.i)];
+    return tr ? (pt) => trackMenu(pt, tr, {}) : null;
+  };
+  if (el.closest('#mini, #fs-cover, .fs-meta') && player?.current) return () => (pt) => trackMenu(pt, player.current, {});
   const ref = el.closest('[data-ref]');
   if (ref) return () => (pt) => collectionMenu(pt, ref.dataset.ref);
+  const qt = el.closest('a.qt[href^="#/album"]');
+  if (qt) {
+    const q = new URLSearchParams(qt.getAttribute('href').split('?')[1] || '');
+    return () => (pt) => collectionMenu(pt, 'album:' + (q.get('album') || '') + '\u0001' + (q.get('artist') || ''));
+  }
   const card = el.closest('a.card[href]');
   if (card) {
     const h = card.getAttribute('href');
@@ -3289,7 +3567,8 @@ function paintDevice() {
   const line = $('.np-dev');
   if (line) {
     line.hidden = !away;
-    line.innerHTML = away ? `${icon(DEV_ICON[cur.kind] || 'speaker')}<span>${esc(cur.name)}</span>` : '';
+    line.innerHTML = away ? `${icon(DEV_ICON[cur.kind] || 'speaker')}<span><em>${esc(cur.name)}</em></span>` : '';
+    requestAnimationFrame(() => marquee(line.querySelector('span')));
   }
   const fd = $('.fs-dev');
   if (fd) {
@@ -3299,6 +3578,18 @@ function paintDevice() {
   }
   document.querySelectorAll('.devbtn').forEach((b) => b.classList.toggle('away', !!away));
 }
+/** A name that does not fit glides slowly to its end and back, so it can be read in full. */
+function marquee(box) {
+  if (!box) return;
+  box.classList.remove('mq');
+  const over = box.scrollWidth - box.clientWidth;
+  if (over > 3) {
+    box.style.setProperty('--mq', `${-over - 6}px`);
+    box.style.setProperty('--mqt', `${Math.max(5, over / 14 + 3)}s`);
+    box.classList.add('mq');
+  }
+}
+addEventListener('resize', () => marquee($('.np-dev span')));
 function fillDevSheet() {
   const box = $('.devsheet .ds-body');
   if (!box) return;
@@ -3792,7 +4083,7 @@ function buildShell() {
     <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo">Musik</span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
     <main id="content"><div id="view"></div></main>
     <footer id="player" class="player idle">
-      <div id="mini-progress"></div>
+      <div id="mini-progress"><i></i></div>
       <div class="np" id="mini">
         <div id="np-cover"></div>
         <div class="np-text"><div id="np-title" class="title"></div><div id="np-artist" class="sub"></div><div class="np-dev" data-devsheet hidden></div></div>
@@ -3834,7 +4125,6 @@ function buildShell() {
       <button class="icon-btn lg" data-act="next">${icon('next')}</button>
       <button class="icon-btn" data-act="repeat">${icon('repeat')}</button>
     </div>
-    <div class="fs-vol"><button class="icon-btn" data-act="mute" title="${t('volume')}">${icon('volume')}</button><input class="vol" type="range" min="0" max="1" step="0.01" value="1" aria-label="${t('volume')}"></div>
     <button class="fs-dev" data-devsheet>${icon('devices')}<span></span></button>
     <div class="fs-bottom"><button class="btn ghost" data-act="viz">${icon('viz')}${t('viz')}</button><button class="btn ghost" data-act="lyrics">${icon('lyrics')}${t('lyrics')}</button><button class="btn ghost" data-act="queue">${icon('queue')}${t('queue')}</button></div>
     <div id="fs-queue" class="fs-queue"></div>
@@ -3877,6 +4167,7 @@ function startApp() {
         buildShell();
       } else if (!settings.langChosen && prefs.langChosen) saveSettings({ lang: prefs.lang, langChosen: true }).catch(() => {});
       await spotify.finishLogin().catch(() => false);
+      loadExtLikes().then(() => renderPlayer());
       setTimeout(() => autoUpdateCheck(), 4000);
       if (!settings.setupDone && !state.joined && !['welcome', 'join'].includes(state.route)) go('#/welcome');
       else render();

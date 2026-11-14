@@ -88,6 +88,13 @@ CREATE TABLE IF NOT EXISTS follows (
   created INTEGER NOT NULL,
   PRIMARY KEY (user_id, kind, ref)
 );
+CREATE TABLE IF NOT EXISTS ext_likes (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  data TEXT NOT NULL,
+  created INTEGER NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
 "#;
 
 pub fn routes() -> Router<St> {
@@ -105,6 +112,7 @@ pub fn routes() -> Router<St> {
         .route("/catalog/artist/{id}", get(catalog_artist))
         .route("/catalog/related", get(catalog_related))
         .route("/catalog/foryou", get(catalog_foryou))
+        .route("/catalog/genre-artists", get(catalog_genre_artists))
         .route("/catalog/preview/{id}", get(catalog_preview))
         .route("/fetch/oembed", get(fetch_oembed))
         .route("/ytfind", get(yt_find))
@@ -118,6 +126,7 @@ pub fn routes() -> Router<St> {
         .route("/lyrics", get(lyrics_lookup))
         .route("/lyrics/{id}", get(lyrics))
         .route("/follows", get(list_follows).put(follow).delete(unfollow))
+        .route("/extlikes", get(list_ext_likes).put(ext_like).delete(ext_unlike))
         .route("/shares", post(create_share))
         .route("/public/{token}", get(public_share))
         .route("/public/{token}/save", post(save_share))
@@ -194,6 +203,50 @@ async fn follow(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
         params![u.id, kind, rf, name, cover, now_ms()],
     ).ok();
     Ok(Json(json!({ "following": true })))
+}
+// ---------- liked songs from other platforms (Spotify, Deezer, YouTube): kept with their names and cover ----------
+async fn list_ext_likes(State(st): State<St>, Auth(u, _): Auth) -> R {
+    let db = st.db.lock().unwrap();
+    let mut s = db
+        .prepare("SELECT data, created FROM ext_likes WHERE user_id = ? ORDER BY created DESC")
+        .unwrap();
+    let rows: Vec<Value> = s
+        .query_map([u.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|(d, c)| {
+            let mut v: Value = serde_json::from_str(&d).ok()?;
+            v["liked_at"] = json!(c);
+            Some(v)
+        })
+        .collect();
+    Ok(Json(json!(rows)))
+}
+async fn ext_like(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    let v: Value = body_json(req).await?;
+    let key = v["key"].as_str().unwrap_or("").trim().to_string();
+    let data = &v["data"];
+    if key.is_empty() || key.len() > 300 || !data.is_object() {
+        return Err(ApiError::new(400, "bad_json"));
+    }
+    let text = data.to_string();
+    if text.len() > 8 * 1024 {
+        return Err(ApiError::new(413, "too_large"));
+    }
+    st.db.lock().unwrap().execute(
+        "INSERT INTO ext_likes (user_id, key, data, created) VALUES (?,?,?,?) ON CONFLICT(user_id, key) DO UPDATE SET data = excluded.data",
+        params![u.id, key, text, now_ms()],
+    ).ok();
+    Ok(Json(json!({ "liked": true })))
+}
+async fn ext_unlike(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let key = q.get("key").map(String::as_str).unwrap_or("");
+    st.db
+        .lock()
+        .unwrap()
+        .execute("DELETE FROM ext_likes WHERE user_id = ? AND key = ?", params![u.id, key])
+        .ok();
+    Ok(Json(json!({ "liked": false })))
 }
 async fn unfollow(
     State(st): State<St>,
@@ -954,6 +1007,13 @@ async fn proxy_audio(vid: String, headers: axum::http::HeaderMap) -> Response {
     use axum::body::Body;
     use axum::http::{header, StatusCode};
     let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(String::from);
+    // the beginning was fetched ahead of time (next song): it plays at once, the rest follows behind it
+    let from_start = range.as_deref().map(|r| r.trim() == "bytes=0-").unwrap_or(true);
+    if from_start {
+        if let Some(h) = crate::ytdl::head(&vid) {
+            return head_then_rest(vid, h, range.is_some());
+        }
+    }
     let res = tokio::task::spawn_blocking(move || {
         for attempt in 0..2 {
             // a link from the light way that does not play: ask yt-dlp the second time
@@ -1016,6 +1076,64 @@ async fn proxy_audio(vid: String, headers: axum::http::HeaderMap) -> Response {
         }
     });
     let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
+    (status, out, Body::from_stream(stream)).into_response()
+}
+
+fn head_then_rest(vid: String, h: std::sync::Arc<crate::ytdl::Head>, ranged: bool) -> Response {
+    use axum::body::Body;
+    use axum::http::{header, StatusCode};
+    let mut out = axum::http::HeaderMap::new();
+    if let Ok(v) = h.ctype.parse() {
+        out.insert(header::CONTENT_TYPE, v);
+    }
+    out.insert(header::CONTENT_LENGTH, h.total.into());
+    out.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+    out.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    if ranged {
+        if let Ok(v) = format!("bytes 0-{}/{}", h.total.saturating_sub(1), h.total).parse() {
+            out.insert(header::CONTENT_RANGE, v);
+        }
+    }
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(8);
+    std::thread::spawn(move || {
+        if tx.blocking_send(Ok(h.bytes.clone())).is_err() {
+            return;
+        }
+        let start = h.bytes.len() as u64;
+        if start >= h.total {
+            return;
+        }
+        let rest = (|| -> Result<ureq::Response, String> {
+            let s = crate::ytdl::stream_with(&vid, false)?;
+            let mut req = ureq::get(&s.url);
+            for (k, v) in &s.headers {
+                req = req.set(k, v);
+            }
+            req.set("range", &format!("bytes={start}-")).call().map_err(|e| e.to_string())
+        })();
+        let Ok(r) = rest else {
+            tx.blocking_send(Err(std::io::Error::other("youtube_unreachable"))).ok();
+            return;
+        };
+        let mut rd = r.into_reader();
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            match rd.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.blocking_send(Ok(buf[..n].to_vec())).is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tx.blocking_send(Err(e)).ok();
+                    break;
+                }
+            }
+        }
+    });
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
+    let status = if ranged { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK };
     (status, out, Body::from_stream(stream)).into_response()
 }
 
@@ -1230,7 +1348,7 @@ async fn catalog_foryou(Auth(_, _): Auth, Query(q): Query<HashMap<String, String
         .map(|s| s.split('|').map(|x| x.trim().chars().take(80).collect::<String>()).filter(|x| !x.is_empty()).take(5).collect())
         .unwrap_or_default();
     if names.is_empty() {
-        return Ok(Json(json!({ "rows": [], "artists": [] })));
+        return Ok(Json(json!({ "rows": [], "artists": [], "playlists": [] })));
     }
     let res = tokio::task::spawn_blocking(move || {
         let mut rows = Vec::new();
@@ -1263,7 +1381,57 @@ async fn catalog_foryou(Auth(_, _): Auth, Query(q): Query<HashMap<String, String
                 rows.push(json!({ "because": a["name"], "picture": a["picture_medium"], "tracks": tracks }));
             }
         }
-        json!({ "rows": rows, "artists": artists.into_iter().take(16).collect::<Vec<_>>() })
+        // playlists that carry these artists, so the start page also suggests whole playlists
+        let mut playlists: Vec<Value> = Vec::new();
+        let mut seen_p = std::collections::HashSet::new();
+        for name in names.iter().take(4) {
+            let Ok(found) = http_get(&format!("https://api.deezer.com/search/playlist?limit=4&q={}", urlencode(name))) else { continue };
+            for p in found["data"].as_array().cloned().unwrap_or_default() {
+                let id = p["id"].to_string();
+                if p["nb_tracks"].as_i64().unwrap_or(0) < 8 || !seen_p.insert(id.clone()) {
+                    continue;
+                }
+                playlists.push(json!({
+                    "id": id, "title": p["title"].as_str().unwrap_or(""),
+                    "cover": p["picture_medium"].as_str().unwrap_or(""),
+                    "owner": p["user"]["name"].as_str().unwrap_or(""),
+                    "count": p["nb_tracks"].as_i64().unwrap_or(0),
+                }));
+            }
+        }
+        json!({ "rows": rows, "artists": artists.into_iter().take(16).collect::<Vec<_>>(), "playlists": playlists.into_iter().take(12).collect::<Vec<_>>() })
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?;
+    Ok(Json(res))
+}
+
+/// ?ids=132,116 → popular artists of these catalog genres, mixed (first start: "who do you like?")
+async fn catalog_genre_artists(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let ids: Vec<String> = q
+        .get("ids")
+        .map(|s| s.split(',').map(|x| x.chars().filter(|c| c.is_ascii_digit()).collect::<String>()).filter(|x| !x.is_empty()).take(8).collect())
+        .unwrap_or_default();
+    let res = tokio::task::spawn_blocking(move || {
+        let lists: Vec<Vec<Value>> = if ids.is_empty() {
+            vec![http_get("https://api.deezer.com/chart/0/artists?limit=30").map(|v| dz_list(&v, dz_artist)).unwrap_or_default()]
+        } else {
+            ids.iter()
+                .map(|id| http_get(&format!("https://api.deezer.com/genre/{id}/artists")).map(|v| dz_list(&v, dz_artist)).unwrap_or_default())
+                .collect()
+        };
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..40 {
+            for l in &lists {
+                if let Some(a) = l.get(i) {
+                    if seen.insert(a["id"].to_string()) {
+                        out.push(a.clone());
+                    }
+                }
+            }
+        }
+        json!(out.into_iter().take(36).collect::<Vec<_>>())
     })
     .await
     .map_err(|_| ApiError::new(500, "internal"))?;

@@ -89,6 +89,17 @@ const de = {
   popular: 'Beliebt', seeMore: 'Mehr anzeigen', seeLess: 'Weniger anzeigen', discography: 'Diskografie', appearsOn: 'Enthalten in', fansAlsoLike: 'Was anderen Fans gefällt', latestRelease: 'Neueste Veröffentlichung',
   rel_popular: 'Beliebte Veröffentlichungen', rel_latest: 'Neueste Veröffentlichungen', relf_album: 'Alben', relf_single: 'Singles und EPs', relf_compilation: 'Compilations', rel_album: 'Album', rel_single: 'Single', rel_ep: 'EP', rel_compilation: 'Compilation',
   choosePhoto: 'Foto auswählen', changePhoto: 'Foto ändern', removePhoto: 'Foto entfernen', editHint: 'Tippe auf das Bild, um ein Foto auszuwählen oder ein Cover zu gestalten.',
+  songsForYou: 'Songs für dich', playlistsForYou: 'Playlists für dich', pullRefresh: 'Zum Aktualisieren ziehen',
+  wizStep: 'Schritt {n} von {total}', wizNext: 'Weiter', wizBack: 'Zurück', wizSkipStep: 'Überspringen', wizFinish: 'Los geht\'s',
+  wizHello: 'Willkommen bei Musik', wizHelloText: 'Ein paar kurze Fragen, dann ist alles so eingerichtet, wie du es magst. Alles lässt sich später in den Einstellungen ändern.', wizLangAsk: 'Welche Sprache?',
+  wizLookTitle: 'Wie soll es aussehen?', wizLookText: 'Design, Hell oder Dunkel und deine Farbe.', wizAccentAsk: 'Deine Farbe', wizDynAsk: 'Hintergrund nimmt die Farbe vom Cover an',
+  wizGenreTitle: 'Was hörst du gern?', wizGenreText: 'Wähle so viele Richtungen, wie du willst. Daraus entstehen deine ersten Vorschläge.',
+  wizArtistTitle: 'Welche Künstler magst du?', wizArtistText: 'Tippe auf alle, die dir gefallen. Du folgst ihnen dann und bekommst passende Songs, Künstler und Playlists auf der Startseite.', wizArtistSearch: 'Künstler suchen', wizArtistPicked: '{n} ausgewählt', wizArtistNone: 'Keine Vorschläge geladen. Such oben nach Namen.',
+  wizSrcTitle: 'Woher kommt deine Musik?', wizHowTitle: 'Wie hörst du?', wizHowText: 'Ein paar Gewohnheiten, damit es sich gleich richtig anfühlt.',
+  wizAutoplayAsk: 'Nach dem letzten Song ähnliche Musik weiterspielen', wizVizAsk: 'Visualizer im großen Player', wizSearchAsk: 'Suche zuerst in', wizEqAsk: 'Klang',
+  wizDoneTitle: 'Fertig eingerichtet', wizDoneText: 'Womit willst du anfangen?', wizStartListen: 'Einfach loshören', wizStartImport: 'Playlist importieren', wizStartUpload: 'Eigene Dateien hochladen', wizStartSearch: 'Musik suchen',
+  wizNameAsk: 'Wie sollen wir dich nennen?',
+  g_pop: 'Pop', g_rap: 'Hip-Hop & Rap', g_rock: 'Rock', g_alt: 'Indie & Alternative', g_dance: 'Dance', g_electro: 'Electronic', g_rnb: 'R&B', g_soul: 'Soul & Funk', g_metal: 'Metal', g_jazz: 'Jazz', g_classic: 'Klassik', g_latin: 'Latin', g_reggae: 'Reggae', g_folk: 'Folk', g_country: 'Country', g_blues: 'Blues', g_film: 'Film & Games', g_asia: 'K-Pop & Asien', g_africa: 'Afro', g_kids: 'Kinder'
 };
 
 const en = {
@@ -181,6 +192,17 @@ const en = {
   popular: 'Popular', seeMore: 'See more', seeLess: 'Show less', discography: 'Discography', appearsOn: 'Appears on', fansAlsoLike: 'Fans also like', latestRelease: 'Latest release',
   rel_popular: 'Popular releases', rel_latest: 'Latest releases', relf_album: 'Albums', relf_single: 'Singles and EPs', relf_compilation: 'Compilations', rel_album: 'Album', rel_single: 'Single', rel_ep: 'EP', rel_compilation: 'Compilation',
   choosePhoto: 'Choose photo', changePhoto: 'Change photo', removePhoto: 'Remove photo', editHint: 'Tap the picture to choose a photo or make a cover.',
+  songsForYou: 'Songs for you', playlistsForYou: 'Playlists for you', pullRefresh: 'Pull to refresh',
+  wizStep: 'Step {n} of {total}', wizNext: 'Next', wizBack: 'Back', wizSkipStep: 'Skip', wizFinish: 'Let\'s go',
+  wizHello: 'Welcome to Musik', wizHelloText: 'A few quick questions and everything is set up the way you like it. You can change all of it later in the settings.', wizLangAsk: 'Which language?',
+  wizLookTitle: 'How should it look?', wizLookText: 'Design, light or dark, and your colour.', wizAccentAsk: 'Your colour', wizDynAsk: 'Background takes the colour of the cover',
+  wizGenreTitle: 'What do you like to listen to?', wizGenreText: 'Pick as many as you like. Your first suggestions are made from them.',
+  wizArtistTitle: 'Which artists do you like?', wizArtistText: 'Tap everyone you like. You follow them and get matching songs, artists and playlists on the start page.', wizArtistSearch: 'Search artists', wizArtistPicked: '{n} picked', wizArtistNone: 'No suggestions loaded. Search for names above.',
+  wizSrcTitle: 'Where does your music come from?', wizHowTitle: 'How do you listen?', wizHowText: 'A few habits, so it feels right from the start.',
+  wizAutoplayAsk: 'Keep playing similar music after the last song', wizVizAsk: 'Visualizer in the big player', wizSearchAsk: 'Search first in', wizEqAsk: 'Sound',
+  wizDoneTitle: 'All set', wizDoneText: 'What do you want to start with?', wizStartListen: 'Just start listening', wizStartImport: 'Import a playlist', wizStartUpload: 'Upload your own files', wizStartSearch: 'Search for music',
+  wizNameAsk: 'What should we call you?',
+  g_pop: 'Pop', g_rap: 'Hip-hop & rap', g_rock: 'Rock', g_alt: 'Indie & alternative', g_dance: 'Dance', g_electro: 'Electronic', g_rnb: 'R&B', g_soul: 'Soul & funk', g_metal: 'Metal', g_jazz: 'Jazz', g_classic: 'Classical', g_latin: 'Latin', g_reggae: 'Reggae', g_folk: 'Folk', g_country: 'Country', g_blues: 'Blues', g_film: 'Film & games', g_asia: 'K-pop & Asia', g_africa: 'Afro', g_kids: 'Kids'
 };
 
 const dicts = { de, en };

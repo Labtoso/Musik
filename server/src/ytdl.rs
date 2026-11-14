@@ -389,17 +389,69 @@ pub fn forget(vid: &str) {
     }
 }
 
-/// Looks up the stream ahead of time (next songs), errors are ignored.
+/// The first part of a song that comes next, already fetched: a skip starts playing at once.
+pub struct Head {
+    pub total: u64,
+    pub ctype: String,
+    pub bytes: Vec<u8>,
+    at: Instant,
+}
+static HEADS: OnceLock<Mutex<HashMap<String, std::sync::Arc<Head>>>> = OnceLock::new();
+const HEAD_LEN: u64 = 512 * 1024;
+
+pub fn head(vid: &str) -> Option<std::sync::Arc<Head>> {
+    let h = HEADS.get()?.lock().unwrap().get(vid).cloned()?;
+    (h.at.elapsed() < Duration::from_secs(20 * 60)).then_some(h)
+}
+
+fn warm_head(vid: &str, s: &Stream) {
+    if head(vid).is_some() {
+        return;
+    }
+    let mut req = ureq::get(&s.url).timeout(Duration::from_secs(15));
+    for (k, v) in &s.headers {
+        req = req.set(k, v);
+    }
+    let Ok(r) = req.set("range", &format!("bytes=0-{}", HEAD_LEN - 1)).call() else { return };
+    // "bytes 0-524287/3401234": the size of the whole song
+    let total = r
+        .header("content-range")
+        .and_then(|c| c.rsplit('/').next())
+        .and_then(|n| n.trim().parse::<u64>().ok())
+        .or_else(|| r.header("content-length").and_then(|n| n.parse().ok()));
+    let ctype = r.header("content-type").unwrap_or("audio/webm").to_string();
+    let Some(total) = total else { return };
+    let mut bytes = Vec::with_capacity(HEAD_LEN as usize);
+    if r.into_reader().take(HEAD_LEN).read_to_end(&mut bytes).is_err() || bytes.is_empty() {
+        return;
+    }
+    let heads = HEADS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut m = heads.lock().unwrap();
+    if m.len() >= 16 {
+        if let Some(old) = m.iter().min_by_key(|(_, h)| h.at).map(|(k, _)| k.clone()) {
+            m.remove(&old);
+        }
+    }
+    m.insert(vid.to_string(), std::sync::Arc::new(Head { total, ctype, bytes, at: Instant::now() }));
+}
+
+/// Looks up the stream ahead of time (next songs) and fetches its beginning, errors are ignored.
 pub fn prefetch(vid: String) {
     std::thread::spawn(move || {
         // only the light way ahead of time, yt-dlp is kept for the song that is really played
         let cache = STREAMS.get_or_init(|| Mutex::new(HashMap::new()));
-        if cache.lock().unwrap().get(&vid).map(|s| s.until > Instant::now()).unwrap_or(false) {
-            return;
-        }
-        if let Ok(s) = direct(&vid) {
-            cache.lock().unwrap().insert(vid, s);
-        }
+        let known = cache.lock().unwrap().get(&vid).filter(|s| s.until > Instant::now()).cloned();
+        let s = match known {
+            Some(s) => s,
+            None => match direct(&vid) {
+                Ok(s) => {
+                    cache.lock().unwrap().insert(vid.clone(), s.clone());
+                    s
+                }
+                Err(_) => return,
+            },
+        };
+        warm_head(&vid, &s);
     });
 }
 

@@ -564,6 +564,28 @@ class MainActivity : ComponentActivity() {
         return list.firstOrNull()?.second?.id ?: 0
     }
 
+    /** Android cuts the name of a Bluetooth output short; the paired device itself knows the full name (and the name the user gave it). */
+    @SuppressLint("MissingPermission")
+    private fun btName(d: android.media.AudioDeviceInfo): String {
+        val short = d.productName?.toString() ?: ""
+        if (Build.VERSION.SDK_INT >= 31 && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            if (!prefs.getBoolean("askedBt", false)) {
+                prefs.edit().putBoolean("askedBt", true).apply()
+                main.post { askBt.launch(Manifest.permission.BLUETOOTH_CONNECT) }
+            }
+            return short
+        }
+        val addr = if (Build.VERSION.SDK_INT >= 28) d.address else ""
+        val adapter = (getSystemService(BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter ?: return short
+        val dev = runCatching {
+            if (addr.isNotBlank() && android.bluetooth.BluetoothAdapter.checkBluetoothAddress(addr)) adapter.getRemoteDevice(addr)
+            else adapter.bondedDevices?.firstOrNull { b -> b.name?.startsWith(short) == true }
+        }.getOrNull() ?: return short
+        val full = runCatching { if (Build.VERSION.SDK_INT >= 30) dev.alias else null }.getOrNull() ?: runCatching { dev.name }.getOrNull()
+        return if (full.isNullOrBlank()) short else full
+    }
+    private val askBt = registerForActivityResult(ActivityResultContracts.RequestPermission()) { web.evaluateJavascript("window.musikDevices && window.musikDevices()", null) }
+
     /** Outputs for music with the one that plays now marked. Android sends music to the device connected last, the phone's own speaker comes last. */
     private fun outputs(): JSONArray {
         val all = audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).mapNotNull { d -> kindOf(d.type)?.let { it to d } }
@@ -574,7 +596,8 @@ class MainActivity : ComponentActivity() {
         val active = activeOutput(list)
         val arr = JSONArray()
         list.forEach { (kind, d) ->
-            arr.put(JSONObject().put("id", d.id).put("kind", kind).put("name", if (kind == "phone") "" else d.productName?.toString() ?: "").put("active", d.id == active))
+            val name = if (kind == "phone") "" else if (kind == "bluetooth") btName(d) else d.productName?.toString() ?: ""
+            arr.put(JSONObject().put("id", d.id).put("kind", kind).put("name", name).put("active", d.id == active))
         }
         return arr
     }
