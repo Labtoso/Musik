@@ -57,13 +57,13 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .wp:hover { transform: translateY(-1px); box-shadow: 0 8px 26px -8px var(--accent); }
 .wp svg { width: 15px; height: 15px; }
 .dc { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 12px; border-radius: 18px; border: 1px solid var(--line2); color: var(--paper); font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: .06em; text-decoration: none; flex: none; transition: background .2s, border-color .2s; }
-.dc:hover { background: #5865f2; border-color: #5865f2; }
+.dc:hover, .dc:active, .dc:focus { background: none; border-color: var(--line2); color: var(--paper); }
 .dc svg { width: 17px; height: 17px; }
 .dc[hidden] { display: none; }
 @media (max-width: 720px) { .dc span { display: none; } .dc { width: 36px; padding: 0; justify-content: center; } }
 @media (max-width: 480px) { .dc { width: 34px; height: 34px; } .bar .cbtn { white-space: nowrap; letter-spacing: .02em; padding: 0 4px 0 6px; } .bar .cbtn svg { width: 12px; } }
 .btn.dcb { background: #5865f2; border-color: #5865f2; color: #fff; }
-.btn.dcb:hover { background: #4752c4; border-color: #4752c4; }
+.btn.dcb:hover, .btn.dcb:active, .btn.dcb:focus { background: #5865f2; border-color: #5865f2; color: #fff; transform: none; }
 .wpop { position: fixed; z-index: 62; top: 72px; right: var(--gut); width: min(360px, calc(100vw - 2 * var(--gut))); padding: 20px; border-radius: 20px; background: rgba(13,15,25,.92); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid var(--line2); box-shadow: 0 30px 80px -20px #000; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity .2s, transform .25s cubic-bezier(.2,.9,.2,1); }
 .wpop.open { opacity: 1; transform: none; pointer-events: auto; }
 .wpop h4 { margin: 0 0 6px; font: italic 700 24px var(--serif); }

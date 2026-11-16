@@ -1643,7 +1643,7 @@ html.is-playing .eqi i { animation-play-state: running; }
 /* ---------- Discord button next to the profile picture ---------- */
 .discord-btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px 0 10px; border-radius: 16px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; white-space: nowrap; flex: none; transition: background 0.15s, color 0.15s; }
 .discord-btn .ic { width: 18px; height: 18px; }
-.discord-btn:hover { background: #5865f2; color: #fff; }
+.discord-btn:hover, .discord-btn:active, .discord-btn:focus { background: var(--surface); color: var(--text); transform: none; filter: none; }
 .tb-discord { margin-right: 4px; }
 .side-discord { margin-left: auto; height: 30px; padding: 0 9px; }
 .side-discord span { display: none; }
