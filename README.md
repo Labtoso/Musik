@@ -75,4 +75,4 @@ cd android && ./gradlew assembleDebug
 
 Raising the number in `VERSION` and pushing to `main` builds the server binaries, the APK, the Windows setup and the AppImage and publishes them as release `v<VERSION>` (notes from `.github/releases/v<VERSION>.md`).
 
-© LabtosoStudios
+© LabtosoStudios. All rights reserved. See [LICENSE](LICENSE): the code may be viewed, but copying, rebranding or redistributing it is not allowed.

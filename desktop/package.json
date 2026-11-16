@@ -4,7 +4,7 @@
   "private": true,
   "description": "Streyn desktop app (Tauri)",
   "author": "LabtosoStudios",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",

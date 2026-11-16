@@ -1,0 +1,18 @@
+Streyn
+Copyright (c) LabtosoStudios. All rights reserved.
+
+This repository is published so that its source can be viewed. It is not open
+source. No license is granted to copy, modify, rebrand, redistribute, sell or
+host this software, its source code, its name "Streyn", its logo, its website
+or its design, in whole or in part, without prior written permission from
+LabtosoStudios.
+
+You may download and run the official releases from
+https://github.com/Labtoso/Musik/releases for your own personal use.
+
+Third-party components keep their own licenses (for example three.js under
+web/vendor/three.LICENSE and the Figtree font under web/vendor/figtree.LICENSE).
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.

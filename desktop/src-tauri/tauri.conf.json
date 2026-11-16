@@ -18,7 +18,7 @@
     "targets": ["nsis", "appimage"],
     "externalBin": ["binaries/streyn-server"],
     "publisher": "LabtosoStudios",
-    "copyright": "© LabtosoStudios",
+    "copyright": "Copyright (c) LabtosoStudios. All rights reserved.",
     "category": "Music",
     "shortDescription": "Streyn",
     "longDescription": "Desktop app for your own Streyn server.",

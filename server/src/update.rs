@@ -176,29 +176,26 @@ fn install(version: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Under systemd (Restart=always) exiting is enough; otherwise start the new binary after we are gone.
+/// Under systemd (Restart=always) exiting is enough; otherwise start the new binary directly.
+/// It waits for the port on its own (STREYN_RESTART), so no shell or delay command is needed.
 fn restart() {
     let under_service = std::env::var_os("INVOCATION_ID").is_some();
     if !under_service {
         if let Some(exe) = exe() {
-            let args: Vec<String> = std::env::args().skip(1).collect();
-            #[cfg(unix)]
-            {
-                let mut cmd = format!("sleep 2; exec '{}'", exe.display().to_string().replace('\'', "'\\''"));
-                for a in &args {
-                    cmd.push_str(&format!(" '{}'", a.replace('\'', "'\\''")));
-                }
-                let _ = std::process::Command::new("sh").arg("-c").arg(cmd).spawn();
-            }
-            #[cfg(windows)]
-            {
-                let mut c = std::process::Command::new("cmd");
-                c.args(["/C", "ping -n 3 127.0.0.1 >nul & start \"\" "]).arg(&exe).args(&args);
-                let _ = c.spawn();
-            }
+            let _ = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).env("STREYN_RESTART", "1").spawn();
         }
     }
     std::process::exit(0);
+}
+
+/// Windows keeps the replaced binary next to the new one until the next start.
+pub fn remove_leftover() {
+    if let Some(exe) = exe() {
+        let old = exe.with_extension("old.exe");
+        if old.is_file() {
+            let _ = std::fs::remove_file(old);
+        }
+    }
 }
 
 #[cfg(test)]

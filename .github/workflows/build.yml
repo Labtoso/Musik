@@ -71,6 +71,13 @@ jobs:
           key: ${{ matrix.target }}
       - if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # the web app inside the server is shipped minified with the copyright notice
+      - name: Protect web app
+        shell: bash
+        run: npm ci --prefix tools/protect --no-audit --no-fund && node tools/protect/protect.mjs web
       - name: Build
         shell: bash
         working-directory: server
@@ -179,6 +186,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Protect connect page
+        shell: bash
+        run: npm ci --prefix tools/protect --no-audit --no-fund && node tools/protect/protect.mjs desktop/ui
       - name: Build
         shell: bash
         working-directory: desktop

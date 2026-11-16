@@ -31,6 +31,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # the published page is minified and carries the copyright notice
+      - name: Protect page
+        run: npm ci --prefix tools/protect --no-audit --no-fund && node tools/protect/protect.mjs site
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

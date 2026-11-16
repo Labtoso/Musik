@@ -132,17 +132,14 @@ fn download(url: &str, dest: &std::path::Path, win: &WebviewWindow) -> Result<()
 fn do_update(app: &AppHandle, win: &WebviewWindow) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        let installer = std::env::temp_dir().join("Streyn-update.exe");
+        // the official installer from the release page, kept in the app's own folder (not in temp)
+        let dir = app.path().app_local_data_dir().map_err(|_| "write".to_string())?.join("updates");
+        std::fs::create_dir_all(&dir).map_err(|_| "write".to_string())?;
+        let installer = dir.join("Streyn-setup.exe");
         download("https://github.com/Labtoso/Musik/releases/latest/download/Streyn.exe", &installer, win)?;
-        let exe = std::env::current_exe().map_err(|_| "write".to_string())?;
-        // wait until this app has closed, install silently, start the new version
-        let cmd = format!(
-            "ping -n 3 127.0.0.1 >nul & start \"\" /wait \"{}\" /S & start \"\" \"{}\"",
-            installer.display(),
-            exe.display()
-        );
-        std::process::Command::new("cmd").arg("/C").raw_arg(cmd).creation_flags(0x0800_0000).spawn().map_err(|_| "write".to_string())?;
+        // /P shows the installer's progress bar, /R opens Streyn again when it is done.
+        // The installer closes this app itself before it replaces the files.
+        std::process::Command::new(&installer).args(["/P", "/R"]).spawn().map_err(|_| "write".to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -182,18 +179,8 @@ fn open_saved(app: AppHandle, window: WebviewWindow) {
 
 /// Open a page in the system browser (Spotify sign-in and other outside links).
 fn open_browser(url: &str) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("cmd").arg("/C").raw_arg(format!("start \"\" \"{}\"", url.replace('"', "%22"))).creation_flags(0x0800_0000).spawn();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open").arg(url).spawn();
+    if url.starts_with("https://") || url.starts_with("http://") {
+        let _ = open::that_detached(url);
     }
 }
 
@@ -344,7 +331,7 @@ fn home_url() -> &'static str {
     }
 }
 
-// ---- Musik is now Streyn: move the old settings and hand over from the old installation
+// ---- Musik is now Streyn: move the old settings over
 const OLD_ID: &str = "de.labtoso.musik";
 const NEW_ID: &str = "de.labtoso.streyn";
 
@@ -376,40 +363,7 @@ fn migrate_from_musik() {
     }
 }
 
-/// Windows: the old Musik updater starts its old file once after installing Streyn. That copy
-/// opens the real Streyn and removes the old folder. Returns true when this start was that copy.
-#[cfg(windows)]
-fn hand_over_from_musik() -> bool {
-    use std::os::windows::process::CommandExt;
-    let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) else { return false };
-    let old_dir = local.join("Musik");
-    let me = std::env::current_exe().ok();
-    let in_old = me.as_ref().and_then(|p| p.parent()).map(|d| d == old_dir.as_path() || d.file_name().map(|n| n.eq_ignore_ascii_case("Musik")).unwrap_or(false)).unwrap_or(false);
-    let real = local.join("Streyn").join("streyn.exe");
-    let cleanup = |dir: &std::path::Path| {
-        let _ = std::process::Command::new("cmd")
-            .arg("/C")
-            .raw_arg(format!("ping -n 4 127.0.0.1 >nul & rmdir /s /q \"{}\"", dir.display()))
-            .creation_flags(0x0800_0000)
-            .spawn();
-    };
-    if in_old && real.is_file() {
-        let _ = std::process::Command::new(&real).spawn();
-        cleanup(&old_dir);
-        return true;
-    }
-    // leftovers of the old folder without its uninstaller (Streyn was installed by hand)
-    if !in_old && old_dir.is_dir() && !old_dir.join("uninstall.exe").exists() {
-        cleanup(&old_dir);
-    }
-    false
-}
-
 fn main() {
-    #[cfg(windows)]
-    if hand_over_from_musik() {
-        return;
-    }
     migrate_from_musik();
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![connect, saved_server, self_update, open_saved, use_offline, can_offline])

@@ -48,7 +48,22 @@ pub fn brand_env(name: &str) -> Option<String> {
     std::env::var(format!("STREYN_{name}")).or_else(|_| std::env::var(format!("MUSIK_{name}"))).ok()
 }
 
+/// After a self-update the old process may still hold the port for a moment (STREYN_RESTART).
+async fn bind(host: &str, port: u16) -> std::io::Result<tokio::net::TcpListener> {
+    let tries = if std::env::var_os("STREYN_RESTART").is_some() { 40 } else { 1 };
+    let mut res = tokio::net::TcpListener::bind((host, port)).await;
+    for _ in 1..tries {
+        if res.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        res = tokio::net::TcpListener::bind((host, port)).await;
+    }
+    res
+}
+
 fn main() {
+    update::remove_leftover();
     if std::env::args().any(|a| a == "--version" || a == "-V") {
         println!("streyn-server {VERSION}");
         return;
@@ -141,7 +156,7 @@ fn main() {
         .build()
         .expect("runtime");
     rt.block_on(async move {
-        let listener = match tokio::net::TcpListener::bind((host.as_str(), port)).await {
+        let listener = match bind(&host, port).await {
             Ok(l) => l,
             Err(e) => {
                 eprintln!("Cannot listen on {host}:{port}: {e}");
@@ -185,7 +200,7 @@ fn main() {
         }
         if public_port != 0 && public_port != port {
             let public_app = api::router(state.clone()).layer(axum::middleware::from_fn(api::public_guard));
-            match tokio::net::TcpListener::bind((public_host.as_str(), public_port)).await {
+            match bind(&public_host, public_port).await {
                 Ok(l) => {
                     println!("Public links: {public_host}:{public_port}{}", state.public.as_deref().map(|u| format!(" -> {u}")).unwrap_or_default());
                     tokio::spawn(async move { axum::serve(l, public_app).await.ok() });
