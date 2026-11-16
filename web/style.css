@@ -1727,3 +1727,34 @@ button.pf-bio.add { display: block; padding: 0; text-align: left; color: var(--a
 @keyframes rowGone { to { opacity: 0; transform: translateX(-12px); max-height: 0; padding-block: 0; margin-block: 0; } }
 /* queue and lyrics lie over the device (Bluetooth) line instead of under it */
 .fs-queue.open { z-index: 9; }
+/* every slider shows the hand, on the track and on the knob */
+input[type='range'], .seek, .vol, .progress, [role='slider'], #mini-progress { cursor: pointer; }
+input[type='range']::-webkit-slider-thumb { cursor: pointer; }
+input[type='range']::-moz-range-thumb { cursor: pointer; }
+/* edit mode like Spotify: cover and name on top, the list scrolls, sorting glides */
+.modal.reorder .ro-list { flex: 1; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+.ro-head { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 6px 0 18px; background: none; border: 0; color: var(--text); font: inherit; flex: none; }
+.ro-cover { width: 148px; height: 148px; border-radius: var(--r-cover, 8px); overflow: hidden; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); display: block; }
+.ro-cover > * { width: 100% !important; height: 100% !important; margin: 0 !important; }
+.ro-change { font-size: 13px; font-weight: 700; color: var(--text); opacity: 0.85; }
+.ro-name { font-size: 20px; font-weight: 800; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ro-row { will-change: transform; flex: none; }
+.ro-list.sorting .ro-row:not(.lifted) { transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1); }
+.ro-row.settle { transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1); z-index: 2; }
+.ro-row.gone { transition: opacity 0.18s, transform 0.18s; opacity: 0; transform: translateX(-30px); }
+.ro-row .ro-rm { color: var(--muted); }
+.ro-row .ro-rm .ic { width: 22px; height: 22px; }
+/* the edit mode is for the phone; on the computer songs are dragged right in the list */
+.detail-head .icon-btn.m-only { display: none; }
+@media (max-width: 899px) { .detail-head .icon-btn.m-only { display: grid; } }
+/* the picture in "Edit details" reads as editable at a glance: a pencil badge, the picture lights up under the finger */
+.pld-cover { cursor: pointer; }
+.pld-pen { position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); pointer-events: none; transition: transform 0.15s; }
+.pld-pen .ic { width: 17px; height: 17px; }
+.pld-cover:hover .pld-pen { transform: scale(1.08); }
+.pld-cover:active { filter: brightness(0.85); }
+.pld-foot { justify-content: flex-end; }
+.nologos .src.logo { display: none !important; }
+/* the edit screen fills the phone exactly, so the song list scrolls inside it */
+.modal-wrap:has(.modal.reorder) { grid-template-rows: minmax(0, 1fr); }
+@media (max-width: 899px) { .modal.reorder { height: 100%; min-height: 0; overflow: hidden; } }

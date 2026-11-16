@@ -126,6 +126,7 @@ pub fn routes() -> Router<St> {
         .route("/ytsearch", get(yt_search))
         .route("/ytmsearch", get(ytm_search))
         .route("/ytsong", get(yt_song))
+        .route("/imgproxy", get(img_proxy))
         .route("/ytaudio/{id}", get(yt_audio))
         .route("/ytprefetch", post(yt_prefetch))
         .route("/ytcheck", get(yt_check))
@@ -809,12 +810,13 @@ fn art_kind(k: &str) -> Result<&'static str, ApiError> {
         "playlist" => Ok("playlist"),
         "import" => Ok("import"),
         "user" => Ok("user"),
+        "likes" => Ok("likes"),
         _ => Err(nf()),
     }
 }
 fn own_ref(db: &Connection, uid: i64, kind: &str, id: i64) -> Result<(), ApiError> {
     // a profile picture belongs to the user with that id
-    if kind == "user" {
+    if kind == "user" || kind == "likes" {
         return if id == uid { Ok(()) } else { Err(nf()) };
     }
     let table = if kind == "playlist" { "playlists" } else { "imports" };
@@ -830,6 +832,29 @@ pub fn art_version(db: &Connection, kind: &str, id: i64) -> i64 {
         .optional()
         .unwrap_or(None)
         .unwrap_or(0)
+}
+/// Covers of streaming songs for the device copy (offline): fetched by the server, only from the known image hosts.
+async fn img_proxy(AuthQ(_u): AuthQ, Query(q): Query<HashMap<String, String>>) -> Result<Response, ApiError> {
+    let u = q.get("u").cloned().unwrap_or_default();
+    let host = u.strip_prefix("https://").and_then(|r| r.split('/').next()).unwrap_or("").to_ascii_lowercase();
+    let ok = ["i.scdn.co", "mosaic.scdn.co", "i.ytimg.com", "lh3.googleusercontent.com", "yt3.ggpht.com", "cdn-images.dzcdn.net", "e-cdns-images.dzcdn.net", "i1.sndcdn.com"]
+        .iter()
+        .any(|h| host == *h)
+        || host.ends_with(".spotifycdn.com");
+    if !ok {
+        return Err(ApiError::new(400, "bad_request"));
+    }
+    let data = tokio::task::spawn_blocking(move || -> Option<Vec<u8>> {
+        let r = ureq::get(&u).timeout(std::time::Duration::from_secs(15)).call().ok()?;
+        let mut v = Vec::new();
+        r.into_reader().take(4 << 20).read_to_end(&mut v).ok()?;
+        Some(v)
+    })
+    .await
+    .ok()
+    .flatten()
+    .ok_or_else(|| ApiError::new(502, "unreachable"))?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "image/jpeg"), (axum::http::header::CACHE_CONTROL, "private, max-age=86400")], data).into_response())
 }
 async fn get_art(State(st): State<St>, a: crate::api::AuthQ, Path((kind, id)): Path<(String, i64)>) -> Result<Response, ApiError> {
     let kind = art_kind(&kind)?;
@@ -1043,6 +1068,7 @@ async fn yt_audio(AuthQ(_): AuthQ, Path(vid): Path<String>, Query(q): Query<Hash
 /// this server's address, so the app can't fetch it itself.
 async fn proxy_audio(vid: String, headers: axum::http::HeaderMap, q: String) -> Response {
     use axum::body::Body;
+    crate::ytdl::mark_play();
     let vid2 = vid.clone();
     use axum::http::{header, StatusCode};
     let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(String::from);
@@ -1314,9 +1340,13 @@ async fn yt_prefetch(State(st): State<St>, Auth(u, _): Auth, Json(b): Json<Value
     let todo = std::sync::Arc::new(std::sync::Mutex::new(songs));
     let found = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut workers = Vec::new();
-    for _ in 0..3 {
+    // the preload button runs two at a time and steps aside whenever a song starts playing
+    for _ in 0..(if wait { 2 } else { 3 }) {
         let (todo, st, found) = (todo.clone(), st.clone(), found.clone());
         workers.push(std::thread::spawn(move || loop {
+            if wait {
+                crate::ytdl::yield_to_play();
+            }
             let Some((t, a, d)) = todo.lock().unwrap().pop() else { break };
             if let Ok(v) = find_video(&st, u.id, &t, &a, d, "", &[], false) {
                 if !v.is_empty() {
@@ -1914,14 +1944,13 @@ const SITE: &str = "https://musik.labtoso.de";
 fn public_link(st: &St, token: &str) -> Option<String> {
     let base = crate::api::public_url(st)?;
     // the site is https, so it can only talk to an https server; otherwise link straight to it
-    Some(match base.strip_prefix("https://") {
-        Some(host) if !host.contains('/') => format!("{SITE}/s/#{token}@{host}"),
-        _ => format!("{base}/s/{token}"),
-    })
+    // straight to the server: chat apps like Discord read the song's name and cover from that page and show a preview
+    let _ = SITE;
+    Some(format!("{base}/s/{token}"))
 }
 
 /// What a share link shows: (title, subtitle, kind, local tracks, external items)
-fn resolve_share(
+pub(crate) fn resolve_share(
     db: &Connection,
     token: &str,
 ) -> Result<(String, String, String, Vec<Value>, Vec<Value>), ApiError> {

@@ -251,7 +251,7 @@ const glassPanes = (() => {
 })();
 // ---------- tab bar with a glass blob that can be dragged from tab to tab ----------
 const navBlob = (() => {
-  let nav = null, blob = null, x = 0, v = 0, target = 0, w = 0, raf = 0, last = 0, drag = null, hover = -1;
+  let watched = null, nav = null, blob = null, x = 0, v = 0, target = 0, w = 0, raf = 0, last = 0, drag = null, hover = -1;
   const items = () => [...nav.querySelectorAll('a[data-nav]')];
   const slot = (i) => {
     const a = items()[i];
@@ -291,6 +291,10 @@ const navBlob = (() => {
   const place = (animate = true) => {
     nav = document.querySelector('.bottomnav');
     blob = nav?.querySelector('.navblob');
+    if (nav && nav !== watched && window.ResizeObserver) {
+      watched = nav;
+      new ResizeObserver(() => { if (!drag && nav.offsetWidth) { w = 0; place(false); } }).observe(nav);
+    }
     if (!blob || !nav.offsetWidth) return;
     const list = items();
     const nw = list[0].offsetWidth; // the marker fills its tab, so the gap to the bar is the same on every side
@@ -359,6 +363,11 @@ const navBlob = (() => {
     }
   }, true);
   addEventListener('resize', () => { w = 0; place(false); });
+  // back from the background (phone app, other tab) or a late layout: measure again so the pill is always there
+  const again = () => { w = 0; cancelAnimationFrame(raf); raf = 0; x = 0; place(false); };
+  document.addEventListener('visibilitychange', () => document.hidden || again());
+  addEventListener('pageshow', again);
+  addEventListener('focus', again);
   return { place };
 })();
 // Colours from the current cover: the accent when "From cover" is picked, the background tint when dynamic colours are on
@@ -409,10 +418,16 @@ function applyVizTune() {
     mid: Number(prefs.vizMid ?? 1),
     high: Number(prefs.vizHigh ?? 1),
     color: ['rainbow', 'flow'].includes(prefs.vizColor) ? prefs.vizColor : 'accent',
-    speed: Number(prefs.vizSpeed ?? 1)
+    speed: Number(prefs.vizSpeed ?? 1),
+    delay: Number(prefs.vizDelay || 0)
   });
 }
 applyVizTune();
+/** Platform logos (Spotify, YouTube ...) next to songs and lists can be switched off in the settings. */
+function applyLogos() {
+  document.documentElement.classList.toggle('nologos', prefs.logos === false);
+}
+applyLogos();
 let sameOrigin = null;
 // ---------- offline: the apps run a small server on the device that keeps copies of playlists ----------
 let offlineMode = false; // this page comes from that server on the device
@@ -437,7 +452,17 @@ const offline = {
     });
   },
   status: () => offline.call('GET', '/api/offline/status').then((r) => r?.sets || []),
-  add: (id) => offline.call('POST', '/api/offline/add', { server: conn.server, token: conn.token, id: Number(id), user: conn.user?.name || '' }),
+  add: (key, name, tracks) =>
+    offline.call('POST', '/api/offline/add', {
+      server: conn.server,
+      token: conn.token,
+      id: Number(String(key).replace(/^pl/, '')) || 0,
+      key,
+      name,
+      user: conn.user?.name || '',
+      // every song of the list: own files by id, streaming songs by name (the server finds them on YouTube)
+      items: tracks.filter((x) => x && !x._off).map((x) => (x.ext ? { ext: true, title: x.title, artist: x.artist || '', album: x.album || '', duration: x.duration || 0, cover: extCovers.get(x.id) || '' } : { id: x.id, title: x.title, artist: x.artist || '', has_cover: x.has_cover !== false }))
+    }),
   remove: (key) => offline.call('POST', '/api/offline/remove', { key })
 };
 window.__musikOff = (id, txt) => {
@@ -694,6 +719,22 @@ function trackMenu(anchor, tr, ctx = {}) {
     tr.album && tr.album_id && tr.ext?.source === 'spotify' && { label: t('goAlbum'), icon: 'album', run: () => go(`#/spalbum?id=${encodeURIComponent(tr.album_id)}`) },
     ctx.queueIndex != null && { label: t('removeQueue'), icon: 'close', run: () => player.removeAt(ctx.queueIndex) },
     !tr._off && { label: tasteExcluded(tr) ? t('tasteInclude') : t('tasteExclude'), icon: 'eyeOff', run: () => setTasteExcluded(tr, !tasteExcluded(tr)) },
+    !tr.ext && !tr._off && Number.isInteger(Number(tr.id)) && conn.user?.admin && {
+      label: t('deleteSong'),
+      icon: 'trash',
+      danger: true,
+      run: async () => {
+        // only files on your own server, and only after a second yes
+        if (!(await dialog({ title: t('deleteSongQ', { name: tr.title }), text: t('deleteSongText'), ok: t('delete'), danger: true }))) return;
+        try {
+          await api('DELETE', '/api/tracks/' + tr.id);
+          toast(t('deletedSong', { name: tr.title }));
+          render();
+        } catch (err) {
+          toast(errorText(err));
+        }
+      }
+    },
     ctx.playlistId && {
       label: t('removePlaylist'),
       icon: 'close',
@@ -1115,7 +1156,7 @@ function openProfile() {
   wrap.className = 'profile-wrap';
   const item = (attr, ic, label) => `<button ${attr}>${icon(ic)}<span>${label}</span></button>`;
   wrap.innerHTML = `<aside class="profile" role="dialog" aria-label="${t('profile')}">
-    <div class="pf-head"><span class="avatar big">${initial}</span><div><b>${esc(name)}</b>${settings.bio ? `<p class="pf-bio">${esc(settings.bio)}</p>` : `<button class="pf-bio add muted small" data-pfedit>${t('addBio')}</button>`}<button class="pf-edit muted small" data-pfedit>${t('editProfile')}</button></div></div>
+    <div class="pf-head"><span class="avatar big">${initial}</span><div><b>${esc(name)}</b>${settings.bio ? `<p class="pf-bio">${esc(settings.bio)}</p>` : ''}<button class="pf-edit muted small" data-pfedit>${t('editProfile')}</button></div></div>
     <nav class="pf-nav">
       ${item('data-pfgo="#/add"', 'plus', t('importAdd'))}
       ${item('data-pfgo="#/sources"', 'link', t('manageSources'))}
@@ -1522,11 +1563,13 @@ async function buildHome() {
 
 document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-playmix]')) {
+    if (sourceActive('mix')) return player.toggle();
     try {
       if (!state.homeMixExt && state.homeMix && state.homeMix.length < 8) await catalogMixSection(fyLoad?.h ?? null);
       const mix = state.homeMixExt?.length ? state.homeMixExt : await blendedMix();
       if (!mix.length) return toast(t('coldHint'));
       player.playList(mix, 0);
+      markSource('mix');
     } catch (err) {
       toast(errorText(err));
     }
@@ -2012,7 +2055,7 @@ views.cplaylist = async (params) => {
   state.detail = { cplaylist: tracks };
   state.spPending = { source: 'deezer', name: r.name, cover: r.cover || '', items: r.items || [], url: 'https://www.deezer.com/playlist/' + params.get('id') };
   const total = tracks.reduce((n, x) => n + (x.duration || 0), 0);
-  return detailHeader({ coverId: cid, kind: t('playlist'), title: r.name, sub: `${songCount(tracks.length)}${total ? ', ' + fmtLong(total) : ''}`, actions: tracks.length ? listActions('cplaylist') + `<button class="icon-btn lg" data-preload="cplaylist" title="${t('preload')}">${icon('bolt')}</button>` + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>` : '' }) + trackList(tracks);
+  return detailHeader({ coverId: cid, kind: t('playlist'), title: r.name, sub: `${songCount(tracks.length)}${total ? ', ' + fmtLong(total) : ''}`, actions: tracks.length ? listActions('cplaylist') + `<button class="icon-btn lg" data-preload="cplaylist" title="${t('preload')}">${icon('bolt')}</button>` + offBtn('cp' + String(params.get('id') || '').replace(/\W/g, ''), 'cplaylist', r.name || '') + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>` : '' }) + trackList(tracks);
 };
 views.spartist = async (params) => {
   const id = params.get('id') || '';
@@ -2064,7 +2107,7 @@ views.spplaylist = async (params) => {
     kind: t('playlist'),
     title: r.name,
     sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge('spotify')} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(tracks.length)}, ${fmtLong(total)}`,
-    actions: listActions('sppl') + `<button class="icon-btn lg" data-preload="sppl" title="${t('preload')}">${icon('bolt')}</button>` + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>`
+    actions: listActions('sppl') + `<button class="icon-btn lg" data-preload="sppl" title="${t('preload')}">${icon('bolt')}</button>` + offBtn('sp_' + id, 'sppl', r.name || '') + `<button class="btn" data-spsave>${icon('plus')}${t('saveToLibrary')}</button>`
   }) + trackList(tracks);
 };
 document.addEventListener('click', async (e) => {
@@ -2170,6 +2213,10 @@ function detailHeader({ coverId, kind, title, sub, round = false, actions = '', 
     <div class="toolbar">${actions}</div></div></div>`;
 }
 
+/** "Make available offline" for any list in the phone and computer apps. */
+function offBtn(key, list, name) {
+  return offline.ok() && !offlineMode ? `<button class="icon-btn lg offbtn" data-offpl="${esc(key)}" data-offlist="${esc(list)}" data-offname="${esc(name)}" title="${t('offDownload')}">${icon('download')}<span class="sr"></span></button>` : '';
+}
 function listActions(key) {
   return `<button class="btn primary" data-playkey="${key}">${icon('play')}${t('playAll')}</button><button class="btn" data-shufflekey="${key}">${icon('shuffle')}${t('shuffle')}</button>`;
 }
@@ -2178,9 +2225,39 @@ document.addEventListener('click', (e) => {
   const s = e.target.closest('[data-shufflekey]');
   const key = p?.dataset.playkey || s?.dataset.shufflekey;
   if (!key) return;
+  // the list that is already playing: the big play button pauses and goes on, like Spotify
+  if (p && sourcePlaying(location.hash + '|' + key)) return player.toggle();
   const list = state.detail?.[key];
-  if (list?.length) player.playList(list, 0, { shuffle: !!s });
+  if (list?.length) {
+    player.playList(list, 0, { shuffle: !!s });
+    markSource(location.hash + '|' + key);
+  }
 });
+// which list the queue was started from, so its play button can show pause and pause it
+let playSrc = { key: '', queue: null };
+const markSource = (key) => {
+  playSrc = { key, queue: player.queue };
+  paintPlayButtons();
+};
+const sourceActive = (key) => playSrc.key === key && player.queue === playSrc.queue && !!player.current;
+const sourcePlaying = (key) => sourceActive(key);
+function paintPlayButtons() {
+  document.querySelectorAll('[data-playkey]').forEach((b) => {
+    const on = sourceActive(location.hash + '|' + b.dataset.playkey) && player.playing;
+    if (b.dataset.on === String(on)) return;
+    b.dataset.on = String(on);
+    b.innerHTML = `${icon(on ? 'pause' : 'play')}${t(on ? 'pause' : 'playAll')}`;
+  });
+  document.querySelectorAll('[data-playmix]').forEach((b) => {
+    const big = b.classList.contains('btn');
+    if (!b.classList.contains('playcircle') && !big) return;
+    const on = sourceActive('mix') && player.playing;
+    if (b.dataset.on === String(on)) return;
+    b.dataset.on = String(on);
+    b.innerHTML = icon(on ? 'pause' : 'play') + (big ? t(on ? 'pause' : 'playAll') : '');
+    b.title = t(on ? 'pause' : 'playAll');
+  });
+}
 
 views.album = async (params) => {
   const r = await get(`/api/album?album=${encodeURIComponent(params.get('album') || '')}&artist=${encodeURIComponent(params.get('artist') || '')}`);
@@ -2241,7 +2318,7 @@ views.likes = async () => {
   const tracks = [...[...extLikes.values()].map(histTrack), ...local];
   state.detail = { likes: tracks };
   return (
-    detailHeader({ coverId: null, kind: t('playlist'), title: t('likes'), sub: songCount(tracks.length), actions: listActions('likes') + `<button class="icon-btn lg" data-preload="likes" title="${t('preload')}">${icon('bolt')}</button>` }).replace(
+    detailHeader({ coverId: likesArtKey(), kind: t('playlist'), title: settings.likesName || t('likes'), edit: `likes:${conn.user?.id || 0}`, sub: (settings.likesDesc ? `<span class="dh-desc">${esc(settings.likesDesc)}</span>` : '') + songCount(tracks.length), actions: listActions('likes') + `<button class="icon-btn lg" data-preload="likes" title="${t('preload')}">${icon('bolt')}</button>` + offBtn('likes', 'likes', t('likes')) }).replace(
       `<div class="cover xl ph">${icon('note')}</div>`,
       `<div class="cover xl liked">${icon('heartFill')}</div>`
     ) + trackList(tracks)
@@ -2270,25 +2347,47 @@ views.playlist = async (params, id) => {
         `<button class="icon-btn lg" data-shufflekey="pl" title="${t('shuffle')}">${icon('shuffle')}</button>` +
         (edit ? `<button class="icon-btn lg" data-pladd="${pl.id}" title="${t('addSongs')}">${icon('plus')}</button>` : '') +
         `<button class="icon-btn lg" data-preload="pl" title="${t('preload')}">${icon('bolt')}</button>` +
-        (offline.ok() && !offlineMode ? `<button class="icon-btn lg offbtn" data-offpl="${pl.id}" title="${t('offDownload')}">${icon('download')}<span class="sr"></span></button>` : '') +
+        offBtn('pl' + pl.id, 'pl', pl.name) +
         `<button class="icon-btn lg" data-plshare="${pl.id}" title="${t('share')}">${icon('share')}</button>` +
-        (pl.mine !== false && pl.tracks.length ? `<button class="icon-btn lg" data-pledit="playlist:${pl.id}" title="${t('editPlaylist')}">${icon('edit')}</button>` : '') +
+        (pl.mine !== false ? `<button class="icon-btn lg" data-edit="playlist:${pl.id}" title="${t('editDetails')}">${icon('edit')}</button>` : '') +
+        (pl.mine !== false && pl.tracks.length ? `<button class="icon-btn lg m-only" data-pledit="playlist:${pl.id}" title="${t('editMode')}">${icon('drag')}</button>` : '') +
         `<button class="icon-btn lg" data-cmenu="playlist:${pl.id}" title="…">${icon('more')}</button>`
     }) + members + readOnly + trackList(pl.tracks, { playlistId: edit ? pl.id : null, reorder: pl.mine !== false })
   );
 };
+// songs preloaded before: the button then only fetches what was added since
+const preloadedIds = (() => {
+  try { return new Set(JSON.parse(localStorage.getItem('musik.preloaded') || '[]')); } catch { return new Set(); }
+})();
+function savePreloaded() {
+  try { localStorage.setItem('musik.preloaded', JSON.stringify([...preloadedIds].slice(-6000))); } catch {}
+}
+/** Marks the preload button as done while every song of the list is preloaded already. */
+function paintPreload() {
+  const b = $('[data-preload]');
+  if (!b) return;
+  const list = state.detail?.[b.dataset.preload] || [];
+  const done = !prefs.preloadAll && list.length > 0 && list.every((tr) => preloadedIds.has(String(tr.id)));
+  b.classList.toggle('on', done);
+  b.title = done ? t('preloadDone') : t('preload');
+}
 // ---------- playlist tools: preload, add songs, drag to reorder (PC) and an edit mode (phone) ----------
 document.addEventListener('click', async (e) => {
   const pre = e.target.closest('[data-preload]');
   if (pre) {
     if (pre.classList.contains('busy')) return;
-    const list = state.detail?.[pre.dataset.preload] || [];
+    const all = state.detail?.[pre.dataset.preload] || [];
+    // only the songs that are new since the last time, unless the setting says to load everything again
+    const list = prefs.preloadAll ? all : all.filter((tr) => !preloadedIds.has(String(tr.id)));
+    if (!list.length) return toast(t('preloadDone'));
     pre.classList.add('busy');
     const n = await preloadSongs(list, (d, total) => {
       pre.style.setProperty('--p', total ? (d / total) * 100 + '%' : '0%');
       pre.title = t('preloading', { n: d, total });
     });
     pre.classList.remove('busy');
+    list.forEach((tr) => preloadedIds.add(String(tr.id)));
+    savePreloaded();
     pre.classList.add('on');
     pre.title = t('preload');
     toast(n ? t('preloaded', { n }) : t('preloadNothing'));
@@ -2358,9 +2457,10 @@ async function reorderDialog(ref) {
   // own playlists and imported playlists (songs from Spotify & co.) both have an edit mode
   const [kind, sid] = String(ref).includes(':') ? String(ref).split(':') : ['playlist', ref];
   const id = Number(sid);
-  let order, save;
+  let order, save, title = '';
   if (kind === 'import') {
     const r = await get('/api/imports/' + id);
+    title = r.name;
     order = r.items.map((it) => {
       const cid = it.local ? it.local.id : 'ro:' + it.pos;
       if (!it.local && it.cover) extCovers.set(cid, it.cover);
@@ -2369,22 +2469,35 @@ async function reorderDialog(ref) {
     save = () => put('/api/imports/' + id, { items: order.map(({ item: it }) => ({ source: it.source, ext_id: it.ext_id, title: it.title, artist: it.artist, album: it.album, duration: it.duration, cover: it.cover, url: it.url })) });
   } else {
     const pl = await get(`/api/playlists/${id}`);
+    title = pl.name;
     order = pl.tracks.map((x) => ({ cid: x.id, title: x.title, artist: artistName(x), id: x.id }));
     save = () => put(`/api/playlists/${id}`, { trackIds: order.map((x) => x.id) });
   }
   const wrap = document.createElement('div');
   wrap.className = 'modal-wrap';
-  const rows = () => order.map((x, i) => `<div class="ro-row" data-ri="${i}"><button class="icon-btn sm ro-rm" data-rorm="${i}" title="${t('remove')}">${icon('minus')}</button>${coverImg(x.cid, 'sm')}<div class="main"><div class="title">${esc(x.title)}</div><div class="sub">${esc(x.artist || '')}</div></div><span class="ro-grip" data-grip="${i}">${icon('drag')}</span></div>`).join('');
-  wrap.innerHTML = `<div class="modal reorder"><div class="modal-head"><button class="icon-btn" data-x>${icon('close')}</button><h2>${t('editPlaylist')}</h2><button class="btn primary sm" data-ok>${t('save')}</button></div><div class="ro-tools"><button class="btn sm" data-edit="${kind}:${id}">${icon('edit')}${t('editDetails')}</button><span class="muted small">${t('editPlaylistHint')}</span></div><div class="ro-list">${rows()}</div></div>`;
+  const rows = () => order.map((x, i) => `<div class="ro-row" data-ri="${i}"><button class="icon-btn sm ro-rm" data-rorm="${i}" title="${t('remove')}">${icon('minusCircle')}</button>${coverImg(x.cid, 'sm')}<div class="main"><div class="title">${esc(x.title)}</div><div class="sub">${esc(x.artist || '')}</div></div><span class="ro-grip" data-grip="${i}">${icon('drag')}</span></div>`).join('');
+  // like Spotify: cover and name on top (tap to change them), the songs below with minus and handle
+  const cover = $('.detail-head .cover')?.cloneNode(true);
+  wrap.innerHTML = `<div class="modal reorder"><div class="modal-head"><button class="icon-btn" data-x>${icon('close')}</button><h2>${t('editPlaylist')}</h2><button class="btn primary sm" data-ok>${t('save')}</button></div><div class="ro-list"><button class="ro-head" data-edit="${kind}:${id}"><span class="ro-cover"></span><span class="ro-change">${t('changeImage')}</span><b class="ro-name">${esc(title)}</b></button>${rows()}</div></div>`;
+  if (cover) wrap.querySelector('.ro-cover').appendChild(cover);
   document.body.appendChild(wrap);
   const list = wrap.querySelector('.ro-list');
+  const redraw = () => {
+    list.querySelectorAll('.ro-row').forEach((r) => r.remove());
+    list.insertAdjacentHTML('beforeend', rows());
+  };
   wrap.addEventListener('click', async (e) => {
     if (e.target.closest('[data-x]')) return wrap.remove();
     if (e.target.closest('[data-edit]')) return wrap.remove();
     const rm = e.target.closest('[data-rorm]');
     if (rm) {
-      order.splice(Number(rm.dataset.rorm), 1);
-      list.innerHTML = rows();
+      // the row folds away, the ones below slide up
+      const row = rm.closest('.ro-row');
+      row.classList.add('gone');
+      setTimeout(() => {
+        order.splice(Number(rm.dataset.rorm), 1);
+        redraw();
+      }, 200);
       return;
     }
     if (e.target.closest('[data-ok]')) {
@@ -2400,15 +2513,20 @@ async function reorderDialog(ref) {
     e.preventDefault();
     const row = g.closest('.ro-row');
     const from = Number(row.dataset.ri);
-    const h = row.offsetHeight;
+    const h = row.offsetHeight + 4;
     const y0 = e.clientY;
-    let to = from;
+    const s0 = list.scrollTop;
+    let to = from, lastY = e.clientY, raf = 0;
     row.classList.add('lifted');
+    list.classList.add('sorting');
     g.setPointerCapture(e.pointerId);
-    const move = (ev) => {
-      const dy = ev.clientY - y0;
-      row.style.transform = `translateY(${dy}px)`;
-      to = Math.max(0, Math.min(order.length - 1, from + Math.round(dy / h)));
+    navigator.vibrate?.(8);
+    const place = () => {
+      const dy = lastY - y0 + (list.scrollTop - s0);
+      row.style.transform = `translateY(${dy}px) scale(1.02)`;
+      const nt = Math.max(0, Math.min(order.length - 1, from + Math.round(dy / h)));
+      if (nt !== to) navigator.vibrate?.(4);
+      to = nt;
       list.querySelectorAll('.ro-row').forEach((r) => {
         const i = Number(r.dataset.ri);
         if (r === row) return;
@@ -2416,13 +2534,36 @@ async function reorderDialog(ref) {
         r.style.transform = shift ? `translateY(${shift}px)` : '';
       });
     };
+    // near the top or bottom edge the list scrolls along by itself
+    const edge = () => {
+      const r = list.getBoundingClientRect();
+      const v = lastY < r.top + 60 ? -(r.top + 60 - lastY) / 4 : lastY > r.bottom - 60 ? (lastY - (r.bottom - 60)) / 4 : 0;
+      if (v) {
+        list.scrollTop += v;
+        place();
+      }
+      raf = requestAnimationFrame(edge);
+    };
+    raf = requestAnimationFrame(edge);
+    const move = (ev) => {
+      lastY = ev.clientY;
+      place();
+    };
     const up = () => {
+      cancelAnimationFrame(raf);
       g.removeEventListener('pointermove', move);
       g.removeEventListener('pointerup', up);
       g.removeEventListener('pointercancel', up);
-      const [x] = order.splice(from, 1);
-      order.splice(to, 0, x);
-      list.innerHTML = rows();
+      // the row glides into its new place, then the list is drawn in the new order
+      row.classList.remove('lifted');
+      row.classList.add('settle');
+      row.style.transform = `translateY(${(to - from) * h}px)`;
+      setTimeout(() => {
+        const [x] = order.splice(from, 1);
+        order.splice(to, 0, x);
+        list.classList.remove('sorting');
+        redraw();
+      }, 190);
     };
     g.addEventListener('pointermove', move);
     g.addEventListener('pointerup', up);
@@ -2470,7 +2611,7 @@ async function paintOffline() {
   const b = $('[data-offpl]');
   if (!b) return;
   const sets = await offline.status();
-  const set = sets.find((x) => x.id === Number(b.dataset.offpl));
+  const set = sets.find((x) => x.key === b.dataset.offpl);
   const loading = set?.state === 'loading';
   b.classList.toggle('on', !!set && !loading && set.state === 'ready');
   b.classList.toggle('busy', loading);
@@ -2480,8 +2621,8 @@ async function paintOffline() {
   b.style.setProperty('--p', loading && set.total ? (set.done / set.total) * 100 + '%' : '0%');
   clearTimeout(offTimer);
   // a kept playlist follows changes on the server: copied again quietly when it is older than ten minutes
-  if (set?.state === 'ready' && Date.now() - set.updated > 600000) {
-    offline.add(set.id);
+  if (set?.state === 'ready' && Date.now() - set.updated > 600000 && state.detail?.[b.dataset.offlist]?.length) {
+    offline.add(set.key, b.dataset.offname, state.detail[b.dataset.offlist]);
     offTimer = setTimeout(paintOffline, 1200);
     return;
   }
@@ -2498,7 +2639,7 @@ document.addEventListener('click', async (e) => {
       if (!ok) return;
       await offline.remove(b.dataset.key);
     } else {
-      const r = await offline.add(b.dataset.offpl);
+      const r = await offline.add(b.dataset.offpl, b.dataset.offname, state.detail?.[b.dataset.offlist] || []);
       if (!r) return toast(t('offError'));
     }
     return paintOffline();
@@ -2957,7 +3098,7 @@ views.imported = async (params, id) => {
       title: r.name,
       sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge(r.source)} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(r.items.length)}${dur ? ', ' + fmtLong(dur) : ''} · ${t('importedOf', { local, total: r.items.length })}`,
       edit: `import:${r.id}`,
-      actions: listActions('imp') + `<button class="icon-btn lg" data-preload="imp" title="${t('preload')}">${icon('bolt')}</button>` + (r.kept ? '' : `<button class="btn" data-saveimp="${r.id}" title="${t('saveAsPlaylist')}">${icon('plus')}${t('saveAsPlaylist')}</button>`) + shareBtn('import', r.id, r.name) + (r.items.length ? `<button class="icon-btn lg" data-pledit="import:${r.id}" title="${t('editPlaylist')}">${icon('edit')}</button>` : '') + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
+      actions: listActions('imp') + `<button class="icon-btn lg" data-preload="imp" title="${t('preload')}">${icon('bolt')}</button>` + offBtn('imp' + r.id, 'imp', r.name) + (r.kept ? '' : `<button class="btn" data-saveimp="${r.id}" title="${t('saveAsPlaylist')}">${icon('plus')}${t('saveAsPlaylist')}</button>`) + shareBtn('import', r.id, r.name) + `<button class="icon-btn lg" data-edit="import:${r.id}" title="${t('editDetails')}">${icon('edit')}</button>` + (r.items.length ? `<button class="icon-btn lg m-only" data-pledit="import:${r.id}" title="${t('editMode')}">${icon('drag')}</button>` : '') + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
     }) + trackList(tracks)
   );
 };
@@ -3262,6 +3403,8 @@ async function render() {
     tintAll(main);
     warmSoon(200);
     if (main.querySelector('[data-offpl]')) paintOffline();
+    if (main.querySelector('[data-preload]')) paintPreload();
+    paintPlayButtons();
     main.scrollTop = 0;
     $('#content').scrollTop = 0;
     if (state.route === 'search') {
@@ -3483,6 +3626,8 @@ function bindPlayer() {
   player.addEventListener('change', renderPlayer);
   player.addEventListener('change', () => rememberPlay(player.current));
   player.addEventListener('state', renderState);
+  player.addEventListener('state', paintPlayButtons);
+  player.addEventListener('change', paintPlayButtons);
   player.addEventListener('state', miniVizSync);
   player.addEventListener('change', () => chill && chillMeta());
   player.addEventListener('change', () => setTimeout(presenceTick, 800));
@@ -4105,19 +4250,19 @@ function playlistDialog(pl = null, kind = 'playlist') {
     wrap.className = 'modal-wrap';
     const imp = kind === 'import';
     // without an own picture: what the page shows (first song, or the platform's cover)
-    const std = !pl ? '' : imp ? pl.cover || coverUrl(pl.items?.find((x) => x.local)?.local.id || '') || pl.items?.find((x) => x.cover)?.cover || '' : coverUrl(pl.tracks?.[0]?.id || pl.cover_id || '');
+    const std = !pl || pl.likes ? '' : imp ? pl.cover || coverUrl(pl.items?.find((x) => x.local)?.local.id || '') || pl.items?.find((x) => x.cover)?.cover || '' : coverUrl(pl.tracks?.[0]?.id || pl.cover_id || '');
     const cur = pl?.art ? coverUrl(artKey(kind, pl.id, pl.art)) : std;
     let own = !!pl?.art;
     const desc = imp ? pl?.meta?.description || '' : pl?.description || '';
     wrap.innerHTML = `<form class="modal pld" novalidate><div class="modal-head"><h2>${t(pl ? 'editDetails' : 'newPlaylist')}</h2><button type="button" class="icon-btn" data-x>${icon('close')}</button></div>
       <div class="pld-grid">
-        <div class="pld-cover" data-photo tabindex="0" role="button" title="${t('choosePhoto')}">${cur ? `<img alt="" src="${esc(cur)}">` : icon('note')}<span class="pld-over">${icon('edit')}${t('choosePhoto')}</span><button type="button" class="pld-more" data-photo title="${t('changePhoto')}">${icon('more')}</button></div>
+        <div class="pld-cover" data-photo tabindex="0" role="button" title="${t('choosePhoto')}">${cur ? `<img alt="" src="${esc(cur)}">` : icon('note')}<span class="pld-over">${icon('edit')}${t('choosePhoto')}</span><span class="pld-pen">${icon('edit')}</span></div>
         <div class="pld-fields">
           <label class="field"><span>${t('playlistName')}</span><input name="name" maxlength="80" value="${esc(pl?.name || '')}" autocomplete="off"></label>
           <label class="field"><span>${t('description')}</span><textarea name="description" maxlength="300" rows="4" placeholder="${t('descriptionHint')}">${esc(desc)}</textarea></label>
         </div>
       </div>
-      <div class="modal-actions pld-foot"><span class="muted small">${t('editHint')}</span><button class="btn primary">${t(pl ? 'save' : 'create')}</button></div></form>`;
+      <div class="modal-actions pld-foot"><button class="btn primary">${t(pl ? 'save' : 'create')}</button></div></form>`;
     document.body.appendChild(wrap);
     const form = wrap.querySelector('form');
     const cover = wrap.querySelector('.pld-cover');
@@ -4161,7 +4306,9 @@ function playlistDialog(pl = null, kind = 'playlist') {
       btn.disabled = true;
       try {
         let id = pl?.id;
-        if (imp) await put(`/api/imports/${id}`, { name, meta: { ...(pl.meta || {}), description } });
+        if (kind === 'likes') {
+          await saveSettings({ likesName: name === t('likes') ? '' : name, likesDesc: description, ...(blob ? { likesArt: Date.now() } : removeArt ? { likesArt: 0 } : {}) });
+        } else if (imp) await put(`/api/imports/${id}`, { name, meta: { ...(pl.meta || {}), description } });
         else if (id) await put(`/api/playlists/${id}`, { name, description });
         else id = (await post('/api/playlists', { name, description })).id;
         if (blob) {
@@ -4177,8 +4324,17 @@ function playlistDialog(pl = null, kind = 'playlist') {
     setTimeout(() => !pl && form.elements.name.focus(), 30);
   });
 }
+/** Own picture of Liked songs (set in "Edit details"), otherwise the heart. */
+function likesArtKey() {
+  return artKey('likes', conn.user?.id || 0, settings.likesArt || 0);
+}
 /** Picture, name and description of a playlist (own or imported) are changed in one dialog. */
 async function editDetails(kind, id, info) {
+  if (kind === 'likes') {
+    const r = await playlistDialog({ id: Number(id), name: settings.likesName || t('likes'), description: settings.likesDesc || '', art: settings.likesArt || 0, likes: true }, 'likes');
+    if (r) render();
+    return;
+  }
   info = info || (await get(kind === 'playlist' ? `/api/playlists/${id}` : `/api/imports/${id}`).catch(() => null));
   if (!info || info.mine === false) return;
   if (await playlistDialog(info, kind)) {
@@ -4771,6 +4927,7 @@ function prefChanged(k) {
     if (r) r.hidden = !['rainbow', 'flow'].includes(prefs.vizColor);
   }
   if (['crossfade', 'normalize', 'streamQ'].includes(k)) player?.setOptions?.(playOptions());
+  if (k === 'logos') applyLogos();
   if (k === 'chill') chillSync();
   if (k === 'chillBeat') chill?.room?.setBeatSync?.(!!prefs.chillBeat);
   if (k === 'mixStream') saveTaste();
@@ -4818,6 +4975,7 @@ async function renderSettings() {
       setRow(t('mode'), `<div class="seg">${['dark', 'light'].map((m) => `<button data-mode-pick="${m}" class="${(prefs.mode === 'light' ? 'light' : 'dark') === m ? 'on' : ''}">${icon(m === 'light' ? 'sun' : 'moon')}${t('mode_' + m)}</button>`).join('')}</div>`, { hint: t('modeHint'), keys: 'hell dunkel light dark mode darkmode lightmode' }) +
       setRow(t('accent'), `<div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${accentNow() === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, { hint: t('accentHint'), keys: 'farbe color theme cover akzent accent' }) +
       setRow(t('dynColor'), sw('dyncolor', prefs.dynamic), { hint: t('dynColorHint'), keys: t('look') }) +
+      setRow(t('logosShow'), psw('logos', true), { hint: t('logosShowHint'), keys: 'logo logos plattform platform spotify youtube quelle source' }) +
       setRow(t('searchIn'), `<div class="seg">${SMODES.map((m) => `<button data-smode="${m}" class="${searchMode() === m ? 'on' : ''}">${t('smode_' + m)}</button>`).join('')}</div>`, { hint: t('searchInHint'), keys: 'search suche spotify youtube everything' }) +
       setRow(t('columns'), `<div class="colpick">${COLS.map((k) => `<button data-col="${k}" class="chip ${cols().has(k) ? 'on' : ''}">${t('col_' + k)}</button>`).join('')}</div>`, { hint: t('columnsHint'), keys: 'spalten columns artist album länge duration quelle source jahr genre', wide: true })),
     setCard('playback', 'play', t('playback'),
@@ -4825,6 +4983,7 @@ async function renderSettings() {
       setRow(t('crossfade'), prng('crossfade', 0, 12, 1, 0, (v) => (Number(v) ? v + ' s' : t('off'))), { hint: t('crossfadeHint'), keys: 'crossfade überblendung übergang fade gapless' }) +
       setRow(t('normalize'), psw('normalize', false), { hint: t('normalizeHint'), keys: 'lautstärke normalisieren normalize volume loudness gleiche' }) +
       setRow(t('streamQ'), pseg('streamQ', ['auto', 'low', 'normal', 'high', 'veryhigh'], 'auto', (v) => t('q_' + v)), { hint: t('streamQHint'), keys: 'qualität quality streaming bitrate', wide: true }) +
+      setRow(t('preloadAll'), psw('preloadAll', false), { hint: t('preloadAllHint'), keys: 'vorladen preload laden neu alles' }) +
       setRow(t('chill'), psw('chill', false), { hint: t('chillHint'), keys: 'chillscreen raum room zimmer vollbild fullscreen kamera camera plattenspieler' }) +
       setRow(t('chillBeat'), psw('chillBeat', false), { hint: t('chillBeatHint'), keys: 'chillscreen beat takt übergänge transitions rhythmus' })),
     setCard('viz', 'viz', t('viz'),
@@ -4832,6 +4991,7 @@ async function renderSettings() {
       setRow(t('miniViz'), pseg('miniViz', MINI_MODES, 'bars', (v) => t('mviz_' + v)), { hint: t('miniVizHint'), keys: 'mini player visualizer klein', wide: true }) +
       setRow(t('vizColor'), pseg('vizColor', ['accent', 'flow', 'rainbow'], 'accent', (v) => t('vcol_' + v)), { keys: 'farbe color regenbogen rainbow akzent' }) +
       `<div class="rainbow-only" ${['rainbow', 'flow'].includes(prefs.vizColor) ? '' : 'hidden'}>${setRow(t('vizSpeed'), prng('vizSpeed', 0.2, 3, 0.1, 1, (v) => Number(v).toFixed(1) + '×'), { keys: 'regenbogen rainbow speed tempo' })}</div>` +
+      setRow(t('vizDelay'), prng('vizDelay', 0, 500, 10, 0, (v) => (Number(v) ? v + ' ms' : t('q_auto'))), { hint: t('vizDelayHint'), keys: 'verzögerung delay sync synchron bluetooth latenz latency' }) +
       setRow(t('vizSens'), prng('vizSens', 0.3, 2.5, 0.05, 1, pct), { hint: t('vizSensHint'), keys: 'empfindlichkeit sensitivity' }) +
       setRow(t('vizBass'), prng('vizBass', 0, 2, 0.05, 1, pct), { keys: 'bass tiefen lows' }) +
       setRow(t('vizMid'), prng('vizMid', 0, 2, 0.05, 1, pct), { keys: 'mitten mids' }) +

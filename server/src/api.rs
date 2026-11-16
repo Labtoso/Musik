@@ -575,6 +575,31 @@ async fn track(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R
     Ok(Json(with_likes(&db, &u, t).remove(0)))
 }
 
+/// Deletes an own music file from the server (admins only, only inside the music folders).
+async fn delete_track(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
+    if !u.admin {
+        return Err(ApiError::new(403, "forbidden"));
+    }
+    let path: String = st.db.lock().unwrap().query_row("SELECT path FROM tracks WHERE id = ?", [id], |r| r.get(0)).map_err(|_| nf())?;
+    let p = std::path::PathBuf::from(&path);
+    if !st.library.roots().iter().any(|r| p.starts_with(r)) {
+        return Err(ApiError::new(403, "forbidden"));
+    }
+    std::fs::remove_file(&p).map_err(|_| ApiError::new(500, "delete_failed"))?;
+    {
+        let db = st.db.lock().unwrap();
+        db.execute("DELETE FROM playlist_tracks WHERE track_id = ?", [id]).ok();
+        db.execute("DELETE FROM likes WHERE track_id = ?", [id]).ok();
+        db.execute("DELETE FROM tracks WHERE id = ?", [id]).ok();
+    }
+    let st2 = st.clone();
+    tokio::task::spawn_blocking(move || {
+        st2.library.scan(&st2.db);
+        st2.rec.invalidate();
+    });
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn tracks_batch(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
     let b: Ids = body_json(req).await?;
     let ids: Vec<i64> = to_ids(&b.ids).into_iter().take(2000).collect();
@@ -1318,6 +1343,12 @@ async fn web(State(st): State<St>, method: Method, uri: axum::http::Uri) -> Resp
         },
         None => return ApiError::new(404, "not_found").into_response(),
     };
+    // a shared link: name, picture and description for the preview in Discord, WhatsApp & co.
+    let data = if name == "share.html" && uri.path().starts_with("/s/") {
+        share_preview(&st, uri.path().trim_start_matches("/s/").trim_matches('/'), data)
+    } else {
+        data
+    };
     let mime = mime_guess::from_path(&name).first_or_octet_stream();
     let mut headers = HeaderMap::new();
     let ct = if mime.type_() == "text" || mime.subtype() == "javascript" {
@@ -1332,6 +1363,32 @@ async fn web(State(st): State<St>, method: Method, uri: axum::http::Uri) -> Resp
         return (headers, Body::empty()).into_response();
     }
     (headers, data).into_response()
+}
+
+fn share_preview(st: &St, token: &str, page: Vec<u8>) -> Vec<u8> {
+    if token.is_empty() || token.len() > 80 || !token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return page;
+    }
+    let Ok((title, sub, _kind, locals, exts)) = crate::ext::resolve_share(&st.db.lock().unwrap(), token) else { return page };
+    let esc = |s: &str| s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;");
+    let base = public_url(st).unwrap_or_default();
+    let image = exts.first().and_then(|e| e["cover"].as_str()).filter(|c| c.starts_with("https://")).map(String::from).or_else(|| {
+        (!locals.is_empty() && !base.is_empty()).then(|| format!("{base}/api/public/{token}/cover/0"))
+    });
+    let mut meta = format!(
+        "<meta property=\"og:type\" content=\"music.song\"><meta property=\"og:site_name\" content=\"Streyn\"><meta property=\"og:title\" content=\"{}\"><meta property=\"og:description\" content=\"{}\"><meta name=\"theme-color\" content=\"#7c5cff\"><meta name=\"twitter:card\" content=\"summary\">",
+        esc(&title),
+        esc(&format!("{sub} · Play on Streyn"))
+    );
+    if !base.is_empty() {
+        meta.push_str(&format!("<meta property=\"og:url\" content=\"{}/s/{token}\">", esc(&base)));
+    }
+    if let Some(img) = image {
+        meta.push_str(&format!("<meta property=\"og:image\" content=\"{}\">", esc(&img)));
+    }
+    let html = String::from_utf8_lossy(&page).to_string();
+    let html = if html.contains("<meta charset=\"utf-8\">") { html.replacen("<meta charset=\"utf-8\">", &format!("<meta charset=\"utf-8\">{meta}"), 1) } else { html.replacen("<head>", &format!("<head>{meta}"), 1) };
+    html.into_bytes()
 }
 
 pub fn router(st: St) -> Router {
@@ -1350,7 +1407,7 @@ pub fn router(st: St) -> Router {
         .route("/library/scan", post(scan))
         .route("/tracks", get(tracks))
         .route("/tracks/batch", post(tracks_batch))
-        .route("/tracks/{id}", get(track))
+        .route("/tracks/{id}", get(track).delete(delete_track))
         .route("/albums", get(albums))
         .route("/album", get(album))
         .route("/artists", get(artists))

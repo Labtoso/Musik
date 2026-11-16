@@ -6,7 +6,7 @@ export const MINI_MODES = ['off', 'bars', 'wave', 'glow'];
 const N = 64;
 
 /** Settings shared by both visualizers: how strong they react, which part of the sound counts most, colours. */
-export const vizTune = { sens: 1, bass: 1, mid: 1, high: 1, color: 'accent', speed: 1 };
+export const vizTune = { sens: 1, bass: 1, mid: 1, high: 1, color: 'accent', speed: 1, delay: 0 };
 const weightAt = (i) => {
   // smooth blend: lows up to band 14, mids around 28, highs from 44
   const x = i / (N - 1);
@@ -120,6 +120,7 @@ export class Visualizer {
     if (this.shared) this.shared.at = now;
     const playing = this.player.playing;
     this.real = this.player.spectrum(this.bands);
+    if (this.real) this.#delay(now);
     if (!this.real && playing && performance.now() - (this.lastReal || 0) < 2500) {
       // the real sound paused for a moment (seek, other screen, new song): let the bars sink, no imitation in between
       this.bands.fill(0);
@@ -159,7 +160,7 @@ export class Visualizer {
     }
     for (let i = 0; i < N; i++) this.bands[i] = Math.min(1, this.bands[i] * vizTune.sens * weightAt(i));
     const settling = performance.now() - (this.player.seekedAt || 0) < 700;
-    const up = this.calm || settling ? 0.12 : 0.5;
+    const up = this.calm || settling ? 0.12 : 0.62;
     const down = this.calm ? 0.06 : 0.14;
     for (let i = 0; i < N; i++) {
       const v = this.bands[i];
@@ -167,6 +168,21 @@ export class Visualizer {
       this.smooth[i] = v > s ? s + (v - s) * up : s + (v - s) * down;
       this.peaks[i] = Math.max(this.smooth[i], this.peaks[i] - 0.008);
     }
+  }
+
+  /** Bluetooth and some sound cards play later than the screen: the bars wait for the sound to reach the ear. */
+  #delay(now) {
+    const ms = vizTune.delay > 0 ? vizTune.delay : this.player.outputLatency?.() || 0;
+    if (ms < 15) {
+      this.hist = null;
+      return;
+    }
+    const h = (this.hist ||= []);
+    h.push({ t: now, b: Float32Array.from(this.bands) });
+    while (h.length > 2 && h[1].t <= now - ms) h.shift();
+    if (h.length > 90) h.splice(0, h.length - 90);
+    if (h[0].t <= now - ms + 20) this.bands.set(h[0].b);
+    else this.bands.fill(0);
   }
 
   #draw() {

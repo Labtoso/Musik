@@ -274,7 +274,7 @@ class MainActivity : ComponentActivity() {
             pending.clear()
             // Tell the page about a session that was already playing (e.g. app reopened).
             if (c.mediaItemCount > 0) {
-                emit(JSONObject().put("type", "index").put("index", c.currentMediaItemIndex).put("reason", "restore"))
+                emit(JSONObject().put("type", "index").put("index", c.currentMediaItemIndex).put("reason", "restore").put("count", c.mediaItemCount))
                 emit(JSONObject().put("type", "playing").put("playing", c.isPlaying))
             }
         }, MoreExecutors.directExecutor())
@@ -521,6 +521,14 @@ class MainActivity : ComponentActivity() {
                 prefs.edit().putBoolean("askedNotif", true).apply()
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
             }
+        }
+        /** Rough time (ms) from the player to the ear, so the visualizer can wait for Bluetooth. */
+        @JavascriptInterface fun outLatency(): Int {
+            val am = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+            val outs = am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+            val bt = outs.any { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || (Build.VERSION.SDK_INT >= 31 && it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET) }
+            val wired = outs.any { it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET }
+            return if (bt && !wired) 220 else 0
         }
         @JavascriptInterface fun vizStop() = main.post { vizWanted = false; releaseViz() }
         @JavascriptInterface fun vizBands(): String {

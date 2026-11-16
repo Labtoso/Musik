@@ -112,6 +112,13 @@ struct AddBody {
     /// the server's address already looked up by the app (Android has no DNS for this program)
     #[serde(default)]
     ip: String,
+    /// any list (import, liked songs, Spotify playlist ...): its own key, name and songs, sent by the app
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    items: Vec<Value>,
 }
 
 /// One server per device: the same playlist reached at home or on the go is one copy.
@@ -123,10 +130,12 @@ async fn add(State(st): State<St>, h: HeaderMap, req: Request) -> R {
     check_key(&h)?;
     let b: AddBody = body_json(req).await?;
     let server = b.server.trim().trim_end_matches('/').to_string();
-    if !(server.starts_with("http://") || server.starts_with("https://")) || b.token.len() != 64 || b.id <= 0 {
+    let list = !b.items.is_empty();
+    let okey = b.key.trim().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').take(80).collect::<String>();
+    if !(server.starts_with("http://") || server.starts_with("https://")) || b.token.len() != 64 || (!list && b.id <= 0) || (list && okey.is_empty()) {
         return Err(ApiError::new(400, "bad_request"));
     }
-    let key = key_of(b.id);
+    let key = if list { okey } else { key_of(b.id) };
     {
         let db = st.db.lock().unwrap();
         device_user(&db, &b.user);
@@ -144,7 +153,12 @@ async fn add(State(st): State<St>, h: HeaderMap, req: Request) -> R {
     let st2 = st.clone();
     let k2 = key.clone();
     std::thread::spawn(move || {
-        let res = copy_playlist(&st2, &k2, &server, &b.token, b.id, &b.ip);
+        let res = if list {
+            let pl = json!({ "name": if b.name.trim().is_empty() { "Playlist" } else { b.name.trim() }, "description": "", "tracks": b.items });
+            copy_tracks(&st2, &k2, &server, &b.token, b.id, &b.ip, pl)
+        } else {
+            copy_playlist(&st2, &k2, &server, &b.token, b.id, &b.ip)
+        };
         let state = match res {
             Ok(()) => "ready",
             Err(e) => e,
@@ -223,6 +237,16 @@ fn copy_playlist(st: &St, key: &str, server: &str, token: &str, id: i64, ip: &st
         })?
         .into_json()
         .map_err(|_| "error_network")?;
+    copy_tracks(st, key, server, token, id, ip, pl)
+}
+
+/// A song from a streaming platform (no file on the server): the server finds it on YouTube and hands over the whole song.
+fn ext_song(t: &Value) -> bool {
+    !t["ext"].is_null() || t["id"].as_i64().is_none()
+}
+
+fn copy_tracks(st: &St, key: &str, server: &str, token: &str, id: i64, ip: &str, pl: Value) -> Result<(), &'static str> {
+    let ag = agent(server, ip);
     let name = pl["name"].as_str().unwrap_or("Playlist").to_string();
     let tracks = pl["tracks"].as_array().cloned().unwrap_or_default();
     {
@@ -233,6 +257,50 @@ fn copy_playlist(st: &St, key: &str, server: &str, token: &str, id: i64, ip: &st
     let base = root.join("songs");
     let mut files: Vec<PathBuf> = Vec::new();
     for (i, t) in tracks.iter().enumerate() {
+        let title = t["title"].as_str().unwrap_or("").to_string();
+        let artist = t["artist"].as_str().unwrap_or("").to_string();
+        if ext_song(t) {
+            if title.is_empty() {
+                continue;
+            }
+            use sha2::Digest;
+            let h = hex::encode(&sha2::Sha256::digest(format!("{}|{}", artist.to_lowercase(), title.to_lowercase()).as_bytes())[..8]);
+            let dir = base.join(format!("x{h}"));
+            std::fs::create_dir_all(&dir).map_err(|_| "error_disk")?;
+            let have = std::fs::read_dir(&dir).ok().and_then(|rd| rd.filter_map(Result::ok).map(|e| e.path()).find(|p| crate::library::audio_type(p).is_some()));
+            let file = match have {
+                Some(p) => p,
+                None => {
+                    let url = format!(
+                        "{server}/api/ytsong?title={}&artist={}&duration={}&t={token}",
+                        crate::ext::urlencode(&title),
+                        crate::ext::urlencode(&artist),
+                        t["duration"].as_f64().unwrap_or(0.0).round()
+                    );
+                    // one song that cannot be found must not stop the whole list
+                    let Ok(res) = ag.get(&url).call() else {
+                        let _ = std::fs::remove_dir(&dir);
+                        st.db.lock().unwrap().execute("UPDATE offline_sets SET done = ? WHERE key = ?", params![i as i64 + 1, key]).ok();
+                        continue;
+                    };
+                    let ext = ext_for(res.header("Content-Type").unwrap_or(""));
+                    let fname = format!("{} - {}.{ext}", clean(&artist), clean(&title));
+                    let dest = dir.join(fname.trim_start_matches(" - "));
+                    save(res, &dest)?;
+                    if let Some(c) = t["cover"].as_str().filter(|c| c.starts_with("https://")) {
+                        if let Ok(r) = ag.get(&format!("{server}/api/imgproxy?u={}&t={token}", crate::ext::urlencode(c))).call() {
+                            if r.status() == 200 {
+                                let _ = save(r, &dir.join("cover.jpg"));
+                            }
+                        }
+                    }
+                    dest
+                }
+            };
+            files.push(file);
+            st.db.lock().unwrap().execute("UPDATE offline_sets SET done = ? WHERE key = ?", params![i as i64 + 1, key]).ok();
+            continue;
+        }
         let tid = t["id"].as_i64().unwrap_or(0);
         let dir = base.join(tid.to_string());
         std::fs::create_dir_all(&dir).map_err(|_| "error_disk")?;
@@ -269,7 +337,7 @@ fn copy_playlist(st: &St, key: &str, server: &str, token: &str, id: i64, ip: &st
         std::thread::sleep(Duration::from_millis(400));
     }
     st.rec.invalidate();
-    let art = ag.get(&format!("{server}/api/art/playlist/{id}?t={token}")).call().ok().filter(|r| r.status() == 200).and_then(|r| {
+    let art = (if id <= 0 { None } else { ag.get(&format!("{server}/api/art/playlist/{id}?t={token}")).call().ok() }).filter(|r| r.status() == 200).and_then(|r| {
         let mut v = Vec::new();
         r.into_reader().take(4 << 20).read_to_end(&mut v).ok().map(|_| v)
     });

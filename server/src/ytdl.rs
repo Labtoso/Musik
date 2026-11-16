@@ -529,11 +529,28 @@ fn queue_full(vid: String) {
         FULL_RUN.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     });
 }
+/// When a song last started playing (ms): the preload button steps aside so playback never stutters.
+pub static PLAY_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub fn mark_play() {
+    PLAY_AT.store(crate::db::now_ms() as u64, std::sync::atomic::Ordering::Relaxed);
+}
+/// Waits while a song is just starting (up to 20 s), so its stream gets the line and the CPU first.
+pub fn yield_to_play() {
+    for _ in 0..40 {
+        let at = PLAY_AT.load(std::sync::atomic::Ordering::Relaxed);
+        if (crate::db::now_ms() as u64).saturating_sub(at) > 6000 {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
 /// Wait until a song is completely on disk (the "preload" button counts along with it).
 pub fn preload_full(vid: &str) -> bool {
     if cached(vid).is_some() {
         return true;
     }
+    yield_to_play();
     match fetch_full(vid) {
         Ok(()) => true,
         Err(e) => {

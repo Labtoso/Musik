@@ -5,6 +5,7 @@ const P = {
   image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 16l-5-5-9 8.5"/>',
   pin: '<path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/>',
   minus: '<path d="M6 12h12"/>',
+  minusCircle: '<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>',
   columns: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9.5 4.5v15M14.5 4.5v15"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none"/>',
   pause: '<rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" stroke="none"/><rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" stroke="none"/>',

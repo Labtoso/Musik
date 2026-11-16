@@ -99,7 +99,14 @@ export function playableItems(items) {
       return { ...tr, _pos: it.pos };
     }
     const canPlay = PLAYABLE.includes(it.source) && enabled(it.source) && it.ext_id && !(it.source === 'spotify' && !spotify.connected());
-    return canPlay ? { ...extTrack(it), _pos: it.pos } : null;
+    if (canPlay) return { ...extTrack(it), _pos: it.pos };
+    // every other song with a name (Deezer, Apple Music, Tidal, a source switched off ...) plays like on Home: found on YouTube by title and artist
+    if (it.title) {
+      const tr = extTrack({ ...it, ext_id: it.ext_id || 'pos' + it.pos });
+      tr.ext = { ...tr.ext, player: 'ytfind' };
+      return { ...tr, _pos: it.pos };
+    }
+    return null;
   });
 }
 

@@ -6,6 +6,7 @@ import { extTrack } from './sources.js';
 import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showStage } from './engines.js';
 import { toBands } from './viz.js';
 import { findOnYouTube, spotify } from './sources.js';
+const NQ_KEY = 'musik.nativeQueue';
 const spotifyReady = () => {
   try {
     return spotify.connected();
@@ -152,7 +153,7 @@ class HtmlEngine extends EventTarget {
       });
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 2048;
-      this.analyser.smoothingTimeConstant = 0.72;
+      this.analyser.smoothingTimeConstant = 0.55;
       this.fft = new Uint8Array(this.analyser.frequencyBinCount);
       this.comp = this.ctx.createDynamicsCompressor();
       this.makeup = this.ctx.createGain();
@@ -566,7 +567,15 @@ export class Player extends EventTarget {
     } catch {
       this.pending = [];
     }
-    if (this.nativeEngine) this.#bind(this.nativeEngine);
+    if (this.nativeEngine) {
+      this.#bind(this.nativeEngine);
+      // keep the queue so a reloaded page finds the song the phone is still playing
+      let saveT = 0;
+      this.addEventListener('change', () => {
+        clearTimeout(saveT);
+        saveT = setTimeout(() => { try { localStorage.setItem(NQ_KEY, JSON.stringify(this.queue.slice(0, 1000))); } catch {} }, 400);
+      });
+    }
     setInterval(() => this.flushEvents(), 20000);
     addEventListener('pagehide', () => this.#finishListen('partial', true));
     this.#mediaSession();
@@ -612,7 +621,20 @@ export class Player extends EventTarget {
       this.#emit('state');
     }));
     e.addEventListener('error', mine((ev) => ((this.lastError = ev.detail?.message), this.#emit('error'))));
-    e.addEventListener('index', mine((ev) => this.#onIndex(ev.detail.index, ev.detail.reason)));
+    e.addEventListener('index', mine((ev) => {
+      // the page was reloaded while the phone kept playing: take the queue back so the player bar stays
+      if (ev.detail.reason === 'restore' && !this.queue.length) {
+        try {
+          const q = JSON.parse(localStorage.getItem(NQ_KEY) || '[]');
+          if (q.length && (!ev.detail.count || q.length === ev.detail.count)) {
+            this.queue = q;
+            if (this.nativeEngine) this.nativeEngine.items = q.slice();
+          }
+        } catch {}
+      }
+      this.#onIndex(ev.detail.index, ev.detail.reason);
+      if (ev.detail.reason === 'restore') this.#emit('change');
+    }));
   }
 
   /** Crossfade, same loudness and quality from the settings, for the browser and the Android player. */
@@ -646,6 +668,17 @@ export class Player extends EventTarget {
 
   get current() {
     return this.queue[this.index] || null;
+  }
+
+  /** How long (ms) the sound takes from the player to the ear: Bluetooth adds a lot. */
+  outputLatency() {
+    if (this.native) {
+      const now = performance.now();
+      if (!this._lat || now - this._lat.at > 3000) this._lat = { at: now, ms: Number(window.MusikAndroid.outLatency?.() || 0) };
+      return this._lat.ms;
+    }
+    const c = this.htmlEngine?.ctx;
+    return c ? ((c.outputLatency || 0) + (c.baseLatency || 0)) * 1000 : 0;
   }
 
   /** Fill `out` (0..1 per band) with the current spectrum. False when no real audio data is available. */
