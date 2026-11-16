@@ -1721,3 +1721,8 @@ button.pf-bio.add { display: block; padding: 0; text-align: left; color: var(--a
 [data-theme='glass'] .profile { background: linear-gradient(180deg, rgba(30, 31, 42, 0.5), rgba(12, 13, 18, 0.62)); }
 [data-theme='glass'][data-mode='light'] .profile { background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(240, 241, 246, 0.66)); border-right-color: rgba(255, 255, 255, 0.7); }
 [data-theme='glass'] .devsheet { background: var(--lg-fill); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-rim), var(--lg-shadow); border: 1px solid transparent; }
+/* a song that leaves the list (unliked in Liked songs) slides away */
+.tracks .row.gone { animation: rowGone 0.24s ease forwards; pointer-events: none; }
+@keyframes rowGone { to { opacity: 0; transform: translateX(-12px); max-height: 0; padding-block: 0; margin-block: 0; } }
+/* queue and lyrics lie over the device (Bluetooth) line instead of under it */
+.fs-queue.open { z-index: 9; }

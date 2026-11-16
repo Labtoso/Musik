@@ -38,7 +38,7 @@ class PlaybackService : MediaSessionService() {
             val cf = crossfade * 1000
             val dur = p.duration
             var k = 1f
-            if (cf > 0 && dur > 0 && dur != C.TIME_UNSET && dur > cf * 3 && p.repeatMode != androidx.media3.common.Player.REPEAT_MODE_ONE) {
+            if (cf > 0 && dur > 0 && dur != C.TIME_UNSET && dur > cf * 3) {
                 val pos = p.currentPosition.toDouble()
                 k = minOf(1.0, (dur - pos) / cf, if (fadeIn) pos / cf else 1.0).coerceAtLeast(0.0).toFloat()
             }
@@ -103,7 +103,8 @@ class PlaybackService : MediaSessionService() {
                 if (kotlin.math.abs(volume - userVol * lastK) > 0.002f && lastK > 0.05f) userVol = (volume / lastK).coerceIn(0f, 1f)
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                fadeIn = reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
+                // a song that runs into the next one, or into itself again (repeat one), fades in
+                fadeIn = reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) return

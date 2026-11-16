@@ -408,7 +408,7 @@ function applyVizTune() {
     bass: Number(prefs.vizBass ?? 1),
     mid: Number(prefs.vizMid ?? 1),
     high: Number(prefs.vizHigh ?? 1),
-    color: prefs.vizColor === 'rainbow' ? 'rainbow' : 'accent',
+    color: ['rainbow', 'flow'].includes(prefs.vizColor) ? prefs.vizColor : 'accent',
     speed: Number(prefs.vizSpeed ?? 1)
   });
 }
@@ -473,6 +473,10 @@ function artistRefs(tr) {
 function artistLinks(tr) {
   const refs = artistRefs(tr);
   return refs.length ? refs.map((a) => `<a class="alink" href="${a.href}">${esc(a.name)}</a>`).join(', ') : esc(artistName(tr));
+}
+function artistText(tr) {
+  const refs = artistRefs(tr);
+  return refs.length ? refs.map((a) => esc(a.name)).join(', ') : esc(artistName(tr));
 }
 function albumLink(tr) {
   if (!tr.album) return '';
@@ -812,6 +816,25 @@ async function toggleLike(tr) {
       b.innerHTML = icon(liked ? 'heartFill' : 'heart');
       b.title = liked ? t('unlike') : t('like');
     });
+    // Liked songs follow at once: an unliked song slides out, a liked one appears, no reload needed
+    if (state.route === 'likes') {
+      const rows = [...document.querySelectorAll(`#view .tracks .row[data-id="${CSS.escape(String(tr.id))}"]`)];
+      if (!liked && rows.length) {
+        rows.forEach((r) => r.classList.add('gone'));
+        setTimeout(() => {
+          for (const r of rows) {
+            const box = r.closest('.tracks');
+            const list = box && state.lists?.[box.dataset.list];
+            if (list) list.splice(Number(r.dataset.i), 1);
+            r.remove();
+            box?.querySelectorAll('.row').forEach((x, i) => (x.dataset.i = i));
+          }
+          if (state.detail?.likes) state.detail.likes = state.detail.likes.filter((x) => String(x.id) !== String(tr.id));
+          const sub = document.querySelector('#view .detail-head .dh-text > .muted:not(.kind)');
+          if (sub && state.detail?.likes) sub.textContent = songCount(state.detail.likes.length);
+        }, 240);
+      } else if (liked) render();
+    }
   } catch (e) {
     toast(errorText(e));
   }
@@ -854,7 +877,8 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
         : `<button class="icon-btn like ${tr.liked ? 'on' : ''}" data-like="${tr.id}" title="${tr.liked ? t('unlike') : t('like')}">${icon(tr.liked ? 'heartFill' : 'heart')}</button>`;
       const add = tr._off ? '' : `<button class="icon-btn addpl" title="${t('addPlaylist')}">${icon('plusCircle')}</button>`;
       const lead = numbers || !c.has('cover') ? `<span class="num">${(numbers && tr.track_no) || i + 1}</span>` : coverImg(tr.id, 'sm');
-      const sub = [c.has('artist') ? artistLinks(tr) : '', reason].filter(Boolean).join(' · ');
+      // in lists the artist is only text (tapping the row plays it); the big player and the PC mini player link to the artist
+      const sub = [c.has('artist') ? artistText(tr) : '', reason].filter(Boolean).join(' · ');
       const xc = { year: tr.year || '', genre: esc(tr.genre || ''), added: tr.added ? fmtDate(tr.added) : '' };
       return `<div class="row ${tr.id === cur ? 'current' : ''} ${tr._off ? 'off' : ''}" data-i="${i}" data-id="${esc(String(tr.id))}" ${reorder ? 'draggable="true"' : ''}>
         <div class="lead">${lead}<span class="eqi" aria-hidden="true"><i></i><i></i><i></i><i></i></span><button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
@@ -1934,6 +1958,24 @@ const relatedCards = (list) => (list || []).map((a) => {
   if (a.picture) extCovers.set(id, a.picture);
   return { name: a.name, cover: id, sub: t('artist') };
 });
+/** Monthly listeners like Spotify shows them (read by the server from Spotify's artist page). */
+const listenersCache = new Map();
+function showListeners(spId, name) {
+  const run = async () => {
+    try {
+      let id = spId;
+      if (!id && name) id = (await spotifyFindArtist(name))?.id;
+      if (!id) return;
+      if (!listenersCache.has(id)) listenersCache.set(id, get('/api/catalog/sp-listeners/' + id).then((r) => r.listeners).catch(() => null));
+      const n = await listenersCache.get(id);
+      const el = document.querySelector('[data-listeners]');
+      if (!n || !el) return;
+      const fmt = new Intl.NumberFormat(getLang() === 'de' ? 'de-DE' : 'en-US', { notation: n >= 10000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(n);
+      el.textContent = t('monthlyListeners', { n: fmt });
+    } catch {}
+  };
+  setTimeout(run, 30);
+}
 views.cartist = async (params) => {
   const id = params.get('id') || '';
   const r = await cached('cartist:' + id, () => get('/api/catalog/artist/' + encodeURIComponent(id)));
@@ -1942,10 +1984,11 @@ views.cartist = async (params) => {
   const tracks = uniqSongs((r.tracks || []).map(extTrack));
   state.detail = { cartist: tracks };
   const rel = (r.albums || []).map((x) => ({ ...catAlbum(x), year: x.year || '', date: x.date || '', fans: x.fans || 0, kind: x.kind || 'album' }));
+  showListeners('', a.name);
   return artistPage({
     base: `#/cartist?id=${encodeURIComponent(id)}`,
     name: a.name,
-    header: detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : '', actions: (tracks.length ? listActions('cartist') : '') + followBtn('deezer', id, a.name, r.artist.picture) }),
+    header: detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, sub: `<span data-listeners>${r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : ''}</span>`, actions: (tracks.length ? listActions('cartist') : '') + followBtn('deezer', id, a.name, r.artist.picture) }),
     tracks,
     releases: rel.filter((x) => x.kind !== 'appears'),
     appears: rel.filter((x) => x.kind === 'appears'),
@@ -1981,11 +2024,12 @@ views.spartist = async (params) => {
   state.detail = { spartist: tracks };
   const count = r.artist.followers ? t('followersN', { n: r.artist.followers.toLocaleString() }) : r.artist.fans ? t('fans', { n: r.artist.fans.toLocaleString() }) : '';
   const sub = [count, r.artist.genres.slice(0, 3).join(', ')].filter(Boolean).join(' · ');
+  showListeners(id, '');
   const rel = (x) => ({ ...spAlbum(x), artist: x.artist, year: x.year, date: x.date, kind: x.kind });
   return artistPage({
     base: `#/spartist?id=${encodeURIComponent(id)}`,
     name: a.name,
-    header: detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, badge: srcBadge('spotify'), sub: esc(sub), actions: (tracks.length ? listActions('spartist') : '') + followBtn('spotify', id, a.name, r.artist.picture) }),
+    header: detailHeader({ coverId: a.cover, round: true, kind: t('artist'), title: a.name, badge: srcBadge('spotify'), sub: `<span data-listeners>${esc(sub)}</span>`, actions: (tracks.length ? listActions('spartist') : '') + followBtn('spotify', id, a.name, r.artist.picture) }),
     tracks,
     releases: r.releases.map(rel),
     appears: r.appears.map(rel),
@@ -3505,6 +3549,8 @@ function vizSync() {
     viz.start();
   } else {
     viz.stop();
+    // the small one takes over first, so the sound reading is not switched off and on again in between
+    miniVizSync();
     if (!miniViz?.running) player.stopViz();
   }
   miniVizSync();
@@ -4438,7 +4484,8 @@ function devicesHtml() {
       setRow(t('devOutput'), `<div class="devlist">${list.map((d) => line(DEV_ICON[d.kind] || 'speaker', d.name || t('dev_' + d.kind), d.active, A.setOutput ? `data-pickdev="${esc(String(d.id ?? ''))}"` : '')).join('') || line('phone', t('dev_phone'), true)}</div>`, { hint: t('devOutputHint'), wide: true, keys: 'bluetooth kopfhörer headphones lautsprecher speaker ausgabe output gerät device' }) +
       setRow(t('devSwitch'), `<div class="stack"><button class="btn" data-devout>${icon('speaker')}${t('devSwitchBtn')}</button><button class="btn" data-devbt>${icon('bluetooth')}${t('devBtSettings')}</button></div>`, { hint: t('devSwitchHint'), keys: 'bluetooth verbinden connect koppeln pair' }) +
       setRow(t('devPause'), sw('devpause', A.getPlayPref('pauseOnDisconnect')), { hint: t('devPauseHint'), keys: 'bluetooth pause trennen disconnect' }) +
-      setRow(t('devResume'), sw('devresume', A.getPlayPref('resumeOnConnect')), { hint: t('devResumeHint'), keys: 'bluetooth weiter resume verbinden auto' })
+      setRow(t('devResume'), sw('devresume', A.getPlayPref('resumeOnConnect')), { hint: t('devResumeHint'), keys: 'bluetooth weiter resume verbinden auto' }) +
+      (A.resetAsks ? setRow(t('askAgain'), `<button class="btn" data-resetasks>${t('askAgainBtn')}</button>`, { hint: t('askAgainHint'), keys: 'erlaubnis permission fragen ask nein no mikrofon benachrichtigung notification' }) : '')
     );
   }
   if (outDevices === null) {
@@ -4681,6 +4728,7 @@ navigator.mediaDevices?.addEventListener?.('devicechange', () => loadOutputs(fal
 document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-devout]')) return window.MusikAndroid?.openOutput?.();
   if (e.target.closest('[data-devbt]')) return window.MusikAndroid?.openBluetooth?.();
+  if (e.target.closest('[data-resetasks]')) { window.MusikAndroid?.resetAsks?.(); return toast(t('askAgainDone')); }
   if (e.target.closest('[data-devask]')) return loadOutputs(true).then(redrawDevices);
   if (e.target.closest('[data-devsheet]')) {
     e.stopPropagation();
@@ -4718,7 +4766,7 @@ function prefChanged(k) {
     applyVizTune();
     miniVizSync();
     const r = $('.rainbow-only');
-    if (r) r.hidden = prefs.vizColor !== 'rainbow';
+    if (r) r.hidden = !['rainbow', 'flow'].includes(prefs.vizColor);
   }
   if (['crossfade', 'normalize', 'streamQ'].includes(k)) player?.setOptions?.(playOptions());
   if (k === 'chill') chillSync();
@@ -4778,8 +4826,8 @@ async function renderSettings() {
     setCard('viz', 'viz', t('viz'),
       setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' }) +
       setRow(t('miniViz'), pseg('miniViz', MINI_MODES, 'bars', (v) => t('mviz_' + v)), { hint: t('miniVizHint'), keys: 'mini player visualizer klein', wide: true }) +
-      setRow(t('vizColor'), pseg('vizColor', ['accent', 'rainbow'], 'accent', (v) => t('vcol_' + v)), { keys: 'farbe color regenbogen rainbow akzent' }) +
-      `<div class="rainbow-only" ${prefs.vizColor === 'rainbow' ? '' : 'hidden'}>${setRow(t('vizSpeed'), prng('vizSpeed', 0.2, 3, 0.1, 1, (v) => Number(v).toFixed(1) + '×'), { keys: 'regenbogen rainbow speed tempo' })}</div>` +
+      setRow(t('vizColor'), pseg('vizColor', ['accent', 'flow', 'rainbow'], 'accent', (v) => t('vcol_' + v)), { keys: 'farbe color regenbogen rainbow akzent' }) +
+      `<div class="rainbow-only" ${['rainbow', 'flow'].includes(prefs.vizColor) ? '' : 'hidden'}>${setRow(t('vizSpeed'), prng('vizSpeed', 0.2, 3, 0.1, 1, (v) => Number(v).toFixed(1) + '×'), { keys: 'regenbogen rainbow speed tempo' })}</div>` +
       setRow(t('vizSens'), prng('vizSens', 0.3, 2.5, 0.05, 1, pct), { hint: t('vizSensHint'), keys: 'empfindlichkeit sensitivity' }) +
       setRow(t('vizBass'), prng('vizBass', 0, 2, 0.05, 1, pct), { keys: 'bass tiefen lows' }) +
       setRow(t('vizMid'), prng('vizMid', 0, 2, 0.05, 1, pct), { keys: 'mitten mids' }) +

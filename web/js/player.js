@@ -47,6 +47,10 @@ class HtmlEngine extends EventTarget {
     a.addEventListener('playing', () => (this.fails = 0));
     a.addEventListener('ended', () => {
       if (this.repeat === 'one') {
+        // the same song again fades in too (crossfade)
+        this.fadeIn = this.opts?.crossfade > 0;
+        this.fadeK = this.fadeIn ? 0 : 1;
+        this.#applyVol();
         a.currentTime = 0;
         a.play().catch(() => {});
         this.#emit('index', { index: this.index, reason: 'repeat' });
@@ -203,7 +207,7 @@ class HtmlEngine extends EventTarget {
     if (!it) return;
     this.index = i;
     // fade in only when one song runs into the next, not when the user picks a song
-    this.fadeIn = reason === 'ended' && !pos && this.opts?.crossfade > 0;
+    this.fadeIn = (reason === 'ended' || reason === 'repeat') && !pos && this.opts?.crossfade > 0;
     this.fadeK = this.fadeIn ? 0 : 1;
     this.#applyVol();
     // songs from Spotify and the Deezer catalog: names and covers from there, the whole song from YouTube
@@ -362,7 +366,7 @@ class HtmlEngine extends EventTarget {
         const cf = this.opts.crossfade;
         const pos = this.position;
         const dur = this.active ? this.active.duration || 0 : this.audio.duration || 0;
-        if (!dur || dur < cf * 3 || this.repeat === 'one') return this.fadeK !== 1 && ((this.fadeK = 1), this.#applyVol());
+        if (!dur || dur < cf * 3) return this.fadeK !== 1 && ((this.fadeK = 1), this.#applyVol());
         const k = Math.min(1, (dur - pos) / cf, this.fadeIn ? pos / cf : 1);
         if (Math.abs(k - (this.fadeK ?? 1)) < 0.01) return;
         this.fadeK = Math.max(0, k);
@@ -917,12 +921,14 @@ export class Player extends EventTarget {
     this.engine.prev();
   }
   seek(sec) {
+    this.seekedAt = performance.now(); // the visualizer settles gently after a jump
     if (this.listen) this.listen.last = sec;
     this.engine.seek(sec);
     this.position = sec;
     this.#emit('time');
   }
   setVolume(v) {
+    this.seekedAt = performance.now(); // the visualizer does not jump with the volume
     this.volume = v;
     this.engine.setVolume(v);
     this.#emit('state');

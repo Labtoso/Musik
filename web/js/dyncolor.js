@@ -12,21 +12,24 @@ function rgbToHsl(r, g, b) {
 }
 const hsl = (h, s, l) => `hsl(${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%)`;
 
-/** Most vivid hue of an image, weighted by how much of the image it covers. */
+/** Most vivid hue of an image, weighted by how much of the image it covers. Small but strong colour (red letters on a
+ *  black and white photo) still wins over grey, white and black, which never become the accent. */
 export function pickColor(img) {
+  const N = 80;
   const c = document.createElement('canvas');
-  c.width = c.height = 40;
+  c.width = c.height = N;
   const g = c.getContext('2d', { willReadFrequently: true });
-  g.drawImage(img, 0, 0, 40, 40);
-  const px = g.getImageData(0, 0, 40, 40).data;
-  const bins = new Array(36).fill(0).map(() => ({ w: 0, s: 0, l: 0 }));
-  let grey = 0, greyL = 0;
+  g.drawImage(img, 0, 0, N, N);
+  const px = g.getImageData(0, 0, N, N).data;
+  const bins = new Array(36).fill(0).map(() => ({ w: 0, s: 0, l: 0, h: 0 }));
   for (let i = 0; i < px.length; i += 4) {
     const [h, s, l] = rgbToHsl(px[i], px[i + 1], px[i + 2]);
-    if (s < 0.18 || l < 0.08 || l > 0.94) { grey++; greyL += l; continue; }
-    const w = s * (1 - Math.abs(l - 0.5) * 1.4);
+    if (s < 0.22 || l < 0.1 || l > 0.92) continue; // grey, black, white
+    // vivid pixels count much more than dull ones
+    const w = s * s * (1 - Math.abs(l - 0.5) * 1.3);
+    if (w <= 0) continue;
     const b = bins[Math.floor(h * 36) % 36];
-    b.w += w; b.s += s * w; b.l += l * w; b.h = (b.h || 0) + h * w;
+    b.w += w; b.s += s * w; b.l += l * w; b.h += h * w;
   }
   let best = null;
   for (let i = 0; i < 36; i++) {
@@ -34,7 +37,7 @@ export function pickColor(img) {
     if (!best || w > best.w) best = { w, i };
   }
   const b = bins[best.i];
-  if (!b.w || b.w < 12) return null; // almost no colour in the cover
+  if (!b.w || b.w < 2) return null; // no colour at all in the cover: the chosen accent stays
   return { h: b.h / b.w, s: b.s / b.w, l: b.l / b.w };
 }
 

@@ -118,6 +118,7 @@ pub fn routes() -> Router<St> {
         .route("/catalog/search", get(catalog_search))
         .route("/catalog/artist/{id}", get(catalog_artist))
         .route("/catalog/related", get(catalog_related))
+        .route("/catalog/sp-listeners/{id}", get(sp_listeners))
         .route("/catalog/genre-artists", get(catalog_genre_artists))
         .route("/catalog/preview/{id}", get(catalog_preview))
         .route("/fetch/oembed", get(fetch_oembed))
@@ -1483,6 +1484,72 @@ async fn catalog_artist(Auth(_, _): Auth, Path(id): Path<String>) -> R {
 }
 
 /// ?name=… → artists that fans of this one also listen to (for artist pages of other platforms)
+/// Monthly listeners of a Spotify artist, read from the public artist page like Spotify shows them
+/// (the Web API only knows followers). Kept for 12 hours.
+static SP_LISTENERS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (std::time::Instant, Option<u64>)>>> = std::sync::OnceLock::new();
+async fn sp_listeners(Auth(_, _): Auth, Path(id): Path<String>) -> R {
+    if id.len() > 40 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(ApiError::new(400, "bad_query"));
+    }
+    let cache = SP_LISTENERS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    if let Some((at, v)) = cache.lock().unwrap().get(&id).cloned() {
+        if at.elapsed() < std::time::Duration::from_secs(12 * 3600) {
+            return Ok(Json(json!({ "listeners": v })));
+        }
+    }
+    let id2 = id.clone();
+    let v = tokio::task::spawn_blocking(move || {
+        let html = ureq::get(&format!("https://open.spotify.com/artist/{id2}"))
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36")
+            .set("Accept-Language", "en-US,en;q=0.9")
+            .timeout(std::time::Duration::from_secs(12))
+            .call()
+            .ok()?
+            .into_string()
+            .ok()?;
+        parse_listeners(&html)
+    })
+    .await
+    .unwrap_or(None);
+    let mut c = cache.lock().unwrap();
+    if c.len() > 2000 {
+        c.clear();
+    }
+    c.insert(id, (std::time::Instant::now(), v));
+    Ok(Json(json!({ "listeners": v })))
+}
+/// "monthlyListeners":4123456 in the page data, otherwise "4.1M monthly listeners" in its description.
+pub(crate) fn parse_listeners(html: &str) -> Option<u64> {
+    if let Some(i) = html.find("\"monthlyListeners\":") {
+        let n: String = html[i + 19..].chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(v) = n.parse() {
+            return Some(v);
+        }
+    }
+    let i = html.find(" monthly listeners")?;
+    let head = &html[..i];
+    let start = head.rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == ',')).map(|p| p + 1).unwrap_or(0);
+    let tok = head[start..].replace(',', "");
+    let (num, mul) = match tok.chars().last()? {
+        'K' | 'k' => (&tok[..tok.len() - 1], 1e3),
+        'M' | 'm' => (&tok[..tok.len() - 1], 1e6),
+        'B' | 'b' => (&tok[..tok.len() - 1], 1e9),
+        _ => (tok.as_str(), 1.0),
+    };
+    num.parse::<f64>().ok().map(|v| (v * mul).round() as u64)
+}
+
+#[cfg(test)]
+mod listeners_tests {
+    #[test]
+    fn reads_listeners() {
+        assert_eq!(super::parse_listeners(r#"x "monthlyListeners":4123456,"y"#), Some(4123456));
+        assert_eq!(super::parse_listeners(r#"<meta property="og:description" content="Artist · 4.1M monthly listeners.">"#), Some(4_100_000));
+        assert_eq!(super::parse_listeners(r#"content="Artist · 812,345 monthly listeners.""#), Some(812_345));
+        assert_eq!(super::parse_listeners("nothing"), None);
+    }
+}
+
 async fn catalog_related(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
     let name = clip(q.get("name").map(|s| s.trim()).unwrap_or(""), 200);
     if name.is_empty() {

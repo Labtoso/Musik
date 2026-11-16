@@ -17,6 +17,11 @@ const weightAt = (i) => {
 };
 /** Rainbow or accent colours for this moment: [from, to] plus a hue offset for per bar colouring. */
 function palette(base) {
+  if (vizTune.color === 'flow') {
+    // rainbow gradient: just two colour points that run through all hues together
+    const h = ((performance.now() / 1000) * 40 * vizTune.speed) % 360;
+    return [`hsl(${h} 90% 62%)`, `hsl(${(h + 110) % 360} 90% 62%)`];
+  }
   if (vizTune.color !== 'rainbow') return base;
   const h = ((performance.now() / 1000) * 40 * vizTune.speed) % 360;
   return [`hsl(${h} 90% 62%)`, `hsl(${(h + 70) % 360} 90% 62%)`, h];
@@ -115,7 +120,10 @@ export class Visualizer {
     if (this.shared) this.shared.at = now;
     const playing = this.player.playing;
     this.real = this.player.spectrum(this.bands);
-    if (!this.real) {
+    if (!this.real && playing && performance.now() - (this.lastReal || 0) < 2500) {
+      // the real sound paused for a moment (seek, other screen, new song): let the bars sink, no imitation in between
+      this.bands.fill(0);
+    } else if (!this.real) {
       // platform players (YouTube, Spotify) give no access to their sound: an imitation that
       // follows a beat, with a kick in the lows, snare in the mids and shimmer in the highs
       const t = performance.now() / 1000;
@@ -136,8 +144,22 @@ export class Visualizer {
         this.bands[i] = playing ? Math.min(1, Math.max(0, v)) : 0;
       }
     }
+    if (this.real) {
+      // the real sound gets louder and quieter with the volume (and jumps after a seek): an automatic level
+      // keeps the bars the same size whatever the volume is, and limits sudden jumps
+      let lvl = 0;
+      for (let i = 0; i < N; i++) lvl = Math.max(lvl, this.bands[i]);
+      const now2 = performance.now();
+      const gap = now2 - (this.lastReal || 0);
+      this.lastReal = now2;
+      if (!this.agc || gap > 1500) this.agc = Math.max(0.15, lvl);
+      else this.agc = lvl > this.agc ? this.agc + (lvl - this.agc) * 0.05 : this.agc * 0.996 + lvl * 0.004;
+      const g = 0.8 / Math.max(0.06, this.agc);
+      for (let i = 0; i < N; i++) this.bands[i] = Math.min(1, this.bands[i] * g);
+    }
     for (let i = 0; i < N; i++) this.bands[i] = Math.min(1, this.bands[i] * vizTune.sens * weightAt(i));
-    const up = this.calm ? 0.12 : 0.5;
+    const settling = performance.now() - (this.player.seekedAt || 0) < 700;
+    const up = this.calm || settling ? 0.12 : 0.5;
     const down = this.calm ? 0.06 : 0.14;
     for (let i = 0; i < N; i++) {
       const v = this.bands[i];

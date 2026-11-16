@@ -149,8 +149,11 @@ class MainActivity : ComponentActivity() {
         })
 
         if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !prefs.getBoolean("askedNotif", false)
         ) {
+            // asked once: a "no" stays a no until the user asks for it again in the settings
+            prefs.edit().putBoolean("askedNotif", true).apply()
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
 
@@ -509,7 +512,15 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun vizStart() = main.post {
             vizWanted = true
             if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) attachViz()
-            else askAudio.launch(Manifest.permission.RECORD_AUDIO)
+            else if (!prefs.getBoolean("deniedAudio", false)) askAudio.launch(Manifest.permission.RECORD_AUDIO)
+        }
+        /** Settings "ask again": forget every "no" so the app asks once more. */
+        @JavascriptInterface fun resetAsks() = main.post {
+            prefs.edit().remove("askedNotif").remove("deniedAudio").remove("askedBt").apply()
+            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                prefs.edit().putBoolean("askedNotif", true).apply()
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+            }
         }
         @JavascriptInterface fun vizStop() = main.post { vizWanted = false; releaseViz() }
         @JavascriptInterface fun vizBands(): String {
@@ -724,6 +735,8 @@ class MainActivity : ComponentActivity() {
         viz = runCatching {
             Visualizer(session).apply {
                 setCaptureSize(Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024))
+                // the same picture at every volume: without this the bars grow and shrink with the volume keys
+                runCatching { setScalingMode(Visualizer.SCALING_MODE_NORMALIZED) }
                 fft = ByteArray(getCaptureSize())
                 setEnabled(true)
             }
@@ -738,7 +751,9 @@ class MainActivity : ComponentActivity() {
         vizSession = 0
     }
 
-    private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) attachViz() }
+    private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) attachViz() else prefs.edit().putBoolean("deniedAudio", true).apply()
+    }
 
     override fun onDestroy() {
         runCatching { audio.unregisterAudioDeviceCallback(deviceCallback) }
