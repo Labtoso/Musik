@@ -149,9 +149,10 @@ document.addEventListener('click', (e) => {
 // ---------- Liquid Glass: light bends at the rim of a pane ----------
 // backdrop-filter with an SVG filter exists in Chromium only (Android app, Windows app, Chrome, Edge); elsewhere the glass is frosted without the bend
 const LENS_OK = /Chrome\//.test(navigator.userAgent);
+document.documentElement.classList.toggle('lg-lens', LENS_OK);
 /** Builds (or rebuilds) the SVG filter `id` for a pane of w x h with corner radius r: a displacement map that pushes
  *  what lies under the rim towards the middle, the way thick glass does, optionally split by colour. */
-function lensFilter(id, w, h, r, bezel, scale, split = false) {
+function lensFilter(id, w, h, r, bezel, scale, split = 0) {
   const W = Math.max(2, Math.round(w)), H = Math.max(2, Math.round(h));
   r = Math.min(r, W / 2, H / 2);
   const cv = document.createElement('canvas');
@@ -175,7 +176,8 @@ function lensFilter(id, w, h, r, bezel, scale, split = false) {
       let m = 0;
       if (d >= 0 && d < bezel) {
         const tt = 1 - d / bezel;
-        m = tt * tt * tt * (3 - 2 * tt); // steep at the very edge, flat towards the middle
+        m = 1 - Math.sqrt(1 - tt * tt); // convex (circular) rim: flat inside, bends hard right at the edge
+        m = Math.min(1, m * 1.15);
       }
       const i = (py * W + px) * 4;
       d8[i] = 128 - nx * m * 127;
@@ -195,7 +197,7 @@ function lensFilter(id, w, h, r, bezel, scale, split = false) {
   }
   const pass = (ch, k, row) => `<feDisplacementMap in="SourceGraphic" in2="map" scale="${(scale * k).toFixed(1)}" xChannelSelector="R" yChannelSelector="G" result="d${ch}"/><feColorMatrix in="d${ch}" type="matrix" values="${row}" result="${ch}"/>`;
   const body = split
-    ? pass('r', 1.12, '1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0') + pass('g', 1, '0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0') + pass('b', 0.88, '0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0') + '<feBlend in="r" in2="g" mode="screen" result="rg"/><feBlend in="rg" in2="b" mode="screen"/>'
+    ? pass('r', 1 + split, '1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0') + pass('g', 1, '0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0') + pass('b', 1 - split, '0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0') + '<feBlend in="r" in2="g" mode="screen" result="rg"/><feBlend in="rg" in2="b" mode="screen"/>'
     : `<feDisplacementMap in="SourceGraphic" in2="map" scale="${scale}" xChannelSelector="R" yChannelSelector="G"/>`;
   const html = `<feImage href="${cv.toDataURL()}" x="0" y="0" width="${W}" height="${H}" result="map"/>${body}`;
   let f = document.getElementById(id);
@@ -213,7 +215,8 @@ function lensFilter(id, w, h, r, bezel, scale, split = false) {
 /** In the glass theme the floating panes (tab bar, player, toast, menus) get their own lens, sized to them. */
 const glassPanes = (() => {
   // every floating layer is real glass: it bends what lies under its rim (Chromium: Windows app, Android, browsers)
-  const PANES = [['.bottomnav', 'nav', 9], ['.player', 'player', 9], ['.toast', 'toast', 6], ['.menu', 'menu', 8], ['.side', 'side', 14], ['.modal', 'modal', 16], ['.profile', 'profile', 16], ['.devsheet', 'devsheet', 14]];
+  // [selector, key, frost blur]: bars stay almost clear so the bend at the rim is plainly visible, big sheets frost more for reading
+  const PANES = [['.bottomnav', 'nav', 1.5], ['.player', 'player', 1.5], ['.toast', 'toast', 2], ['.menu', 'menu', 7], ['.side', 'side', 5], ['.modal', 'modal', 12], ['.profile', 'profile', 14], ['.devsheet', 'devsheet', 12]];
   const sizes = new Map();
   let ro = null;
   const fit = (el, key, frost) => {
@@ -223,9 +226,11 @@ const glassPanes = (() => {
     const sig = `${w}x${h}`;
     if (sizes.get(key) !== sig) {
       sizes.set(key, sig);
-      lensFilter('lg-' + key, w, h, parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, 14, 34);
+      // a thick convex rim: the bezel grows with the pane, the bend is strongest right at the edge, colours split a little like real glass
+      const bezel = Math.max(12, Math.min(26, Math.min(w, h) * 0.28));
+      lensFilter('lg-' + key, w, h, parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, bezel, bezel * 2.4, 0.05);
     }
-    el.style.backdropFilter = `url(#lg-${key}) blur(${frost}px) saturate(1.7) brightness(1.05)`;
+    el.style.backdropFilter = `url(#lg-${key}) blur(${frost}px) saturate(1.8) brightness(1.06)`;
   };
   const scan = () => {
     ro ||= new ResizeObserver(scan);
@@ -285,7 +290,7 @@ const navBlob = (() => {
   const lens = () => {
     const h = blob.offsetHeight;
     if (!w || !h || !LENS_OK) return document.documentElement.classList.remove('lg-refract');
-    lensFilter('lg-lens', w, h, h / 2, Math.min(11, h * 0.22), 15);
+    lensFilter('lg-lens', w, h, h / 2, h * 0.3, h * 0.42, 0.03);
     document.documentElement.classList.add('lg-refract');
   };
   const place = (animate = true) => {
