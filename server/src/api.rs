@@ -1438,6 +1438,7 @@ pub fn router(st: St) -> Router {
         .merge(crate::offline::routes())
         .merge(crate::presence::routes())
         .merge(crate::update::routes())
+        .merge(crate::invite::routes())
         .merge(crate::spotify::routes())
         .fallback(|| async { ApiError::new(404, "not_found") });
     let cors = CorsLayer::new()

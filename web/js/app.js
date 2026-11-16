@@ -5027,7 +5027,7 @@ async function renderSettings() {
       (conn.user?.admin
         ? setRow(t('publicLinks'), `<div class="remoteedit"><input id="publicurl" class="textin" value="${esc(info?.public || '')}" placeholder="https://streyn.tail1234.ts.net:8443" autocomplete="off" spellcheck="false" inputmode="url"><button class="btn primary" data-savepublic>${t('save')}</button></div>`, { hint: `${info?.public ? t('publicOn') : t('publicOff')} <a href="${GUIDE}#public" target="_blank" rel="noopener">${t('guide')}</a>`, keys: 'öffentlich public teilen share funnel link', wide: true })
         : '')),
-    user.admin ? setCard('users', 'user', t('users'), setRow(t('users'), `<button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button>`, { hint: '<span id="userlist">…</span>', keys: 'nutzer users admin konto' })) : '',
+    user.admin ? setCard('users', 'user', t('users'), setRow(t('users'), `<button class="btn" data-invite>${icon('share')}${t('inviteLink')}</button><button class="btn" data-adduser>${icon('plus')}${t('addUser')}</button>`, { hint: '<span id="userlist">…</span>', keys: 'nutzer users admin konto' })) : '',
     setCard('updates', 'download', t('updates'),
       setRow(t('updates'), `<button class="btn" data-updcheck>${icon('refresh')}${t('checkUpdates')}</button>`, { wide: true, hint: '<div id="updinfo" class="upd"></div>', keys: 'update version neu' }) +
       setRow(t('playCheck'), `<button class="btn" data-playcheck>${icon('play')}${t('playCheckRun')}</button>`, { wide: true, hint: `${t('playCheckHint')}<div id="playcheck" class="upd"></div>`, keys: 'test check youtube stream wiedergabe playback prüfen' }) +
@@ -5093,22 +5093,50 @@ async function renderUpdates(force) {
     row(t('updServer'), u.current, u.available, srvAction) +
     (!latest ? `<p class="muted small">${t('updOffline')}</p>` : '') + '<div id="updprog" class="muted small"></div>';
 }
+/** Server update with the server's own output mirrored in a small terminal. */
 async function updateServer() {
   const prog = $('#updprog');
   const before = (await api('GET', '/api/info', undefined, { token: null }).catch(() => ({}))).version;
-  if (prog) prog.textContent = t('updServerRunning');
-  const r = await post('/api/update');
+  document.querySelectorAll('[data-updserver],[data-updall]').forEach((b) => (b.disabled = true));
+  if (prog) prog.innerHTML = `<span>${t('updServerRunning')}</span><pre class="updlog" aria-live="polite"></pre>`;
+  const term = () => $('#updprog .updlog');
+  let lines = [];
+  const show = (extra = []) => {
+    const el = term();
+    if (!el) return;
+    el.textContent = [...lines, ...extra].join('\n');
+    el.scrollTop = el.scrollHeight;
+  };
+  let polling = true;
+  (async () => {
+    while (polling) {
+      const r = await api('GET', '/api/update/log', undefined, { timeout: 3000 }).catch(() => null);
+      if (r?.lines?.length) { lines = r.lines; show(); }
+      await new Promise((res) => setTimeout(res, 600));
+    }
+  })();
+  let r;
+  try {
+    r = await post('/api/update');
+  } finally {
+    polling = false;
+  }
+  const r2 = await api('GET', '/api/update/log', undefined, { timeout: 3000 }).catch(() => null);
+  if (r2?.lines?.length) lines = r2.lines;
+  show([t('updWaitStart')]);
   // the server restarts; wait until it answers with the new version
   for (let i = 0; i < 60; i++) {
     await new Promise((res) => setTimeout(res, 2000));
     const v = (await api('GET', '/api/info', undefined, { token: null, timeout: 3000 }).catch(() => ({}))).version;
     if (v && v !== before) {
+      show([t('updWaitStart'), t('updRunning', { v })]);
       toast(t('updDone', { v }));
-      setTimeout(() => location.reload(), 900);
+      setTimeout(() => location.reload(), 1800);
       return;
     }
+    show([t('updWaitStart') + ' ' + '.'.repeat((i % 20) + 1)]);
   }
-  if (prog) prog.textContent = t('updSlow', { v: r.to || '' });
+  if (prog) prog.insertAdjacentHTML('beforeend', `<span>${t('updSlow', { v: r?.to || '' })}</span>`);
 }
 function updateApp(thenServer = false) {
   const app = appVersion();
@@ -5158,19 +5186,34 @@ async function updateFlow() {
     $('#content')?.prepend(bar);
   }
 }
+/** A bar at the top when the app or the server is behind the latest release. Closing it hides it until the next release. */
 async function autoUpdateCheck() {
-  let last = 0;
-  try {
-    last = +localStorage.getItem('musik.updcheck') || 0;
-  } catch {}
-  if (Date.now() - last < 20 * 3600 * 1000) return;
-  try {
-    localStorage.setItem('musik.updcheck', String(Date.now()));
-  } catch {}
+  if (offlineMode || $('.updbar')) return;
   const u = await updateStatus(false).catch(() => null);
   if (!u?.latest) return;
   const app = appVersion();
-  if (u.available || (app && vNewer(u.latest, app.v))) toast(t('updNotice', { v: u.latest }));
+  const appOld = !!app && vNewer(u.latest, app.v);
+  if (!u.available && !appOld) return;
+  let gone = '';
+  try { gone = localStorage.getItem('musik.upddismiss') || ''; } catch {}
+  if (gone === u.latest || $('.updbar')) return;
+  const parts = [];
+  if (appOld) parts.push(t(app.kind === 'android' ? 'updAndroid' : 'updDesktop') + ' v' + esc(app.v));
+  if (u.available) parts.push(t('updServer') + ' v' + esc(u.current));
+  const srvBtn = u.available && u.admin && u.how === 'self';
+  const btn = appOld
+    ? `<button class="btn sm primary" data-barapp>${t('updNow')}</button>`
+    : srvBtn ? `<button class="btn sm primary" data-barsrv>${t('updNow')}</button>` : '';
+  const bar = document.createElement('div');
+  bar.className = 'updbar';
+  bar.innerHTML = `${icon('download')}<span><b>${t('updBar', { v: esc(u.latest) })}</b> ${parts.join(' · ')}${u.available && !u.admin ? ' · ' + t('updAdminOnly') : ''}</span>${btn}<button class="icon-btn sm" data-x title="${t('close')}">${icon('close')}</button>`;
+  bar.querySelector('[data-x]').onclick = () => {
+    try { localStorage.setItem('musik.upddismiss', u.latest); } catch {}
+    bar.remove();
+  };
+  bar.querySelector('[data-barapp]')?.addEventListener('click', () => { bar.remove(); openSettings('updates'); updateApp(u.available && u.admin && u.how === 'self'); });
+  bar.querySelector('[data-barsrv]')?.addEventListener('click', () => { bar.remove(); openSettings('updates'); setTimeout(() => updateServer().catch((e) => toast(errorText(e))), 300); });
+  $('#content')?.prepend(bar);
 }
 
 function showScan(lib) {
@@ -5204,7 +5247,7 @@ async function renderUsers() {
   } catch {}
 }
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-updcheck],[data-updserver],[data-updapp],[data-updall],[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
+  const el = e.target.closest('[data-updcheck],[data-updserver],[data-updapp],[data-updall],[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-invite],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
   if (!el) return;
   if (el.dataset.copyremote) {
     copyText(el.dataset.copyremote).then((ok) => (ok ? toast(t('copied')) : dialog({ title: t('onTheGo'), fields: [{ name: 'url', label: t('remoteAddr'), value: el.dataset.copyremote }], ok: 'OK' })));
@@ -5271,6 +5314,13 @@ document.addEventListener('click', async (e) => {
         saveConn();
         toast(t('saved'));
       }
+    } else if (el.matches('[data-invite]')) {
+      const r = await post('/api/invites');
+      const base = (sameOrigin || conn.server || location.origin).replace(/\/$/, '');
+      const link = `${base}/#/invite/${r.token}`;
+      const ok = await copyText(link);
+      if (ok) toast(t('inviteCopied'));
+      await dialog({ title: t('inviteLink'), text: t('inviteHint'), fields: [{ name: 'url', label: t('link'), value: link }], ok: 'OK' });
     } else if (el.matches('[data-adduser]')) {
       const r = await dialog({
         title: t('addUser'),
@@ -5377,16 +5427,22 @@ async function showLogin(errorMsg = '') {
     ? `<label class="field"><span>${t('serverAddress')}</span><input name="server" value="${esc(conn.server || '')}" placeholder="http://192.168.1.50:8484" inputmode="url" autocapitalize="off" autocorrect="off"></label>
        <p class="muted small">${t('serverHelp')}</p>`
     : '';
-  const mode = !info ? 'server' : info.setup ? 'setup' : 'login';
+  const invite = (location.hash.match(/^#\/invite\/([0-9a-f]{16,64})/) || [])[1] || '';
+  let inviteErr = '';
+  if (info && invite && !info.setup) {
+    await api('GET', '/api/invite/' + invite, undefined, { token: null, timeout: 6000 }).catch((e) => (inviteErr = errorText(e)));
+  }
+  const mode = !info ? 'server' : info.setup ? 'setup' : invite && !inviteErr ? 'invite' : 'login';
+  if (inviteErr && !err) err = inviteErr;
   app.innerHTML = `<div class="auth-wrap"><form class="auth-card" novalidate>
     <div class="brand"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></div>
-    <h2>${mode === 'setup' ? t('firstAccount') : mode === 'login' ? t('login') : t('connect')}</h2>
-    ${mode === 'setup' ? `<p class="muted small">${t('firstAccountHelp')}</p>` : ''}
+    <h2>${mode === 'setup' ? t('firstAccount') : mode === 'invite' ? t('inviteTitle') : mode === 'login' ? t('login') : t('connect')}</h2>
+    ${mode === 'setup' ? `<p class="muted small">${t('firstAccountHelp')}</p>` : mode === 'invite' ? `<p class="muted small">${t('inviteHelp', { name: esc(info.name || 'Streyn') })}</p>` : ''}
     ${mode === 'server' ? serverField : `${sameOrigin ? '' : `<p class="muted small srv">${esc(conn.server)} · <a href="#" data-editserver>${t('changeServer')}</a></p>`}
       <label class="field"><span>${t('name')}</span><input name="name" autocomplete="username" autocapitalize="off"></label>
-      <label class="field"><span>${t('password')}</span><input name="password" type="password" autocomplete="${mode === 'setup' ? 'new-password' : 'current-password'}"></label>`}
+      <label class="field"><span>${t('password')}</span><input name="password" type="password" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}"></label>`}
     <p class="err">${esc(err)}</p>
-    <button class="btn primary wide">${mode === 'setup' ? t('create') : mode === 'login' ? t('login') : t('connect')}</button>
+    <button class="btn primary wide">${mode === 'setup' || mode === 'invite' ? t('create') : mode === 'login' ? t('login') : t('connect')}</button>
     <div class="auth-foot"><button type="button" class="linkbtn" data-authlang>${getLang() === 'de' ? 'English' : 'Deutsch'}</button></div>
   </form></div>`;
   const form = $('.auth-card');
@@ -5415,7 +5471,8 @@ async function showLogin(errorMsg = '') {
         return showLogin();
       }
       const body = { name: form.elements.name.value, password: form.elements.password.value, client: clientName() };
-      const r = await api('POST', mode === 'setup' ? '/api/setup' : '/api/login', body, { token: null });
+      const r = await api('POST', mode === 'setup' ? '/api/setup' : mode === 'invite' ? `/api/invite/${invite}/signup` : '/api/login', body, { token: null });
+      if (mode === 'invite') history.replaceState(null, '', location.pathname + '#/home');
       conn.token = r.token;
       conn.user = r.user;
       saveConn();

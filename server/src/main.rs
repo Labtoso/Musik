@@ -2,6 +2,7 @@ mod api;
 mod auth;
 mod db;
 mod ext;
+mod invite;
 mod library;
 mod offline;
 mod presence;

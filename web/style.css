@@ -623,6 +623,8 @@ body:has(.fs.open) .toast { top: calc(64px + var(--safe-t)); bottom: auto; }
 /* updates */
 .upd { display: grid; gap: 10px; margin-bottom: 12px; }
 .upd-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); }
+.updlog { margin: 8px 0 0; padding: 10px 12px; max-height: 220px; overflow: auto; border-radius: 10px; background: #0b0d10; color: #b8f5c9; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+.updlog:empty { display: none; }
 .upd-row > div { display: grid; gap: 2px; }
 .upd-row .upd-new { color: var(--accent); font-weight: 600; }
 .upd-row > .muted { max-width: 34ch; }

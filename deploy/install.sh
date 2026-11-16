@@ -78,6 +78,14 @@ if [ ! -e /opt/streyn ] && { [ -d /opt/musik ] || [ -f /etc/musik.env ]; }; then
   systemctl daemon-reload >/dev/null 2>&1 || true
 fi
 
+# a second, old service would hold the port and keep the old database open
+if [ -f /etc/systemd/system/musik.service ] && { [ -e /opt/streyn ] || [ -f /etc/streyn.env ]; }; then
+  [ "$(id -u)" -eq 0 ] || { echo "Please run as root (sudo)." >&2; exit 1; }
+  systemctl stop musik >/dev/null 2>&1 || true
+  systemctl disable musik >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/musik.service
+fi
+
 # clean install or update?
 OLD_PORT="$(awk -F= '/^PORT=/{print $2}' "$ENV_FILE" 2>/dev/null || true)"
 # an existing installation keeps its music folder
@@ -96,6 +104,25 @@ else
   OLD_VERSION=""
   echo
   echo "==> No installation found: CLEAN INSTALL."
+fi
+
+# ---- keep the data safe ----
+# The data folder named in the settings file is the one in use. If it holds no accounts but an
+# older folder still has a database (for example left behind by the rename from Musik), that
+# older database is taken over again instead of starting empty.
+CUR_DATA="$(awk -F= '/^DATA_DIR=/{print $2}' "$ENV_FILE" 2>/dev/null | tail -n1 || true)"
+CUR_DATA="${CUR_DATA:-$DATA_DIR}"
+has_db() { [ -s "$1/streyn.db" ] || [ -s "$1/musik.db" ]; }
+ORPHAN=""
+for d in /var/lib/streyn /var/lib/musik /opt/streyn/data /opt/musik/data; do
+  [ "$d" = "$CUR_DATA" ] && continue
+  if has_db "$d"; then ORPHAN="$d"; break; fi
+done
+NEEDS_SETUP=0
+if [ "$MODE" = update ] && [ -n "$ORPHAN" ]; then
+  if ! has_db "$CUR_DATA"; then NEEDS_SETUP=1
+  elif command -v curl >/dev/null && curl -fsS --max-time 3 "http://127.0.0.1:${OLD_PORT:-8484}/api/info" 2>/dev/null | grep -q '"setup":true'; then NEEDS_SETUP=1
+  fi
 fi
 
 # ask once, unless a flag decided it or Tailscale is already set up
@@ -139,8 +166,35 @@ fi
 
 step "Downloading Streyn server ($VERSION, $ARCH)"
 mkdir -p "$APP_DIR"
+# download first: if that fails, the running server is left alone
 curl -fL --progress-bar -o "$APP_DIR/streyn-server.new" "$URL"
 chmod +x "$APP_DIR/streyn-server.new"
+
+if [ "$MODE" = update ]; then
+  # stop the server so the database is complete on disk, then keep a copy of it
+  systemctl stop streyn >/dev/null 2>&1 || true
+  if has_db "$CUR_DATA"; then
+    step "Backing up your data"
+    B="$CUR_DATA/backups/$(date +%Y-%m-%d_%H%M%S)${OLD_VERSION:+_v$OLD_VERSION}"
+    mkdir -p "$B"
+    for f in "$CUR_DATA"/streyn.db* "$CUR_DATA"/musik.db*; do [ -f "$f" ] && cp -p "$f" "$B/"; done
+    echo "Saved to $B"
+    # keep the last 5 backups
+    ls -1d "$CUR_DATA"/backups/*/ 2>/dev/null | sort | head -n -5 | xargs -r rm -rf
+  fi
+  if [ "$NEEDS_SETUP" = 1 ]; then
+    step "Taking your data back from $ORPHAN"
+    if has_db "$CUR_DATA"; then
+      E="$CUR_DATA/backups/empty-$(date +%Y-%m-%d_%H%M%S)"; mkdir -p "$E"
+      mv -f "$CUR_DATA"/streyn.db* "$E/" 2>/dev/null || true
+      mv -f "$CUR_DATA"/musik.db* "$E/" 2>/dev/null || true
+    fi
+    mkdir -p "$CUR_DATA"
+    src=streyn; [ -s "$ORPHAN/streyn.db" ] || src=musik
+    for ext in "" -wal -shm; do [ -f "$ORPHAN/$src.db$ext" ] && cp -p "$ORPHAN/$src.db$ext" "$CUR_DATA/streyn.db$ext"; done
+    echo "Accounts, playlists and settings from $ORPHAN are back (the old folder stays as it is)."
+  fi
+fi
 mv -f "$APP_DIR/streyn-server.new" "$APP_DIR/streyn-server"
 curl -fsSL -o /usr/local/bin/streyn-update "https://raw.githubusercontent.com/$REPO/main/deploy/install.sh"
 chmod +x /usr/local/bin/streyn-update
@@ -153,6 +207,7 @@ id streyn >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sb
 chown -R streyn:streyn "$APP_DIR"
 mkdir -p "$DATA_DIR" "$MUSIC_DIR"
 chown -R streyn:streyn "$DATA_DIR"
+if [ "$CUR_DATA" != "$DATA_DIR" ] && [ -d "$CUR_DATA" ]; then chown -R streyn:streyn "$CUR_DATA"; fi
 # Only fix ownership of the music folder when it is empty (never touch a mounted collection).
 if [ -z "$(ls -A "$MUSIC_DIR" 2>/dev/null)" ]; then chown streyn:streyn "$MUSIC_DIR" 2>/dev/null || true; fi
 

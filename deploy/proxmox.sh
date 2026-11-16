@@ -88,6 +88,34 @@ ts_args() {
   return 0
 }
 
+# the notes helper and its timer on this Proxmox host
+install_notes() {
+  curl -fsSL -o /usr/local/bin/streyn-proxmox-notes.new "$RAW/proxmox-notes.sh" \
+    && chmod +x /usr/local/bin/streyn-proxmox-notes.new \
+    && mv -f /usr/local/bin/streyn-proxmox-notes.new /usr/local/bin/streyn-proxmox-notes || return 0
+  cat > /etc/systemd/system/streyn-proxmox-notes.service <<'UNIT'
+[Unit]
+Description=Streyn: keep container notes up to date
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/streyn-proxmox-notes
+UNIT
+  cat > /etc/systemd/system/streyn-proxmox-notes.timer <<'UNIT'
+[Unit]
+Description=Streyn: refresh container notes every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable --now streyn-proxmox-notes.timer >/dev/null 2>&1 || true
+}
+
 run_inside() {
   local id="$1"; shift
   pct exec "$id" -- bash -c "$*"
@@ -104,32 +132,10 @@ show_links() {
   version="$(pct exec "$id" -- bash -c "curl -fsS --max-time 5 http://127.0.0.1:$port/api/info" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' || true)"
   ts="$(pct exec "$id" -- bash -c 'command -v tailscale >/dev/null && tailscale ip -4 2>/dev/null | head -n1' 2>/dev/null || true)"
   when="$(date '+%Y-%m-%d %H:%M')"
-  # notes shown under the container's Summary in the Proxmox web UI
-  pct set "$id" --description "$(cat <<NOTES
-<div align='center'><a href='https://musik.labtoso.de'><img src='https://musik.labtoso.de/icon.svg' width='72' alt='Streyn'/></a>
-
-## Streyn server ${version:+v$version}
-
-Your own music server for Android, Windows, Linux and the browser.
-</div>
-
-| | |
-|---|---|
-| **Version** | ${version:-unknown} |
-| **Web app** | [$url]($url) |
-| **Server address for the apps** | \`$url\` |
-| **On the go (Tailscale)** | ${remote:-not set up} |
-| **Tailscale IP** | ${ts:--} |
-| **Music folder** | \`${music:-/srv/streyn}\` |
-| **Last ${mode:-install}** | $when |
-
-**Update:** run the Proxmox script again on this node, or \`streyn-update\` inside the container.
-**Logs:** \`pct exec $id -- journalctl -u streyn -f\`
-**Settings:** \`pct exec $id -- nano /etc/streyn.env\`
-
-[Download the apps](https://github.com/$REPO/releases/latest) · [Docs](https://musik.labtoso.de/docs.html) · [Website](https://musik.labtoso.de)
-NOTES
-)" >/dev/null || true
+  # notes shown under the container's Summary in the Proxmox web UI; a timer keeps them in step
+  # with the server version, also after updates from the app
+  install_notes
+  /usr/local/bin/streyn-proxmox-notes "$id" "$mode" || true
   echo
   echo "────────────────────────────────────────────────────────────"
   if [ "$mode" = "update" ]; then echo " Streyn ${version:+$version }updated in container $id."; else echo " Streyn ${version:+$version }installed in new container $id."; fi
@@ -141,6 +147,7 @@ NOTES
   echo "  Logs:                 pct exec $id -- journalctl -u streyn -f"
   echo "  Settings:             pct exec $id -- nano /etc/streyn.env"
   echo "  The same overview is in Proxmox: container $id -> Summary -> Notes."
+  echo "  It follows the server version by itself (also after updates in the app)."
 }
 
 if [ -n "$EXISTING" ]; then

@@ -209,6 +209,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: out
@@ -220,14 +222,23 @@ jobs:
         run: |
           cp deploy/proxmox.sh out/proxmox.sh
           cp deploy/install.sh out/install.sh
-          # apps and servers from before the rename to Streyn look for the old file names
-          cp out/Streyn.apk out/Musik.apk
-          cp out/Streyn.exe out/Musik.exe
-          cp out/Streyn.AppImage out/Musik.AppImage
-          for f in out/streyn-server-*; do cp "$f" "out/musik-server-${f#out/streyn-server-}"; done
+          # only the Streyn files; the old Musik.* copies are no longer attached
+          rm -f out/Musik.* out/musik-server-*
+          # every release gets a description: the notes file, or else the commit messages since the last release
           NOTES=".github/releases/v$V.md"
-          [ -f "$NOTES" ] || NOTES=/dev/null
+          if [ ! -s "$NOTES" ]; then
+            git fetch -q --tags origin || true
+            PREV="$(git tag -l 'v*' --sort=-v:refname | grep -vx "v$V" | head -n1)"
+            NOTES="$(mktemp)"
+            { echo "## What changed"; git log --no-merges --format='- %s' ${PREV:+$PREV..}HEAD | grep -v '^- Download page' | head -n 40; } > "$NOTES"
+          fi
           gh release create "v$V" out/* --target "$GITHUB_SHA" --title "Streyn $V" --notes-file "$NOTES" --latest
+          # earlier releases that went out without a description get theirs from the notes files
+          for f in .github/releases/v*.md; do
+            t="$(basename "$f" .md)"
+            body="$(gh release view "$t" --json body -q .body 2>/dev/null)" || continue
+            [ -z "$body" ] && gh release edit "$t" --notes-file "$f" >/dev/null && echo "Description added to $t"
+          done || true
       # the download page shows the new version right away
       - name: Download page
         env:

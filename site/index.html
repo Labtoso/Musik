@@ -259,6 +259,9 @@ body.set-open .panel { transform: none; }
 .binr { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 30px; font: 13px var(--mono); color: var(--dim); }
 .binr a { color: var(--paper); border-bottom: 1px solid var(--line2); }
 .binr a:hover { border-color: var(--accent); color: var(--accent); }
+.windl { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin: 16px 0 4px; font: 13px var(--mono); color: var(--paper); border-bottom: 1px solid var(--line2); }
+.windl:hover { color: var(--accent); border-color: var(--accent); }
+.windl b { color: var(--accent); font-weight: 500; }
 
 /* B2 server */
 .tabs { display: flex; gap: 28px; flex-wrap: wrap; border-bottom: 1px solid var(--line2); margin-bottom: 36px; }
@@ -694,7 +697,8 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
     </div>
     <div class="pane" data-pane="win">
       <div class="term"><div class="term-h">PowerShell<button data-copy="win" data-t="copy"></button></div>
-<pre><span class="p">&gt;</span> <span data-cmd="win">.\streyn-server-windows-x64.exe</span></pre></div>
+<pre><span class="p">&gt;</span> <span data-cmd="win">Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.exe; .\streyn-server.exe</span></pre></div>
+      <a class="windl" href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe"><span data-t="winDl"></span> <b data-winver>latest</b></a>
       <ol class="steps"><li data-h="win1"></li><li data-h="win2"></li></ol>
     </div>
   </div>
@@ -761,7 +765,8 @@ const T = {
     zima3: 'Aktualisieren: die App im Dashboard neu starten, sie holt beim Start die neueste Version.',
     dock1: 'Musik in den Ordner <code>music/</code> neben der <code>docker-compose.yml</code> legen.',
     dock2: 'Der Server läuft dann auf Port <code>8484</code>.',
-    win1: '<code>streyn-server-windows-x64.exe</code> laden und starten. Er nimmt deinen Musik-Ordner.',
+    win1: 'Der Befehl lädt immer den neuesten Server und startet ihn. Er nimmt deinen Musik-Ordner. Zum Updaten einfach noch mal ausführen.',
+    winDl: 'Oder direkt laden: streyn-server-windows-x64.exe',
     win2: 'Andere Ordner kommen in eine <code>.env</code> neben der exe: <code>MUSIC_DIRS=D:\\Musik</code>.',
     b3h: 'Liner <em>Notes.</em>',
     q1: 'Wo liegt meine Musik?', a1: 'Deine Dateien nur auf deinem Server, die Apps streamen direkt von dir. Andere Plattformen kommen nur dazu, wenn du sie einschaltest.',
@@ -816,7 +821,8 @@ const T = {
     zima3: 'Updating: restart the app on the dashboard, it fetches the newest version on start.',
     dock1: 'Put your music into <code>music/</code> next to <code>docker-compose.yml</code>.',
     dock2: 'The server then runs on port <code>8484</code>.',
-    win1: 'Download <code>streyn-server-windows-x64.exe</code> and run it. It uses your Music folder.',
+    win1: 'The command always downloads the newest server and starts it. It uses your Music folder. Run it again to update.',
+    winDl: 'Or download it directly: streyn-server-windows-x64.exe',
     win2: 'Other folders go into a <code>.env</code> next to the exe: <code>MUSIC_DIRS=D:\\Music</code>.',
     b3h: 'Liner <em>notes.</em>',
     q1: 'Where is my music?', a1: 'Your files stay on your server, the apps stream straight from you. Other platforms only join in when you switch them on.',
@@ -1184,7 +1190,7 @@ resetDemo(); render();
 const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .1 });
 $$('.rv').forEach((el) => io.observe(el));
 // newest version: version.json is written by every release (no limits, no waiting), GitHub's own list as a backup
-const useRelease = (r) => { if (r && r.tag_name && (!release || r.tag_name.localeCompare(release.tag_name, undefined, { numeric: true }) > 0)) { release = r; render(); } };
+const useRelease = (r) => { if (r && r.tag_name && (!release || r.tag_name.localeCompare(release.tag_name, undefined, { numeric: true }) > 0)) { release = r; render(); document.querySelectorAll('[data-winver]').forEach((e) => (e.textContent = r.tag_name)); } };
 // Discord invite: one place for the website, the docs and the apps
 fetch('links.json?' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
   const u = String(j?.discord || '').trim();
