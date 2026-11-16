@@ -3673,9 +3673,11 @@ async function openChill() {
     if (!chill || chill.el !== el) return;
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4c8dff';
     chill.meta = [chill.first];
-    chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chill.first?.src || chillCover() }], center: true, follow: false, manual: true, onTrack: (i) => { chillShow(chill?.meta[i]); chillRelease(chill?.meta[i]); }, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
+    chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chill.first?.src || chillCover() }], center: true, follow: false, manual: true, beatSync: !!prefs.chillBeat, bands: (o) => player.spectrum(o), onTrack: (i) => { chillShow(chill?.meta[i]); chillRelease(chill?.meta[i]); }, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
     chillMeta();
     el.classList.add('ready');
+    // Android: its visualizer delivers the sound for the dots and the beat (only if the permission was given before)
+    if (prefs.vizAsked) player.startViz();
     chill.tick = setInterval(() => {
       const r = chill?.room;
       if (!r) return;
@@ -3696,6 +3698,7 @@ function closeChill(fromHistory) {
   const c = chill;
   if (!c) return;
   chillRelease();
+  if (!viz?.running && !miniViz?.running) player.stopViz();
   chill = null;
   clearInterval(c.tick); clearTimeout(c.hide);
   try { c.lock?.release(); } catch {}
@@ -4770,6 +4773,7 @@ function prefChanged(k) {
   }
   if (['crossfade', 'normalize', 'streamQ'].includes(k)) player?.setOptions?.(playOptions());
   if (k === 'chill') chillSync();
+  if (k === 'chillBeat') chill?.room?.setBeatSync?.(!!prefs.chillBeat);
   if (k === 'mixStream') saveTaste();
   if (k === 'discord') discordSync();
 }
@@ -4822,7 +4826,8 @@ async function renderSettings() {
       setRow(t('crossfade'), prng('crossfade', 0, 12, 1, 0, (v) => (Number(v) ? v + ' s' : t('off'))), { hint: t('crossfadeHint'), keys: 'crossfade überblendung übergang fade gapless' }) +
       setRow(t('normalize'), psw('normalize', false), { hint: t('normalizeHint'), keys: 'lautstärke normalisieren normalize volume loudness gleiche' }) +
       setRow(t('streamQ'), pseg('streamQ', ['auto', 'low', 'normal', 'high', 'veryhigh'], 'auto', (v) => t('q_' + v)), { hint: t('streamQHint'), keys: 'qualität quality streaming bitrate', wide: true }) +
-      setRow(t('chill'), psw('chill', false), { hint: t('chillHint'), keys: 'chillscreen raum room zimmer vollbild fullscreen kamera camera plattenspieler' })),
+      setRow(t('chill'), psw('chill', false), { hint: t('chillHint'), keys: 'chillscreen raum room zimmer vollbild fullscreen kamera camera plattenspieler' }) +
+      setRow(t('chillBeat'), psw('chillBeat', false), { hint: t('chillBeatHint'), keys: 'chillscreen beat takt übergänge transitions rhythmus' })),
     setCard('viz', 'viz', t('viz'),
       setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' }) +
       setRow(t('miniViz'), pseg('miniViz', MINI_MODES, 'bars', (v) => t('mviz_' + v)), { hint: t('miniVizHint'), keys: 'mini player visualizer klein', wide: true }) +
