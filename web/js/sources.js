@@ -73,7 +73,7 @@ export function extTrack(it) {
 }
 export const isExt = (t) => !!t?.ext;
 /** Invite link of the Streyn Discord server. The Discord buttons in the apps only show while it is set. */
-export const DISCORD_URL = '';
+export const DISCORD_URL = 'https://discord.gg/bN2MTKwVaN';
 
 /** Open a page in the system browser: Android and the desktop app hand it over, a browser opens a tab. */
 export function openExternal(url) {

@@ -1153,9 +1153,9 @@ function pageHead(title, extra = '') {
   const initial = avatarInner();
   return `<div class="mhead"><button class="avatar" data-profile title="${t('profile')}">${initial}</button><h1>${title}</h1>${extra}${discordBtn('m-only')}</div>`;
 }
-// Discord: a button next to the profile picture, always visible (GitHub issues until the invite link is set)
+// Discord: a button next to the profile picture, always visible
 // the link comes from links.json on the website, so it can change without an app update
-let discordUrl = DISCORD_URL || 'https://github.com/Labtoso/Musik/issues';
+let discordUrl = DISCORD_URL;
 function discordBtn(cls = '') {
   return `<button type="button" class="discord-btn ${cls}" data-discord title="Discord" aria-label="Discord">${icon('discord')}<span>Discord</span></button>`;
 }
