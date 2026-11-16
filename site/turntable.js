@@ -6,7 +6,7 @@ const ease = (t) => (t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t));
 const easeOut = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 
 function vinylTexture(accent, fontReady, img) {
-  const S = 2048, c = document.createElement('canvas');
+  const S = 1536, c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d'), R = S / 2;
   g.fillStyle = '#08080a';
@@ -75,17 +75,22 @@ function tube(a, b, r, mat) {
 
 export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, tracks = [], onTrack = () => {}, center = false, follow = true, manual = false, decor = null, bands = null, beatSync = false } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  // pixel ratio adapts while running (see frame): starts sensible for the device, drops when frames get slow
+  const touch = matchMedia('(pointer: coarse)').matches;
+  const maxDpr = Math.min(devicePixelRatio || 1, touch ? 1.5 : 2);
+  let dpr = maxDpr;
+  renderer.setPixelRatio(dpr);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.92;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.autoUpdate = false;
 
   const scene = new THREE.Scene();
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.2;
+  scene.environmentIntensity = 0.26;
 
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
   const chrome = new THREE.MeshStandardMaterial({ color: 0xe4e6ec, roughness: 0.12, metalness: 1 });
@@ -99,16 +104,13 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const key = new THREE.DirectionalLight(0xb9c6ff, 1.05);
   key.position.set(-4, 9, 5);
   key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.mapSize.set(touch ? 1024 : 1536, touch ? 1024 : 1536);
   key.shadow.camera.left = -18; key.shadow.camera.right = 18; key.shadow.camera.top = 14; key.shadow.camera.bottom = -14; key.shadow.camera.far = 60;
   key.shadow.radius = 6; key.shadow.bias = -0.0004;
   scene.add(key);
-  const rim = new THREE.PointLight(accentCol, 26, 18, 1.6);
+  const rim = new THREE.PointLight(accentCol, 30, 20, 1.6);
   rim.position.set(-3.5, 2.2, -4);
   scene.add(rim);
-  const fill = new THREE.PointLight(accentCol, 7, 14, 2);
-  fill.position.set(4, 1.2, 4);
-  scene.add(fill);
 
   const root = new THREE.Group();
   scene.add(root);
@@ -166,11 +168,11 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     const m = new THREE.MeshStandardMaterial({ ...opts });
     deco.push({ m, i, plain }); paintDeco(deco[deco.length - 1]); return m;
   };
+  const whiteTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); whiteTex.needsUpdate = true;
   function paintDeco(d) {
     const n = decoTex.length, use = n && (d.plain == null || d.i < n);
-    d.m.map = use ? decoTex[d.i % n] : null;
+    d.m.map = use ? decoTex[d.i % n] : whiteTex;
     d.m.color.set(use ? 0xffffff : (d.plain || '#2b2b30'));
-    d.m.needsUpdate = true;
   }
   function canvasTex(w, h, draw, repeat) {
     const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
@@ -230,7 +232,6 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   // LED strip under the board, in the accent colour
   const strip = new THREE.Mesh(new THREE.BoxGeometry(23, 0.04, 0.04), new THREE.MeshBasicMaterial({ color: accentCol }));
   strip.position.set(0.5, TOP - 0.38, 2.15); root.add(strip);
-    const under = new THREE.PointLight(accentCol, 6, 9, 2); under.position.set(0.5, TOP - 1.2, 3.2); root.add(under);
 
   // record crate with sleeves
   const crate = new THREE.Group(); crate.position.set(7.4, TOP, 0.1); crate.rotation.y = -0.18; root.add(crate);
@@ -300,28 +301,46 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const portLip = new THREE.Mesh(new RoundedBoxGeometry(1.58, 0.28, 0.04, 3, 0.04), new THREE.MeshStandardMaterial({ color: 0x0f1014, roughness: 0.5 })); portLip.position.set(0, LIFT + 0.42, FRONT - 0.045); spk.add(portLip);
   const badge = new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.07, 0.015, 2, 0.006), satin); badge.position.set(0, LIFT + 2.78, FRONT + 0.005); spk.add(badge);
 
-  // CDs: a stack and a few standing
+  // CDs: real jewel cases, a stack and a few standing. Clear plastic shell, black tray, booklet and a printed spine.
   const cds = new THREE.Group(); cds.position.set(-9.7, TOP, 1.3); cds.rotation.y = 0.35; root.add(cds);
-  const jewel = new THREE.MeshStandardMaterial({ color: 0xdfe6f0, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.35 });
-  for (let i = 0; i < 9; i++) {
+  const shellMat = new THREE.MeshPhysicalMaterial({ color: 0xf2f6ff, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.22, clearcoat: 1, depthWrite: false });
+  const edgeTex = canvasTex(64, 32, (g, w, h) => { g.fillStyle = '#0b0b0e'; g.fillRect(0, 0, w, h); g.fillStyle = '#d9d4c8'; g.fillRect(0, 0, w, h * 0.22); g.fillStyle = '#26262c'; g.fillRect(0, h * 0.22, w, h * 0.06); });
+  const edgeMat = new THREE.MeshStandardMaterial({ map: edgeTex, roughness: 0.45 }), trayMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.4 });
+  const spineCds = ['#e9e4d8', '#15161c', '#b8432f', '#2f4a6a', '#d8b25a', '#3f5e46', '#f0efe9', '#5a2f4e', '#1d2b3a'];
+  const caseGeo = new THREE.BoxGeometry(1.4, 0.13, 1.25), inGeo = new THREE.BoxGeometry(1.36, 0.1, 1.2);
+  function jewelCase(i) {
+    const g = new THREE.Group();
+    const bg = spineCds[i % spineCds.length], ink = /^#(1|2|3|5)/.test(bg) ? '#efe9dc' : '#1a1a1e';
+    const spine = canvasTex(256, 20, (c, w, h) => {
+      c.fillStyle = bg; c.fillRect(0, 0, w, h); c.fillStyle = ink;
+      c.font = '700 13px "Inter", sans-serif'; c.textBaseline = 'middle'; c.fillText(['NIGHT DRIVE', 'SLOW BLOOM', 'LOW TIDE', 'GOLDEN HOUR', 'AFTERGLOW', 'SOFT FOCUS', 'NORTHBOUND', 'VELVET', 'MIDNIGHT'][i % 9], 18, h / 2 + 1);
+      c.globalAlpha = 0.6; c.fillRect(w - 46, 6, 28, 8);
+    });
+    const sp = new THREE.MeshStandardMaterial({ map: spine, roughness: 0.5 });
     const top = decoMat(i + 2, { roughness: 0.4 });
-    const spine = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rnd(), 0.5, 0.45), roughness: 0.5 });
-    const cd = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 1.24), [spine, spine, top, jewel, spine, spine]);
-    cd.position.set((rnd() - 0.5) * 0.12, 0.06 + i * 0.125, (rnd() - 0.5) * 0.1); cd.rotation.y = (rnd() - 0.5) * 0.18;
-    cd.castShadow = cd.receiveShadow = true; cds.add(cd);
+    const inner = new THREE.Mesh(inGeo, [edgeMat, edgeMat, top, trayMat, sp, edgeMat]); inner.castShadow = inner.receiveShadow = true; g.add(inner);
+    const shell = new THREE.Mesh(caseGeo, shellMat); shell.renderOrder = 2; g.add(shell);
+    // the hinge on the spine side
+    const hinge = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.022, 0.03), trayMat); hinge.position.set(0, 0.052, 0.62); g.add(hinge);
+    return g;
+  }
+  for (let i = 0; i < 9; i++) {
+    const cd = jewelCase(i);
+    cd.position.set((rnd() - 0.5) * 0.1, 0.065 + i * 0.132, (rnd() - 0.5) * 0.08); cd.rotation.y = (rnd() - 0.5) * 0.14;
+    cds.add(cd);
   }
   for (let i = 0; i < 3; i++) {
-    const face = decoMat(i + 4, { roughness: 0.35 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x111218 });
-    const cd = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.24, 0.12), [dark, dark, dark, dark, face, dark]);
-    cd.position.set(1.95 + i * 0.16, 0.62, 0.45 - i * 0.12); cd.rotation.set(-0.05, -0.3, 0.04 * i);
-    cd.castShadow = true; cds.add(cd);
+    // standing up, cover to the front, spine on the board
+    const cd = jewelCase(i + 9); cd.rotation.set(Math.PI / 2 - 0.05, -0.3, 0.04 * i, 'YXZ');
+    cd.position.set(1.95 + i * 0.16, 0.63, 0.45 - i * 0.12); cds.add(cd);
   }
-  // a loose disc
+  // a loose disc lying flat on the sideboard
   const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.012, 64), new THREE.MeshStandardMaterial({ color: 0xd8dbe6, roughness: 0.15, metalness: 1 }));
-  disc.position.set(-0.2, 0.01, 1.35); cds.add(disc);
+  disc.position.set(-10.75, TOP + 0.007, -0.1); root.add(disc); disc.name = 'disc';
   const discLabel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.014, 48), decoMat(0, { roughness: 0.5 }));
-  discLabel.position.set(-0.2, 0.012, 1.35); cds.add(discLabel);
+  discLabel.position.set(-10.75, TOP + 0.008, -0.1); root.add(discLabel);
+  const discHole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.016, 24), new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.7 }));
+  discHole.position.set(-10.75, TOP + 0.009, -0.1); root.add(discHole);
 
   // floor shelf full of records, with an amplifier on top
   const SHX = 17.6, SHZ = -1.4; // rotated, so it stays clear of the wall and the sideboard
@@ -331,22 +350,34 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const CW = 3.7, SW = CW * 2 + 0.3 * 3, SH_H = CW * 2 + 0.3 * 3;
   for (let i = 0; i < 3; i++) { plank(SW, 0.3, 3.8, 0, 0.15 + i * (CW + 0.3), 0); plank(0.3, SH_H, 3.8, -SW / 2 + 0.15 + i * (CW + 0.3), SH_H / 2, 0); }
   const back = new THREE.Mesh(new THREE.PlaneGeometry(SW, SH_H), new THREE.MeshStandardMaterial({ color: 0x1b1d26, roughness: 0.9 })); back.position.set(0, SH_H / 2, -1.85); shelf.add(back);
-  const spineCols = ['#c4472f', '#1f3b63', '#e3b23c', '#2b2b30', '#5c7c5a', '#8a3b6e', '#d9d2c3', '#3d6f8f', '#f0e6d2', '#6b4a3a'];
-  for (let cx = 0; cx < 2; cx++) for (let cy = 0; cy < 2; cy++) {
-    const x0 = -SW / 2 + 0.3 + cx * (CW + 0.3), y0 = 0.3 + cy * (CW + 0.3);
-    if (cx === 1 && cy === 1) {
-      // one cube shows a record face out
-      const f = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.4, 0.05), [sleeveSide, sleeveSide, sleeveSide, sleeveSide, decoMat(3, { roughness: 0.7 }), sleeveSide]);
-      f.position.set(x0 + CW / 2, y0 + 1.72, -0.4); f.rotation.x = -0.12; f.castShadow = true; shelf.add(f);
-      continue;
+  // real records with the covers of the queue; each cube is stacked differently: standing in a row, lying in a pile, mixed, face out
+  const recPool = Array.from({ length: 12 }, (_, k) => decoMat(k + 5, { roughness: 0.7 }));
+  const recMat = () => recPool[Math.floor(rnd() * recPool.length)];
+  const RS = 3.4, recGeo = new THREE.BoxGeometry(1, 1, 1);
+  const rec = (th, x, y, z, rx = 0, ry = 0, rz = 0, flat = false) => {
+    const m = recMat(), side = flat ? [sleeveSide, sleeveSide, m, sleeveSide, sleeveSide, sleeveSide] : [m, m, sleeveSide, sleeveSide, m, sleeveSide];
+    const r = new THREE.Mesh(recGeo, side); flat ? r.scale.set(RS, th, RS) : r.scale.set(th, RS, RS);
+    r.position.set(x, y, z); r.rotation.set(rx, ry, rz); r.castShadow = r.receiveShadow = true; shelf.add(r); return r;
+  };
+  const row = (x0, x1, y0, leanEnd) => {
+    let x = x0;
+    while (x < x1) {
+      const th = 0.05 + rnd() * 0.04, lean = leanEnd && x > x1 - 0.7 && rnd() < 0.5 ? 0.2 : 0;
+      rec(th, x + th / 2 + (lean ? RS / 2 * Math.sin(lean) : 0), y0 + RS / 2 * Math.cos(lean) + 0.01, (rnd() - 0.5) * 0.12, 0, 0, -lean);
+      x += th + 0.006; if (lean) break;
     }
-    let x = x0 + 0.05;
-    while (x < x0 + CW - 0.12) {
-      const th = 0.05 + rnd() * 0.06, lean = x > x0 + CW - 0.9 && rnd() < 0.5 ? 0.18 : 0;
-      const sp = new THREE.Mesh(new THREE.BoxGeometry(th, 3.45, 3.45), new THREE.MeshStandardMaterial({ color: spineCols[Math.floor(rnd() * spineCols.length)], roughness: 0.75 }));
-      sp.position.set(x + th / 2, y0 + 1.73, 0); sp.rotation.z = -lean; sp.castShadow = true; shelf.add(sp);
-      x += th + 0.008;
-      if (lean) break;
+  };
+  const pile = (cx, y0, n) => { let y = y0; for (let i = 0; i < n; i++) { const th = 0.06 + rnd() * 0.03; rec(th, cx + (rnd() - 0.5) * 0.12, y + th / 2, (rnd() - 0.5) * 0.1, 0, (rnd() - 0.5) * 0.12, 0, true); y += th + 0.004; } };
+  for (let cx = 0; cx < 2; cx++) for (let cy = 0; cy < 2; cy++) {
+    const x0 = -SW / 2 + 0.3 + cx * (CW + 0.3), y0 = 0.3 + cy * (CW + 0.3), k = cx + cy * 2;
+    if (k === 0) row(x0 + 0.04, x0 + CW - 0.1, y0, true); // standing in a full row
+    else if (k === 1) pile(x0 + CW / 2, y0, 8); // a pile lying flat
+    else if (k === 2) row(x0 + 0.04, x0 + CW * 0.55, y0, true); // half a row, the last ones leaning
+    else {
+      // face out, standing on a short pile
+      pile(x0 + CW / 2, y0, 3);
+      const f = new THREE.Mesh(new THREE.BoxGeometry(RS, RS, 0.05), [sleeveSide, sleeveSide, sleeveSide, sleeveSide, decoMat(3, { roughness: 0.7 }), sleeveSide]);
+      f.position.set(x0 + CW / 2, y0 + 0.24 + RS / 2 * Math.cos(0.12), -0.2); f.rotation.x = -0.12; f.castShadow = true; shelf.add(f);
     }
   }
   // amplifier with glowing VU meters
@@ -394,7 +425,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   // closed lathe profile: thick rim, inner wall and a real bottom, so it reads as a mug from every angle
   const prof = [[0, 0], [0.34, 0], [0.37, 0.02], [0.385, 0.06], [0.42, 0.9], [0.423, 0.935], [0.412, 0.955], [0.395, 0.95], [0.38, 0.92], [0.355, 0.14], [0.33, 0.11], [0, 0.11]].map(([x, y]) => new THREE.Vector2(x, y));
   const cupM = new THREE.Mesh(new THREE.LatheGeometry(prof, 56), ceramic); cupM.castShadow = true; cupM.receiveShadow = true; mug.add(cupM);
-  const coffee = new THREE.Mesh(new THREE.CircleGeometry(0.372, 40), new THREE.MeshPhysicalMaterial({ color: 0x2a1609, roughness: 0.12, clearcoat: 1 })); coffee.rotation.x = -Math.PI / 2; coffee.position.y = 0.8; mug.add(coffee);
+  const coffee = new THREE.Mesh(new THREE.CircleGeometry(0.372, 40), new THREE.MeshStandardMaterial({ color: 0x2a1609, roughness: 0.1 })); coffee.rotation.x = -Math.PI / 2; coffee.position.y = 0.8; mug.add(coffee);
   // the handle: a vertical C on the side, both ends sitting in the wall
   const handle = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.055, 14, 32, Math.PI), ceramic); handle.position.set(0.4, 0.5, 0); handle.rotation.z = -Math.PI / 2; handle.castShadow = true; mug.add(handle);
   // steam: soft round wisps that rise and fade (no flat panels)
@@ -516,7 +547,6 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const sill = new THREE.Mesh(new RoundedBoxGeometry(WW + 1.2, 0.2, 1.0, 3, 0.05), frameMat); sill.position.set(WX, WY - WH / 2 - 0.35, WALL + 0.5); sill.castShadow = sill.receiveShadow = true; root.add(sill);
   const SILL = WY - WH / 2 - 0.25;
   // cool light from the window and a soft beam with dust in it
-  const winLight = new THREE.PointLight(0x7f98ff, 10, 16, 1.8); winLight.position.set(WX, WY, WALL + 1.4); root.add(winLight);
   const beamTex = canvasTex(64, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); const sx = g.createLinearGradient(0, 0, w, 0); sx.addColorStop(0, 'rgba(0,0,0,1)'); sx.addColorStop(0.2, 'rgba(0,0,0,0)'); sx.addColorStop(0.8, 'rgba(0,0,0,0)'); sx.addColorStop(1, 'rgba(0,0,0,1)'); g.globalCompositeOperation = 'destination-out'; g.fillStyle = sx; g.fillRect(0, 0, w, h); });
   const beam = new THREE.Mesh(new THREE.PlaneGeometry(WW * 0.9, 9), new THREE.MeshBasicMaterial({ map: beamTex, color: 0x6f86c8, transparent: true, opacity: 0.06, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
   beam.geometry.translate(0, -4.5, 0); beam.position.set(WX, WY + WH / 2 - 0.2, WALL + 0.2); beam.rotation.x = -0.62; root.add(beam);
@@ -579,7 +609,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       if (split) { g.globalCompositeOperation = 'destination-out'; for (let i = 1; i < 7; i++) { const y = h * (1 - i / 7.4); for (const sd of [-1, 1]) { g.lineWidth = 9 + rnd() * 5; g.beginPath(); g.moveTo(w / 2 + sd * w * 0.14, y); g.quadraticCurveTo(w / 2 + sd * w * 0.3, y - h * 0.04, w / 2 + sd * w * 0.62, y - h * 0.09); g.stroke(); } } for (let i = 0; i < 4; i++) { g.beginPath(); g.ellipse(w / 2 + (i % 2 ? 1 : -1) * w * 0.17, h * (0.3 + i * 0.13), 7, 12, 0, 0, Math.PI * 2); g.fill(); } g.globalCompositeOperation = 'source-over'; }
     });
   }
-  const leafSkin = (map) => new THREE.MeshPhysicalMaterial({ map, emissiveMap: map, emissive: 0x2a3a22, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.5, sheen: 0.3, sheenColor: new THREE.Color(0x9fd27a) });
+  const leafSkin = (map) => new THREE.MeshStandardMaterial({ map, emissiveMap: map, emissive: 0x2a3a22, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.4 });
   const leafMats = [leafSkin(leafTexture('#4f8a3c', '#2a5a28', 'rgba(200,230,150,.75)')), leafSkin(leafTexture('#5e9a45', '#30612b', 'rgba(210,235,160,.7)')), new THREE.MeshStandardMaterial({ color: 0x3f6b2e, roughness: 0.6 })];
   const monsteraMat = leafSkin(leafTexture('#4a9a50', '#2a6a34', 'rgba(190,230,160,.75)', { split: true }));
   const bladeMat = leafSkin(leafTexture('#3d6b3a', '#203f22', '', { blade: true }));
@@ -593,9 +623,12 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const leafGeo = leafGeometry(0.46, 0.95), bigLeaf = leafGeometry(1.0, 1.25, 0.12, 0.3), bladeGeo = leafGeometry(0.26, 2.2, 0.05, 0.06);
   const swaying = [];
   const potMat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75 });
+  // soil: a slightly domed disc that sits a bit below the rim
+  const soilGeo = new THREE.CircleGeometry(0.375, 28).rotateX(-Math.PI / 2); { const pa = soilGeo.attributes.position; for (let i = 0; i < pa.count; i++) { const r = Math.hypot(pa.getX(i), pa.getZ(i)); pa.setY(i, 0.03 * (1 - (r / 0.375) ** 2) + Math.sin(pa.getX(i) * 40) * Math.cos(pa.getZ(i) * 37) * 0.004); } soilGeo.computeVertexNormals(); }
+  const soilMat = new THREE.MeshStandardMaterial({ color: 0x24180f, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   function pot(g, col, h = 0.66) {
-    const pm = new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [0.32, 0], [0.42, h * 0.94], [0.46, h], [0.46, h + 0.06], [0.4, h + 0.06], [0.38, h], [0, h]].map(([a, b]) => new THREE.Vector2(a, b)), 40), potMat(col)); pm.castShadow = pm.receiveShadow = true; g.add(pm);
-    const soil = new THREE.Mesh(new THREE.CircleGeometry(0.39, 24), new THREE.MeshStandardMaterial({ color: 0x1d140d, roughness: 1 })); soil.rotation.x = -Math.PI / 2; soil.position.y = h; g.add(soil);
+    const pm = new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [0.32, 0], [0.42, h * 0.94], [0.46, h], [0.46, h + 0.06], [0.4, h + 0.06], [0.38, h], [0.36, h - 0.12], [0, h - 0.12]].map(([a, b]) => new THREE.Vector2(a, b)), 40), potMat(col)); pm.castShadow = pm.receiveShadow = true; g.add(pm);
+    const soil = new THREE.Mesh(soilGeo, soilMat); soil.position.y = h - 0.05; g.add(soil);
   }
   function plant(parent, x, y, z, size, n, potCol = 0xc4683f, kind = 'leafy') {
     const g = new THREE.Group(); g.position.set(x, y, z); g.scale.setScalar(size); parent.add(g);
@@ -633,9 +666,11 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   }
   plant(books, 0.2, by, 0, 0.75, 9, 0xd8cfc0);
   plant(sillC, 2.3, 0, 0, 0.55, 7, 0x5b6f86);
-  plant(root, -24.2, FLOOR, -2.4, 2.3, 13, 0xc4683f, 'monstera');
-  plant(root, 25.4, FLOOR, -2.4, 2.0, 16, 0x2c2c30, 'blade');
-  plant(root, -19.8, FLOOR, 7.4, 1.7, 14, 0xd6cbb8, 'blade');
+  // the big plants keep clear of the wall and of the camera paths
+  const mon = plant(root, -24.8, FLOOR, -0.9, 2.0, 13, 0xc4683f, 'monstera'); mon.name = 'monstera';
+  mon.children.find((c) => c.isGroup).scale.z = 0.6; // flatter towards the wall, so no leaf goes into it
+  plant(root, 25.4, FLOOR, -1.6, 2.0, 16, 0x2c2c30, 'blade').name = 'bladeR';
+  plant(root, -13.4, FLOOR, 9.0, 1.7, 14, 0xd6cbb8, 'blade').name = 'bladeL';
 
   // an armchair with a blanket and a cushion, turned towards the music
   const chair = new THREE.Group(); chair.position.set(-15.6, FLOOR, 4.2); chair.rotation.y = 0.75; root.add(chair);
@@ -696,7 +731,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   // low oval coffee table on the rug: dried pampas in a vase, magazines, a candle and a record from the queue
   const ctable = new THREE.Group(); ctable.position.set(2.6, FLOOR, 9.8); ctable.rotation.y = 0.08; root.add(ctable); ctable.name = 'coffee';
   const topGeo = new THREE.CylinderGeometry(1, 1, 0.22, 64); topGeo.scale(2.7, 1, 1.55);
-  const ctop = new THREE.Mesh(topGeo, new THREE.MeshPhysicalMaterial({ map: oak, color: 0x8a6448, roughness: 0.4, clearcoat: 0.4 })); ctop.position.y = 1.9; ctop.castShadow = ctop.receiveShadow = true; ctable.add(ctop);
+  const ctop = new THREE.Mesh(topGeo, new THREE.MeshStandardMaterial({ map: oak, color: 0x8a6448, roughness: 0.38 })); ctop.position.y = 1.9; ctop.castShadow = ctop.receiveShadow = true; ctable.add(ctop);
   for (const [x, z] of [[-2.0, -0.9], [2.0, -0.9], [-2.0, 0.9], [2.0, 0.9]]) { const l = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.07, 1.8, 12), new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 0.5 })); l.position.set(x, 0.9, z); l.rotation.set(z * 0.08, 0, -x * 0.04); l.castShadow = true; ctable.add(l); }
   const vase = new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [0.3, 0], [0.42, 0.3], [0.36, 0.9], [0.16, 1.3], [0.14, 1.6], [0.18, 1.66], [0, 1.66]].map(([a, b]) => V2(a, b)), 40), new THREE.MeshStandardMaterial({ color: 0xd9cbb3, roughness: 0.85 })); vase.position.set(-1.3, 2.01, -0.3); vase.castShadow = true; ctable.add(vase);
   const plumeTex = canvasTex(64, 256, (g, w, h) => { for (let i = 0; i < 4200; i++) { const y = rnd() * h, sp = Math.pow(Math.sin((y / h) * Math.PI), 0.7) * w * 0.46; g.fillStyle = `rgba(${235 + rnd() * 20},${215 + rnd() * 15},${180 + rnd() * 20},${0.25 + rnd() * 0.4})`; g.save(); g.translate(w / 2 + (rnd() - 0.5) * 2 * sp, y); g.rotate((rnd() - 0.5) * 0.8); g.fillRect(0, 0, 1.5, 6); g.restore(); } });
@@ -714,19 +749,19 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const qSleeve = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.03, 2.0), [sleeveSide, sleeveSide, decoMat(15, { roughness: 0.6 }), sleeveSide, sleeveSide, sleeveSide]); qSleeve.position.set(1.4, 2.03, -0.25); qSleeve.rotation.y = -0.35; qSleeve.castShadow = true; ctable.add(qSleeve);
   const ctTop = new THREE.Group(); ctTop.position.y = 2.01; ctable.add(ctTop); candle(ctTop, -0.2, 0.55, 0.42, 0.16);
   // a bean bag and floor cushions
-  const bagGeo = new THREE.SphereGeometry(1, 40, 24); { const pa = bagGeo.attributes.position; for (let i = 0; i < pa.count; i++) { let y = pa.getY(i); const x = pa.getX(i), z = pa.getZ(i); y = y < -0.2 ? -0.2 - (y + 0.2) * 0.25 : y; const dent = y > 0.2 ? Math.max(0, 0.35 - Math.hypot(x + 0.15, z - 0.1)) * 0.9 : 0; pa.setXYZ(i, x * (1 + Math.sin(z * 5) * 0.02), y - dent, z); } bagGeo.computeVertexNormals(); }
-  const bean = new THREE.Mesh(bagGeo, fabric(0xc9b48f)); bean.scale.set(2.5, 1.7, 2.3); bean.position.set(12.4, FLOOR + 1.45, 8.6); bean.rotation.y = -0.6; bean.castShadow = bean.receiveShadow = true; root.add(bean); bean.name = 'bean';
+  const bagGeo = new THREE.SphereGeometry(1, 40, 24); { const pa = bagGeo.attributes.position; for (let i = 0; i < pa.count; i++) { let y = pa.getY(i); const x = pa.getX(i), z = pa.getZ(i); y = y < -0.2 ? -0.2 + (y + 0.2) * 0.25 : y; const dent = y > 0.2 ? Math.max(0, 0.35 - Math.hypot(x + 0.15, z - 0.1)) * 0.9 : 0; pa.setXYZ(i, x * (1 + Math.sin(z * 5) * 0.02), y - dent, z); } bagGeo.computeVertexNormals(); }
+  const bean = new THREE.Mesh(bagGeo, fabric(0xc9b48f)); bean.scale.set(2.5, 1.7, 2.3); bean.position.set(12.4, FLOOR + 0.66, 8.6); bean.rotation.y = -0.6; bean.castShadow = bean.receiveShadow = true; root.add(bean); bean.name = 'bean';
   const cush = (c, x, z, r, y = 0) => { const m = new THREE.Mesh(new RoundedBoxGeometry(2.2, 0.55, 2.2, 4, 0.25), fabric(c)); m.position.set(x, FLOOR + 0.28 + y, z); m.rotation.y = r; m.castShadow = m.receiveShadow = true; root.add(m); return m; };
   cush(0x6b3a2a, -8.6, 9.6, 0.3); cush(0xb88a3e, -8.3, 9.4, 0.9, 0.55);
   // guitar on a stand, leaning slightly, next to the floor lamp
-  const guitar = new THREE.Group(); guitar.position.set(-16.9, FLOOR, -2.9); guitar.rotation.y = 0.25; root.add(guitar); guitar.name = 'guitar';
+  const guitar = new THREE.Group(); guitar.position.set(-16.9, FLOOR, -2.3); guitar.rotation.y = 0.25; root.add(guitar); guitar.name = 'guitar';
   const gs = new THREE.Shape(); gs.moveTo(0, 0); gs.bezierCurveTo(1.75, 0, 1.95, 1.4, 1.35, 2.3); gs.bezierCurveTo(1.05, 2.75, 1.4, 3.4, 1.05, 4.0); gs.bezierCurveTo(0.7, 4.55, -0.7, 4.55, -1.05, 4.0); gs.bezierCurveTo(-1.4, 3.4, -1.05, 2.75, -1.35, 2.3); gs.bezierCurveTo(-1.95, 1.4, -1.75, 0, 0, 0);
   const gbGeo = new THREE.ExtrudeGeometry(gs, { depth: 0.75, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.06, bevelSegments: 3, curveSegments: 32 });
   const spruce = canvasTex(256, 256, (g, w) => { g.fillStyle = '#d9b27a'; g.fillRect(0, 0, w, w); for (let i = 0; i < 70; i++) { g.strokeStyle = `rgba(150,100,50,${0.08 + rnd() * 0.12})`; g.lineWidth = 1 + rnd() * 2; const x = rnd() * w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (rnd() - 0.5) * 6, w); g.stroke(); } const r = g.createRadialGradient(w / 2, w / 2, w * 0.2, w / 2, w / 2, w * 0.7); r.addColorStop(0, 'rgba(0,0,0,0)'); r.addColorStop(1, 'rgba(60,25,5,.55)'); g.fillStyle = r; g.fillRect(0, 0, w, w); });
   spruce.wrapS = spruce.wrapT = THREE.RepeatWrapping; spruce.repeat.set(0.25, 0.22);
-  const top2 = new THREE.MeshPhysicalMaterial({ map: spruce, roughness: 0.35, clearcoat: 0.8, clearcoatRoughness: 0.2 }), sideG = new THREE.MeshPhysicalMaterial({ color: 0x4a2414, roughness: 0.35, clearcoat: 0.7 });
+  const top2 = new THREE.MeshStandardMaterial({ map: spruce, roughness: 0.3 }), sideG = new THREE.MeshStandardMaterial({ color: 0x4a2414, roughness: 0.3 });
   const gBody = new THREE.Mesh(gbGeo, [top2, sideG]); gBody.castShadow = true;
-  const gTilt = new THREE.Group(); gTilt.position.set(0, 0.9, 0); gTilt.rotation.x = -0.2; guitar.add(gTilt);
+  const gTilt = new THREE.Group(); gTilt.position.set(0, 0.9, 0); gTilt.rotation.x = -0.11; guitar.add(gTilt);
   gBody.position.z = -0.4; gTilt.add(gBody);
   const sHole = new THREE.Mesh(new THREE.CircleGeometry(0.42, 40), new THREE.MeshBasicMaterial({ color: 0x0b0704 })); sHole.position.set(0, 2.85, 0.42); gTilt.add(sHole);
   const rosette = new THREE.Mesh(new THREE.RingGeometry(0.46, 0.54, 48), new THREE.MeshStandardMaterial({ color: 0x2a1408, roughness: 0.5 })); rosette.position.set(0, 2.85, 0.415); gTilt.add(rosette);
@@ -778,7 +813,6 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     const gl = glowSprite(0xffb46a, 4.2, 0.35); gl.position.set(x, y, z); root.add(gl);
     pendants.push(gl);
   }
-  const pendLight = new THREE.PointLight(0xffaa66, 9, 12, 1.7); pendLight.position.set(-16.2, 6.8, 2.4); root.add(pendLight);
   // a woven basket with a rolled blanket next to the sideboard
   const weave = canvasTex(128, 128, (g, w) => { g.fillStyle = '#a07a4a'; g.fillRect(0, 0, w, w); for (let y = 0; y < w; y += 8) for (let x = 0; x < w; x += 16) { g.fillStyle = (y / 8 + x / 16) % 2 ? 'rgba(60,35,15,.35)' : 'rgba(255,230,180,.15)'; g.fillRect(x + ((y / 8) % 2) * 8, y, 12, 7); } }, [6, 2]);
   const basket = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 0.95, 1.9, 40, 1, true), new THREE.MeshStandardMaterial({ map: weave, roughness: 0.9, side: THREE.DoubleSide })); basket.position.set(-12.9, FLOOR + 0.95, -0.2); basket.castShadow = true; root.add(basket); basket.name = 'basket';
@@ -882,23 +916,23 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const label = (txt, w, h, size = 26) => canvasTex(w, h, (g) => { g.fillStyle = 'rgba(0,0,0,0)'; g.clearRect(0, 0, w, h); g.fillStyle = '#c9ccd4'; g.font = `600 ${size}px "JetBrains Mono", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, w / 2, h / 2); });
   const printOn = (txt, x, z, w, h, s) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: label(txt, 256, Math.round(256 * h / w), s), transparent: true, depthWrite: false, opacity: 0.75 })); m.rotation.x = -Math.PI / 2; m.position.set(x, -0.048, z); ctl.add(m); return m; };
   // power dial with a ring that lights up
-  const power = new THREE.Group(); power.position.set(-2.38, -0.05, 1.95); ctl.add(power);
+  const power = new THREE.Group(); power.position.set(-2.36, -0.05, 1.9); ctl.add(power);
   power.add(turn([[0, 0], [0.24, 0], [0.24, 0.06], [0.2, 0.1], [0, 0.1]], btnMat, 40));
   const powerRing = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.012, 6, 48), ledOn(0xff5a3c)); powerRing.rotation.x = Math.PI / 2; powerRing.position.y = 0.005; power.add(powerRing);
   const powerMark = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.012, 0.14), ledOn(0xffffff)); powerMark.position.set(0, 0.105, -0.1); power.add(powerMark);
-  printOn('POWER', -2.38, 2.3, 0.6, 0.12, 40);
+  printOn('POWER', -2.36, 2.27, 0.6, 0.12, 40);
   // start / stop: the big square one
-  const startBtn = new THREE.Mesh(new RoundedBoxGeometry(0.62, 0.08, 0.46, 3, 0.03), btnMat); startBtn.position.set(-1.68, -0.04, 1.98); startBtn.castShadow = true; ctl.add(startBtn);
-  printOn('START · STOP', -1.68, 1.98, 0.56, 0.1, 30).position.y = 0.002;
+  const startBtn = new THREE.Mesh(new RoundedBoxGeometry(0.62, 0.08, 0.46, 3, 0.03), btnMat); startBtn.position.set(-1.6, -0.04, 2.06); startBtn.castShadow = true; ctl.add(startBtn);
+  printOn('START · STOP', -1.6, 2.06, 0.56, 0.1, 30).position.y = 0.002;
   // 33 / 45 with leds
   const speedLeds = [];
-  [['33', -1.08, 2.12], ['45', -0.62, 2.18]].forEach(([n, x, z]) => {
-    const b = new THREE.Mesh(new RoundedBoxGeometry(0.36, 0.06, 0.2, 2, 0.02), btnMat); b.position.set(x, -0.045, z); ctl.add(b);
-    printOn(n, x, z, 0.3, 0.12, 60).position.y = -0.012;
-    const led = new THREE.Mesh(new THREE.CircleGeometry(0.025, 12), ledOn(0x2a2a2a)); led.rotation.x = -Math.PI / 2; led.position.set(x + 0.14, -0.044, z - 0.16); ctl.add(led); speedLeds.push(led);
+  [['33', -0.94, 2.2], ['45', -0.5, 2.2]].forEach(([n, x, z]) => {
+    const b = new THREE.Mesh(new RoundedBoxGeometry(0.38, 0.06, 0.18, 2, 0.02), btnMat); b.position.set(x, -0.045, z); ctl.add(b);
+    printOn(n, x + 0.04, z, 0.3, 0.12, 60).position.y = -0.012;
+    const led = new THREE.Mesh(new THREE.CircleGeometry(0.025, 12), ledOn(0x2a2a2a)); led.rotation.x = -Math.PI / 2; led.position.set(x - 0.12, -0.012, z); ctl.add(led); speedLeds.push(led);
   });
   // strobe illuminator: a red lens next to the platter edge that lights its dots
-  const strobe = new THREE.Group(); strobe.position.set(-2.42, -0.05, 0.75); ctl.add(strobe);
+  const strobe = new THREE.Group(); strobe.position.set(-2.4, -0.05, 1.05); ctl.add(strobe);
   strobe.add(turn([[0, 0], [0.16, 0], [0.16, 0.14], [0, 0.14]], btnMat, 24));
   const strobeLens = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff3a24 })); strobeLens.position.y = 0.14; strobe.add(strobeLens);
   const strobeGlow = glowSprite(0xff3a24, 0.9, 0.5); strobeGlow.position.y = 0.2; strobe.add(strobeGlow);
@@ -910,19 +944,19 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const tHead = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.14, 16), btnMat); tHead.rotation.z = Math.PI / 2; tHead.position.set(0.06, 0.55, 0); tStalk.add(tHead);
   const tBeam = glowSprite(0xffe8c0, 0.7, 0.6); tBeam.position.set(0.16, 0.55, 0); tStalk.add(tBeam);
   // pitch fader with its slot, a centre led, range and reset buttons
-  const pslot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 2.0), new THREE.MeshBasicMaterial({ color: 0x050506 })); pslot.position.set(3.35, -0.046, 0.75); ctl.add(pslot);
-  for (let i = 0; i <= 16; i++) { const tk = new THREE.Mesh(new THREE.BoxGeometry(i % 4 ? 0.08 : 0.16, 0.005, 0.012), new THREE.MeshBasicMaterial({ color: 0x8a8d96 })); tk.position.set(3.2 - (i % 4 ? 0 : 0.04), -0.046, -0.2 + i * (1.9 / 16)); ctl.add(tk); }
-  const fader = new THREE.Group(); fader.position.set(3.35, -0.04, 0.75); ctl.add(fader);
+  const pslot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 2.0), new THREE.MeshBasicMaterial({ color: 0x050506 })); pslot.position.set(3.35, -0.046, 0.5); pslot.scale.z = 0.9; ctl.add(pslot);
+  for (let i = 0; i <= 16; i++) { const tk = new THREE.Mesh(new THREE.BoxGeometry(i % 4 ? 0.08 : 0.16, 0.005, 0.012), new THREE.MeshBasicMaterial({ color: 0x8a8d96 })); tk.position.set(3.2 - (i % 4 ? 0 : 0.04), -0.046, -0.35 + i * (1.7 / 16)); ctl.add(tk); }
+  const fader = new THREE.Group(); fader.position.set(3.35, -0.04, 0.5); ctl.add(fader);
   const fcap = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.14, 0.18, 2, 0.03), satinBlack); fcap.position.y = 0.07; fcap.castShadow = true; fader.add(fcap);
   const fline = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.005, 0.02), ledOn(0xffffff)); fline.position.y = 0.142; fader.add(fline);
-  const zeroLed = new THREE.Mesh(new THREE.CircleGeometry(0.03, 12), ledOn(0x46ff8a)); zeroLed.rotation.x = -Math.PI / 2; zeroLed.position.set(3.6, -0.044, 0.75); ctl.add(zeroLed);
-  [['±8', 3.12, -0.62], ['±16', 3.52, -0.62]].forEach(([n, x, z]) => { const b = new THREE.Mesh(new RoundedBoxGeometry(0.3, 0.05, 0.16, 2, 0.02), btnMat); b.position.set(x, -0.05, z); ctl.add(b); printOn(n, x, z, 0.26, 0.1, 54).position.y = -0.02; });
-  printOn('PITCH', 3.35, 1.86, 0.5, 0.1, 44);
+  const zeroLed = new THREE.Mesh(new THREE.CircleGeometry(0.03, 12), ledOn(0x46ff8a)); zeroLed.rotation.x = -Math.PI / 2; zeroLed.position.set(3.6, -0.044, 0.5); ctl.add(zeroLed);
+  [['±8', 3.1, 2.08], ['±16', 3.48, 2.08]].forEach(([n, x, z]) => { const b = new THREE.Mesh(new RoundedBoxGeometry(0.3, 0.05, 0.16, 2, 0.02), btnMat); b.position.set(x, -0.05, z); ctl.add(b); printOn(n, x, z, 0.26, 0.1, 54).position.y = -0.02; });
+  printOn('PITCH', 3.35, 1.55, 0.5, 0.1, 44);
   // BPM display: shows the tempo of the music, or the speed
   const dispC = document.createElement('canvas'); dispC.width = 256; dispC.height = 96;
   const dispTex = new THREE.CanvasTexture(dispC); dispTex.colorSpace = THREE.SRGBColorSpace;
-  const disp = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.34), new THREE.MeshBasicMaterial({ map: dispTex })); disp.rotation.x = -Math.PI / 2; disp.position.set(2.62, -0.046, 2.05); ctl.add(disp);
-  const dispBezel = new THREE.Mesh(new RoundedBoxGeometry(0.98, 0.03, 0.42, 2, 0.01), satinBlack); dispBezel.position.set(2.62, -0.062, 2.05); ctl.add(dispBezel);
+  const disp = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.3), new THREE.MeshBasicMaterial({ map: dispTex })); disp.rotation.x = -Math.PI / 2; disp.position.set(2.42, -0.046, 2.08); ctl.add(disp);
+  const dispBezel = new THREE.Mesh(new RoundedBoxGeometry(0.88, 0.03, 0.38, 2, 0.01), satinBlack); dispBezel.position.set(2.42, -0.062, 2.08); ctl.add(dispBezel);
   let dispText = '';
   function drawDisplay(txt, sub) {
     if (txt + sub === dispText) return; dispText = txt + sub;
@@ -936,19 +970,16 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   for (const [x, z] of [[-2.4, 2.0], [3.4, 2.0], [-2.4, -2.1], [3.4, -2.1]]) { const f = turn([[0, 0], [0.32, 0], [0.34, 0.1], [0.28, 0.2], [0, 0.2]], darkMetal, 32); f.position.set(x, TOP, z); root.add(f); }
   const plateName = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.16), new THREE.MeshBasicMaterial({ map: label('STREYN', 256, 46, 34), transparent: true, opacity: 0.6 })); plateName.position.set(-2.2, -0.36, 2.426); root.add(plateName);
 
-  // ── the dot visualizer: a ring of dots around the platter and a dot matrix on the front, both move with the music
+  // ── the dot visualizer: a ring of dots around the platter that moves with the music
   const dotGeo2 = new THREE.CircleGeometry(0.026, 10);
-  const RING_N = 72, RING_R = 3, MAT_C = 44, MAT_R = 5;
+  const RING_N = 72, RING_R = 3;
   const ringDots = new THREE.InstancedMesh(dotGeo2, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), RING_N * RING_R);
-  const frontDots = new THREE.InstancedMesh(dotGeo2, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), MAT_C * MAT_R);
   { const m4 = new THREE.Matrix4(), q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)), one = new THREE.Vector3(1, 1, 1);
     for (let i = 0; i < RING_N; i++) for (let j = 0; j < RING_R; j++) { const a = (i / RING_N) * Math.PI * 2, r = 1.93 + j * 0.075; ringDots.setMatrixAt(i * RING_R + j, m4.compose(V(Math.cos(a) * r, -0.046, Math.sin(a) * r), q, one)); }
-    for (let i = 0; i < MAT_C; i++) for (let j = 0; j < MAT_R; j++) frontDots.setMatrixAt(i * MAT_R + j, m4.makeTranslation(-1.55 + i * 0.118, -0.56 + j * 0.088, 2.428));
   }
   const offCol = new THREE.Color(0x1a1b22), _dc = new THREE.Color();
   for (let i = 0; i < RING_N * RING_R; i++) ringDots.setColorAt(i, offCol);
-  for (let i = 0; i < MAT_C * MAT_R; i++) frontDots.setColorAt(i, offCol);
-  root.add(ringDots, frontDots);
+  root.add(ringDots);
   const bandsArr = new Float32Array(32), bandsS = new Float32Array(32);
   function dotFrame(t, eS, real, on) {
     // without real sound: a calm imitation that follows the energy
@@ -959,11 +990,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       const k = i / RING_N, b = bandsS[Math.min(31, Math.floor((k < 0.5 ? k * 2 : (1 - k) * 2) * 31))];
       for (let j = 0; j < RING_R; j++) { const lit = Math.min(1, Math.max(0, b * 3.4 - j)); _dc.copy(offCol).lerp(accentCol, lit).multiplyScalar(1 + lit * 0.6); ringDots.setColorAt(i * RING_R + j, _dc); }
     }
-    for (let i = 0; i < MAT_C; i++) {
-      const b = bandsS[Math.min(31, Math.floor((i / MAT_C) * 32))];
-      for (let j = 0; j < MAT_R; j++) { const lit = Math.min(1, Math.max(0, b * 6 - j)); _dc.copy(offCol).lerp(j === MAT_R - 1 ? warmCol : accentCol, lit).multiplyScalar(1 + lit * 0.5); frontDots.setColorAt(i * MAT_R + j, _dc); }
-    }
-    ringDots.instanceColor.needsUpdate = true; frontDots.instanceColor.needsUpdate = true;
+    ringDots.instanceColor.needsUpdate = true;
   }
 
   // ── layout / camera
@@ -1070,7 +1097,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     queue: { a: [-0.1, 0.06, 13, [-3, 9.3, -4.4], 0.02, 30], b: [0.1, 0.0, 13, [10, 9.3, -4.4], -0.02, 30] },
     polaroid: { a: [-0.25, 0.04, 6.2, [3, 9.1, -4.4], 0.03, 30], b: [0.2, -0.02, 4.6, [6.5, 9.1, -4.4], -0.02, 30] },
     chair: { a: [0.95, 0.32, 13, [-15.4, -4.2, 4.2], 0.02, 30], b: [0.45, 0.22, 10, [-15.4, -4.0, 4.2], -0.02, 30] },
-    plant: { a: [0.6, 0.12, 14, [-23.8, -2.4, -2.4], 0.02, 30], b: [0.1, 0.05, 11.5, [-23.8, -2.0, -2.4], -0.03, 30] },
+    plant: { a: [0.55, 0.12, 14, [-24.6, -3.2, -0.9], 0.02, 30], b: [0.15, 0.05, 11.5, [-24.6, -2.8, -0.9], -0.03, 30] },
     lampF: { a: [0.55, -0.12, 9, [-14.2, 3.8, -2.4], -0.03, 32], b: [0.1, -0.2, 7, [-14.2, 4.2, -2.4], 0.03, 32] },
     tlamp: { a: [-0.55, 0.15, 8, [11.5, 1.3, -2.6], 0.03, 30], b: [-0.12, 0.05, 6.4, [11.5, 1.5, -2.6], -0.02, 30] },
     books: { a: [0.5, 0.3, 6.5, [-10.0, 0.6, -2.7], -0.03, 30], b: [0.12, 0.2, 5, [-10.0, 0.8, -2.7], 0.03, 30] },
@@ -1173,11 +1200,8 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     return orbit(P, !wide);
   }
   // ── shot transitions: simple and calm. The old and the new shot are drawn into two images and mixed.
-  // [name, seconds, fits a beat]
-  const TRN = [
-    ['glide', 3.2, false], ['cut', 0, true], ['fade', 1.4, false], ['black', 1.6, false], ['warm', 1.6, false], ['luma', 1.5, false], ['focus', 1.5, false],
-    ['zoom', 1.0, true], ['whip', 0.6, true], ['push', 0.9, true], ['flash', 0.5, true], ['sweep', 1.3, false], ['vignette', 1.6, false], ['drift', 1.6, false]
-  ];
+  // [name, seconds, fits a beat, shader mode]
+  const TRN = [['glide', 3.2, false, 0], ['cut', 0, true, 1], ['fade', 1.3, true, 2], ['black', 1.4, false, 3], ['drift', 1.6, false, 13], ['glide', 3.2, false, 0], ['fade', 1.3, true, 2]];
   const compMat = new THREE.ShaderMaterial({
     uniforms: { A: { value: null }, B: { value: null }, p: { value: 0 }, mode: { value: 0 }, res: { value: new THREE.Vector2(1, 1) }, warm: { value: new THREE.Color(0xffa860) } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
@@ -1185,21 +1209,10 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       vec4 tA(vec2 u){ return texture2D(A, clamp(u, 0.0, 1.0)); }
       vec4 tB(vec2 u){ return texture2D(B, clamp(u, 0.0, 1.0)); }
       float lum(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-      vec4 blurA(vec2 u, float r){ vec4 c = vec4(0.0); for (int i = 0; i < 16; i++) { float a = float(i) * 2.39996, rr = sqrt((float(i) + 0.5) / 16.0) * r; c += tA(u + vec2(cos(a), sin(a)) * rr * vec2(res.y / res.x, 1.0)); } return c / 16.0; }
-      vec4 blurB(vec2 u, float r){ vec4 c = vec4(0.0); for (int i = 0; i < 16; i++) { float a = float(i) * 2.39996, rr = sqrt((float(i) + 0.5) / 16.0) * r; c += tB(u + vec2(cos(a), sin(a)) * rr * vec2(res.y / res.x, 1.0)); } return c / 16.0; }
       void main(){
         vec2 uv = vUv; float q = smoothstep(0.0, 1.0, p), bell = sin(p * 3.14159), asp = res.x / res.y;
         vec4 a = tA(uv), b = tB(uv), c = mix(a, b, q);
         if (mode == 3) c = p < 0.5 ? a * (1.0 - smoothstep(0.0, 0.5, p)) : b * smoothstep(0.5, 1.0, p);
-        else if (mode == 4) { c = mix(a, b, smoothstep(0.3, 0.7, p)); c.rgb = c.rgb * (1.0 - bell * 0.25) + warm * bell * bell * 0.45; }
-        else if (mode == 5) { float l = lum(b.rgb / (1.0 + b.rgb)); c = mix(a, b, smoothstep(l - 0.25, l + 0.05, q * 1.3 - 0.15)); }
-        else if (mode == 6) { float r = bell * 0.025; c = mix(blurA(uv, r), blurB(uv, r), q); }
-        else if (mode == 7) { vec2 d = uv - 0.5; c = mix(tA(0.5 + d / (1.0 + p * 0.5)), tB(0.5 + d / (1.12 - q * 0.12)), smoothstep(0.2, 0.8, p)); }
-        else if (mode == 8) { float s = bell * 0.07; vec4 ca = vec4(0.0), cb = vec4(0.0); for (int i = 0; i < 12; i++) { float k = float(i) / 11.0 - 0.5; ca += tA(uv + vec2(k * s + q * 0.3, 0.0)); cb += tB(uv + vec2(k * s - (1.0 - q) * 0.3, 0.0)); } c = mix(ca, cb, smoothstep(0.4, 0.6, p)) / 12.0; }
-        else if (mode == 9) { float o = q; c = uv.x < 1.0 - o ? tA(uv + vec2(o, 0.0)) : tB(uv - vec2(1.0 - o, 0.0)); }
-        else if (mode == 10) { c = p < 0.35 ? a : b; c.rgb += warm * 0.6 * exp(-p * 7.0) * step(0.2, p) + vec3(1.0, 0.95, 0.9) * 0.6 * exp(-abs(p - 0.35) * 18.0); }
-        else if (mode == 11) { float e = q * 1.5 - 0.25, d = uv.x * 0.8 + uv.y * 0.2; c = mix(b, a, smoothstep(e - 0.2, e + 0.2, d)); c.rgb += warm * 0.35 * exp(-pow((d - e) * 7.0, 2.0)) * bell; }
-        else if (mode == 12) { float r = length((uv - 0.5) * vec2(asp, 1.0)) / length(vec2(asp, 1.0) * 0.5); c = (p < 0.5 ? a : b) * (1.0 - smoothstep(1.0 - bell * 1.15, 1.25 - bell * 1.15, r) * 0.98); }
         else if (mode == 13) { vec2 d = uv - 0.5; c = mix(tA(0.5 + d / (1.0 + p * 0.06) + vec2(p * 0.015, 0.0)), tB(0.5 + d / (1.06 - q * 0.06)), q); }
         gl_FragColor = c;
         #include <tonemapping_fragment>
@@ -1213,7 +1226,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const _sz = new THREE.Vector2();
   function targets() {
     renderer.getDrawingBufferSize(_sz);
-    if (!rtA) { const o = { type: THREE.HalfFloatType, samples: 4 }; rtA = new THREE.WebGLRenderTarget(_sz.x, _sz.y, o); rtB = new THREE.WebGLRenderTarget(_sz.x, _sz.y, o); }
+    if (!rtA) { const o = { type: THREE.HalfFloatType, samples: touch ? 0 : 4 }; rtA = new THREE.WebGLRenderTarget(_sz.x, _sz.y, o); rtB = new THREE.WebGLRenderTarget(_sz.x, _sz.y, o); }
     else if (rtA.width !== _sz.x || rtA.height !== _sz.y) { rtA.setSize(_sz.x, _sz.y); rtB.setSize(_sz.x, _sz.y); }
     compMat.uniforms.res.value.copy(_sz);
   }
@@ -1221,8 +1234,10 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const testTr = new URLSearchParams(location.search).get('tr');
   function pickTransition(onBeat) {
     if (reduced) return 2;
-    let i; do { i = Math.floor(Math.random() * TRN.length); } while (i === lastTrn || (onBeat && !TRN[i][2]));
-    lastTrn = i; return i;
+    // on the beat it is a hard cut most of the time, sometimes a very short fade
+    if (onBeat) return Math.random() < 0.7 ? 1 : 2;
+    let i; do { i = Math.floor(Math.random() * TRN.length); } while (TRN[i][3] === lastTrn);
+    lastTrn = TRN[i][3]; return i;
   }
 
   let shotE = 9, shot = 'intro', shotS = 0, from = null, switchT = 0, lastP = null, glideT = 3.6;
@@ -1241,7 +1256,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const clock = new THREE.Clock();
   let eS = 0, lastNow = performance.now();
   const accentTo = accentCol.clone(), _c = new THREE.Color();
-  const accentMats = () => [rim, fill, cart.material, strip.material, under, neonGlow, ...accentBits.map((m) => m.material)];
+  const accentMats = () => [rim, cart.material, strip.material, neonGlow, ...accentBits.map((m) => m.material)];
   let angle = 0, energy = 0, raf = 0, visible = true, lastT = 0, cur = 0, shown = -1;
   const fixed = new URLSearchParams(location.search).get('tt'), testShot = new URLSearchParams(location.search).get('shot');
   const start = reduced ? -10 : 0;
@@ -1275,7 +1290,21 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     drawDisplay(bpm >= 60 && bpm <= 200 ? String(bpm) : spinNow > 0.05 ? '33' : '--', bpm >= 60 && bpm <= 200 ? 'BPM' : 'RPM');
     dotFrame(t, eS, real, Math.min(1, spinNow * 1.2));
   }
-  function frame() {
+  let lastFrame = 0, slow = 0, quick = 0, shadowTick = 0;
+  function pace(now) {
+    const d = now - lastFrame;
+    if (lastFrame && d < 1000 / 62) return false; // high refresh screens: 60 fps is plenty and halves the work
+    if (lastFrame && d < 250) {
+      // ~1 s of slow frames → lower resolution; ~4 s of quick frames → back up
+      if (d > 24) { slow++; quick = 0; } else if (d < 17.5) { quick++; slow = Math.max(0, slow - 1); }
+      if (slow > 45 && dpr > 0.7) { dpr = Math.max(0.7, dpr * 0.82); renderer.setPixelRatio(dpr); resize(); slow = 0; }
+      else if (quick > 240 && dpr < maxDpr) { dpr = Math.min(maxDpr, dpr + 0.15); renderer.setPixelRatio(dpr); resize(); quick = 0; }
+    }
+    lastFrame = now;
+    return true;
+  }
+  function frame(ts) {
+    if (fixed === null && !pace(ts || performance.now())) { raf = visible ? requestAnimationFrame(frame) : 0; return; }
     const t = fixed !== null ? +fixed : clock.getElapsedTime() - start;
     if (pending !== null && t >= T0) {
       const c = chg.length ? t - chg[chg.length - 1].s : Infinity;
@@ -1370,12 +1399,11 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     let cur3 = testShot ? [testShot, 0, 1] : scrollT > 0.05 ? ['wide', t, t + 1] : shotAt(t);
     if (cur3[0] !== shot || (cur3[1] !== shotS && shot !== 'wide')) {
       const m = cur3[0] === 'wide' || shot === 'wide' || !lastP ? 0 : pickTransition(beatOn && beatNow);
-      if (m === 0) { from = lastP; switchT = t; glideT = shot === 'wide' || cur3[0] === 'wide' ? 5 : TRN[0][1]; trn = null; }
-      else if (m === 1) { from = null; trn = null; }
+      if (TRN[m][3] === 0) { from = lastP; switchT = t; glideT = shot === 'wide' || cur3[0] === 'wide' ? 5 : TRN[0][1]; trn = null; }
+      else if (TRN[m][3] === 1) { from = null; trn = null; }
       else {
-        // on the beat a transition lasts one beat (or two for the slower ones)
-        const beatLen = bpm >= 60 ? 60 / bpm : 0.5;
-        from = null; trn = { m, t0: t, d: beatOn && beatNow ? beatLen * (TRN[m][1] > 0.8 ? 2 : 1) : TRN[m][1], name: shot, s: shotS, e: shotE };
+        // on the beat the change is (almost) instant
+        from = null; trn = { m: TRN[m][3], t0: t, d: beatOn && beatNow ? 0.12 : TRN[m][1], name: shot, s: shotS, e: shotE };
       }
       shot = cur3[0]; shotS = cur3[1]; shotE = cur3[2];
     }
@@ -1390,13 +1418,15 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     }
     lastP = P;
     mx += (tx - mx) * 0.02; my += (ty - my) * 0.02;
-    rim.intensity = 26 + eS * 90;
-    fill.intensity = 7 + eS * 28;
-    if (testTr !== null && testShot) trn = { m: +testTr, t0: t - (+new URLSearchParams(location.search).get('trp') || 0.5) * TRN[+testTr][1], d: TRN[+testTr][1], name: new URLSearchParams(location.search).get('from') || 'roomL', s: 0, e: 1 };
+    rim.intensity = 30 + eS * 90;
+    if (testTr !== null && testShot) trn = { m: TRN[+testTr][3], t0: t - (+new URLSearchParams(location.search).get('trp') || 0.5) * TRN[+testTr][1], d: TRN[+testTr][1], name: new URLSearchParams(location.search).get('from') || 'roomL', s: 0, e: 1 };
+    // shadows: every frame while something big moves (record change, arm), otherwise every fourth
+    renderer.shadowMap.needsUpdate = changing || up > 0.005 || ++shadowTick % 4 === 0;
     if (trn && t - trn.t0 < trn.d && t >= trn.t0) {
       // both shots keep moving while one turns into the other
       targets();
       aim(poseAt(trn.name, t, trn.s, trn.e)); renderer.setRenderTarget(rtA); renderer.render(scene, camera);
+      renderer.shadowMap.needsUpdate = false;
       aim(P); renderer.setRenderTarget(rtB); renderer.render(scene, camera);
       renderer.setRenderTarget(null);
       compMat.uniforms.A.value = rtA.texture; compMat.uniforms.B.value = rtB.texture;
@@ -1414,6 +1444,14 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   });
   io.observe(canvas);
   raf = requestAnimationFrame(frame);
+  const warm = () => {
+    try {
+      renderer.compile(scene, camera);
+      targets(); renderer.setRenderTarget(rtA); renderer.compile(scene, camera); renderer.setRenderTarget(null);
+      renderer.compile(compScene, compCam);
+    } catch {}
+  };
+  (window.requestIdleCallback || setTimeout)(warm, { timeout: 1500 });
 
   const names = { crate, phones, cds, spk, tapes, mug, books, candles, tl, shelf, chair, side2, pouf, plinth };
   for (const k in names) names[k].name = k;
