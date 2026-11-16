@@ -63,7 +63,9 @@ svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor;
 .top { position: fixed; inset: 0 0 auto; height: var(--top); z-index: 40; display: flex; align-items: center; gap: 12px; padding: 0 20px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--head); font-weight: 700; font-size: 17px; letter-spacing: -.01em; width: calc(var(--side) - 32px); flex: none; }
 .brand:hover { text-decoration: none; }
-.brand .mark { width: 36px; height: 36px; flex: none; background: var(--accent, #4f7cff); -webkit-mask: url(../logo.png) center / contain no-repeat; mask: url(../logo.png) center / contain no-repeat; }
+.brand .mark { width: 36px; height: 36px; flex: none; background: var(--accent, #4f7cff); -webkit-mask: url(../logo.svg) center / contain no-repeat; mask: url(../logo.svg) center / contain no-repeat; }
+.brand .wm { display: block; height: 24px; aspect-ratio: 5486 / 1990; background: currentColor; -webkit-mask: url(../wordmark.svg) center / contain no-repeat; mask: url(../wordmark.svg) center / contain no-repeat; }
+.brand .dk { font-weight: 600; color: var(--muted); }
 .brand small { font: 500 11px var(--mono); color: var(--muted); border: 1px solid var(--line2); border-radius: 20px; padding: 1px 8px; }
 .burger, .ibtn { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; color: var(--muted); flex: none; }
 .burger:hover, .ibtn:hover { background: var(--bg-hover); color: var(--head); }
@@ -258,7 +260,7 @@ details.q > div { padding: 0 16px 6px; }
 <body>
 <header class="top">
   <button class="burger" id="burger" aria-label="Menu"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-  <a class="brand" href="#/"><span class="mark" aria-hidden="true"></span>Streyn Docs<small id="ver" hidden></small></a>
+  <a class="brand" href="#/" aria-label="Streyn Docs"><span class="mark" aria-hidden="true"></span><span class="wm" aria-hidden="true"></span><span class="dk">Docs</span><small id="ver" hidden></small></a>
   <div class="search">
     <label id="slabel"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" autocomplete="off" spellcheck="false"><kbd id="kbd">Ctrl K</kbd></label>
     <div class="results" id="results" role="listbox"></div>

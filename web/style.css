@@ -1607,7 +1607,8 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 
 /* Streyn logo */
 /* the note in its circle, without the mint square, in the accent colour */
-.brandmark { width: 34px; height: 34px; flex: none; display: block; background: var(--accent); -webkit-mask: url(logo.png) center / contain no-repeat; mask: url(logo.png) center / contain no-repeat; }
+.brandmark { width: 34px; height: 34px; flex: none; display: block; background: var(--accent); -webkit-mask: url(logo.svg) center / contain no-repeat; mask: url(logo.svg) center / contain no-repeat; }
+.wordmark { display: block; flex: none; height: .98em; aspect-ratio: 5486 / 1990; background: currentColor; -webkit-mask: url(wordmark.svg) center / contain no-repeat; mask: url(wordmark.svg) center / contain no-repeat; }
 .brandmark.big { width: 72px; height: 72px; }
 .tb-logo { width: auto; height: auto; }
 .tb-logo .brandmark { width: 30px; height: 30px; margin: 0 4px 0 2px; }

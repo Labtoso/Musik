@@ -5220,7 +5220,7 @@ async function showLogin(errorMsg = '') {
     : '';
   const mode = !info ? 'server' : info.setup ? 'setup' : 'login';
   app.innerHTML = `<div class="auth-wrap"><form class="auth-card" novalidate>
-    <div class="brand"><span class="brandmark" aria-hidden="true"></span><span>Streyn</span></div>
+    <div class="brand"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></div>
     <h2>${mode === 'setup' ? t('firstAccount') : mode === 'login' ? t('login') : t('connect')}</h2>
     ${mode === 'setup' ? `<p class="muted small">${t('firstAccountHelp')}</p>` : ''}
     ${mode === 'server' ? serverField : `${sameOrigin ? '' : `<p class="muted small srv">${esc(conn.server)} · <a href="#" data-editserver>${t('changeServer')}</a></p>`}
@@ -5284,12 +5284,12 @@ function buildShell() {
   </div>` : ''}
   <div class="shell">
     <aside class="side">
-      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span>Streyn</span>${discordBtn('side-discord')}</div>
+      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></span>${discordBtn('side-discord')}</div>
       <nav class="side-nav">${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}${nav('likes', 'heart', t('likes'))}${nav('queue', 'queue', t('queue'))}</nav>
       <div class="side-head">${t('playlists')}<button class="icon-btn sm" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button></div>
       <div id="side-playlists" class="side-pls"></div>
     </aside>
-    <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span>Streyn</span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
+    <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
     <main id="content">${offlineMode ? `<div class="offbar">${icon('download')}<span id="offbar-text"><b>${t('offMode')}</b> ${t('offModeHint')}</span><button class="btn sm" data-goonline>${t('goOnline')}</button></div>` : ''}<div id="view"></div></main>
     <footer id="player" class="player idle">
       <div id="mini-progress"><i></i></div>
