@@ -353,16 +353,33 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   // real records with the covers of the queue; each cube is stacked differently: standing in a row, lying in a pile, mixed, face out
   const recPool = Array.from({ length: 12 }, (_, k) => decoMat(k + 5, { roughness: 0.7 }));
   const recMat = () => recPool[Math.floor(rnd() * recPool.length)];
+  // record spines like real ones: mostly white, black or cardboard, a few coloured, with a thin printed title and catalogue number
+  const spineSet = [['#ecebe6', '#1c1c20'], ['#f4f2ec', '#b23a2a'], ['#141417', '#d9d6cf'], ['#1d1d22', '#e6b84a'], ['#c9a27a', '#2a1c12'], ['#d8cdb8', '#2a2a2e'], ['#26354f', '#e9e4d8'], ['#7a2f2a', '#f0e6d2'], ['#e9e4d8', '#3a5a40'], ['#2f4a3a', '#e9e4d8'], ['#f0d9a8', '#3a2a1a'], ['#101012', '#8fb8d8']];
+  const words = ['SLOW BLOOM', 'NIGHT DRIVE', 'LOW TIDE', 'NORTHBOUND', 'AFTERGLOW', 'VELVET HOURS', 'PAPER PLANES', 'GLASS CITY', 'SOLACE UNIT', 'MIDNIGHT', 'JUNO PARK', 'SUNDAY ROOM'];
+  const spineTex = (i, flat) => canvasTex(flat ? 512 : 24, flat ? 24 : 512, (g, w, h) => {
+    const [bg, ink] = spineSet[i % spineSet.length];
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    // worn cardboard edges
+    g.fillStyle = 'rgba(0,0,0,.18)'; flat ? (g.fillRect(0, 0, w, 2), g.fillRect(0, h - 2, w, 2)) : (g.fillRect(0, 0, 2, h), g.fillRect(w - 2, 0, 2, h));
+    if (!flat) { g.translate(w / 2, h / 2); g.rotate(Math.PI / 2); g.translate(-h / 2, -w / 2); }
+    const L = flat ? w : h, S = flat ? h : w;
+    g.fillStyle = ink; g.font = `700 ${Math.round(S * 0.5)}px "Inter", sans-serif`; g.textBaseline = 'middle';
+    g.fillText(words[i % words.length], L * 0.08, S / 2 + 1);
+    g.globalAlpha = 0.7; g.font = `500 ${Math.round(S * 0.38)}px "JetBrains Mono", monospace`; g.textAlign = 'right'; g.fillText('LP-' + (1000 + i * 37), L * 0.94, S / 2 + 1);
+  });
+  const spinesV = spineSet.map((_, i) => new THREE.MeshStandardMaterial({ map: spineTex(i, false), roughness: 0.8 }));
+  const spinesH = spineSet.map((_, i) => new THREE.MeshStandardMaterial({ map: spineTex(i + 5, true), roughness: 0.8 }));
   const RS = 3.4, recGeo = new THREE.BoxGeometry(1, 1, 1);
   const rec = (th, x, y, z, rx = 0, ry = 0, rz = 0, flat = false) => {
-    const m = recMat(), side = flat ? [sleeveSide, sleeveSide, m, sleeveSide, sleeveSide, sleeveSide] : [m, m, sleeveSide, sleeveSide, m, sleeveSide];
+    const m = recMat(), sp = (flat ? spinesH : spinesV)[Math.floor(rnd() * spineSet.length)];
+    const side = flat ? [sleeveSide, sleeveSide, m, sleeveSide, sp, sleeveSide] : [m, m, sleeveSide, sleeveSide, sp, sleeveSide];
     const r = new THREE.Mesh(recGeo, side); flat ? r.scale.set(RS, th, RS) : r.scale.set(th, RS, RS);
     r.position.set(x, y, z); r.rotation.set(rx, ry, rz); r.castShadow = r.receiveShadow = true; shelf.add(r); return r;
   };
   const row = (x0, x1, y0, leanEnd) => {
     let x = x0;
     while (x < x1) {
-      const th = 0.05 + rnd() * 0.04, lean = leanEnd && x > x1 - 0.7 && rnd() < 0.5 ? 0.2 : 0;
+      const th = 0.035 + rnd() * 0.035 + (rnd() < 0.12 ? 0.04 : 0), lean = leanEnd && x > x1 - 0.7 && rnd() < 0.5 ? 0.2 : 0;
       rec(th, x + th / 2 + (lean ? RS / 2 * Math.sin(lean) : 0), y0 + RS / 2 * Math.cos(lean) + 0.01, (rnd() - 0.5) * 0.12, 0, 0, -lean);
       x += th + 0.006; if (lean) break;
     }
@@ -786,22 +803,70 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const fshelf = new THREE.Mesh(new RoundedBoxGeometry(5.2, 0.22, 1.2, 2, 0.04), oakMat); fshelf.position.set(21.4, 4.8, WALL + 0.6); fshelf.castShadow = fshelf.receiveShadow = true; root.add(fshelf);
   trailing(root, 19.6, 4.91, WALL + 0.55, 6, 4.2);
   const mini = new THREE.Mesh(new RoundedBoxGeometry(0.9, 1.3, 0.8, 3, 0.08), fabric(0x3a3d44, 0.8)); mini.position.set(21.6, 5.56, WALL + 0.6); mini.castShadow = true; root.add(mini);
-  const miniCone = new THREE.Mesh(new THREE.CircleGeometry(0.28, 24), new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.6 })); miniCone.position.set(21.6, 5.5, WALL + 1.01); root.add(miniCone);
+  { // a real little speaker front: woofer cone with surround and dust cap, a tweeter, a thin metal ring
+    const fz = WALL + 1.005, sx = 21.6;
+    const ringM = new THREE.MeshStandardMaterial({ color: 0x8b8e96, roughness: 0.3, metalness: 1 }), coneM = new THREE.MeshStandardMaterial({ color: 0x17181c, roughness: 0.75 });
+    const wf = new THREE.Group(); wf.position.set(sx, 5.38, fz); root.add(wf);
+    const lt = (pts, m) => { const o = new THREE.Mesh(new THREE.LatheGeometry(pts.map(([a, b]) => new THREE.Vector2(a, b)), 40).rotateX(Math.PI / 2), m); wf.add(o); return o; };
+    lt([[0.3, 0], [0.32, 0.012], [0.33, 0]], ringM);
+    lt([[0.29, 0], [0.27, 0.02], [0.24, 0]], coneM);
+    lt([[0.24, 0], [0.1, -0.08], [0.06, -0.08]], coneM);
+    lt([[0.075, -0.07], [0.05, -0.04], [0, -0.035]], new THREE.MeshStandardMaterial({ color: 0x2a2b31, roughness: 0.35, metalness: 0.3 }));
+    const tw2 = new THREE.Group(); tw2.position.set(sx, 5.95, fz); root.add(tw2);
+    const tlt = (pts, m) => { const o = new THREE.Mesh(new THREE.LatheGeometry(pts.map(([a, b]) => new THREE.Vector2(a, b)), 32).rotateX(Math.PI / 2), m); tw2.add(o); };
+    tlt([[0.12, 0], [0.13, 0.01], [0.135, 0]], ringM);
+    tlt(Array.from({ length: 8 }, (_, i) => { const k = i / 7; return [0.075 * Math.cos(k * Math.PI / 2) + 0.0001, 0.035 * Math.sin(k * Math.PI / 2)]; }), new THREE.MeshStandardMaterial({ color: 0xc9ccd4, roughness: 0.25, metalness: 0.8 }));
+  }
   for (let i = 0; i < 5; i++) { const b = new THREE.Mesh(new RoundedBoxGeometry(0.2 + rnd() * 0.08, 1.0 + rnd() * 0.35, 0.85, 1, 0.02), fabric(bookCols[(i + 2) % bookCols.length], 0.7)); b.position.set(22.6 + i * 0.27, 4.91 + 0.55, WALL + 0.6); b.rotation.z = i === 4 ? -0.2 : 0; b.castShadow = true; root.add(b); }
-  const clockC = document.createElement('canvas'); clockC.width = clockC.height = 256; const clockTex = new THREE.CanvasTexture(clockC); clockTex.colorSpace = THREE.SRGBColorSpace;
-  const wclock = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.25, 0.14, 64), [new THREE.MeshStandardMaterial({ color: 0x2a2015, roughness: 0.5 }), new THREE.MeshStandardMaterial({ map: clockTex, roughness: 0.6 }), new THREE.MeshStandardMaterial({ color: 0x2a2015 })]);
-  wclock.rotation.x = Math.PI / 2; wclock.position.set(21.4, 8.6, WALL + 0.08); wclock.rotation.y = 0; root.add(wclock);
-  wclock.geometry.rotateY(-Math.PI / 2);
-  let clockMin = -1;
+  // modern wall clock: a turned aluminium case, a printed dial, real 3D hands with a sweeping second hand, and glass on top
+  const wclock = new THREE.Group(); wclock.position.set(21.4, 8.6, WALL); root.add(wclock); wclock.name = 'wclock';
+  const clkCase = new THREE.MeshStandardMaterial({ color: 0x1c1d22, roughness: 0.32, metalness: 0.85, side: THREE.DoubleSide });
+  const R0 = 1.32;
+  { // case: a lathe profile turned to face the room
+    const cprof = [[0, 0.02], [R0 - 0.06, 0.02], [R0, 0.06], [R0 + 0.02, 0.2], [R0 - 0.02, 0.27], [R0 - 0.1, 0.28], [R0 - 0.12, 0.2], [R0 - 0.12, 0.08], [0, 0.08]].map(([a, b]) => new THREE.Vector2(a, b));
+    const cs = new THREE.Mesh(new THREE.LatheGeometry(cprof, 96).rotateX(Math.PI / 2), clkCase); cs.castShadow = true; wclock.add(cs);
+  }
+  const clkC = document.createElement('canvas'); clkC.width = clkC.height = 1024;
+  { const g = clkC.getContext('2d'), w = 1024, c = w / 2;
+    const bg = g.createRadialGradient(c, c * 0.8, 40, c, c, c); bg.addColorStop(0, '#f6f2ea'); bg.addColorStop(0.85, '#ece6da'); bg.addColorStop(1, '#d9d1c2');
+    g.fillStyle = bg; g.fillRect(0, 0, w, w);
+    // fine grain like printed paper
+    for (let k = 0; k < 9000; k++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '255,255,255' : '60,50,40'},${rnd() * 0.05})`; g.fillRect(rnd() * w, rnd() * w, 1.5, 1.5); }
+    g.translate(c, c);
+    // a thin chapter ring
+    g.strokeStyle = 'rgba(30,28,26,.35)'; g.lineWidth = 2; g.beginPath(); g.arc(0, 0, c * 0.9, 0, Math.PI * 2); g.stroke();
+    for (let k = 0; k < 60; k++) {
+      g.save(); g.rotate((k / 60) * Math.PI * 2);
+      const big = k % 5 === 0, q = k % 15 === 0;
+      g.fillStyle = q ? '#c4683f' : '#26231f';
+      if (big) { g.beginPath(); g.roundRect(-(q ? 7 : 5.5), -c * 0.93, q ? 14 : 11, q ? 74 : 56, 3); g.fill(); }
+      else { g.fillRect(-1.6, -c * 0.93, 3.2, 22); }
+      g.restore();
+    }
+    g.fillStyle = '#26231f'; g.font = '600 64px "Inter", "Helvetica Neue", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    [[12, 0], [3, 1], [6, 2], [9, 3]].forEach(([n, k]) => { const a = (k / 4) * Math.PI * 2; g.fillText(String(n), Math.sin(a) * c * 0.62, -Math.cos(a) * c * 0.62 + 2); });
+    g.font = '700 26px "Inter", sans-serif'; g.fillStyle = '#26231f'; g.fillText('S T R E Y N', 0, -c * 0.3);
+    g.font = '500 18px "JetBrains Mono", monospace'; g.fillStyle = 'rgba(38,35,31,.55)'; g.fillText('QUARTZ · SILENT SWEEP', 0, c * 0.32);
+  }
+  const clkTex = new THREE.CanvasTexture(clkC); clkTex.colorSpace = THREE.SRGBColorSpace; clkTex.anisotropy = 8;
+  const clkDial = new THREE.Mesh(new THREE.CircleGeometry(R0 - 0.12, 96), new THREE.MeshStandardMaterial({ map: clkTex, roughness: 0.7 })); clkDial.position.z = 0.081; clkDial.receiveShadow = true; wclock.add(clkDial);
+  // hands: tapered shapes with a little thickness, each on its own layer
+  const clkHand = (len, wBase, wTip, tail, d) => { const sh = new THREE.Shape(); sh.moveTo(-wBase / 2, -tail); sh.lineTo(wBase / 2, -tail); sh.lineTo(wTip / 2, len); sh.lineTo(0, len + wTip * 0.6); sh.lineTo(-wTip / 2, len); sh.closePath(); return new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: true, bevelSize: 0.006, bevelThickness: 0.006, bevelSegments: 1 }); };
+  const clkHandMat = new THREE.MeshStandardMaterial({ color: 0x1b1a19, roughness: 0.35, metalness: 0.6 });
+  const hHour = new THREE.Mesh(clkHand(0.66, 0.09, 0.06, 0.16, 0.02), clkHandMat); hHour.position.z = 0.1;
+  const hMin = new THREE.Mesh(clkHand(1.0, 0.07, 0.04, 0.2, 0.016), clkHandMat); hMin.position.z = 0.13;
+  const clkSecMat = new THREE.MeshStandardMaterial({ color: 0xc4683f, roughness: 0.4, metalness: 0.3 });
+  const hSec = new THREE.Group(); hSec.position.z = 0.16;
+  hSec.add(new THREE.Mesh(clkHand(1.08, 0.022, 0.014, 0.32, 0.008), clkSecMat));
+  { const cw2 = new THREE.Mesh(new THREE.CircleGeometry(0.06, 24), clkSecMat); cw2.position.set(0, -0.26, 0.012); hSec.add(cw2); }
+  [hHour, hMin, hSec].forEach((h) => { h.traverse((o) => { if (o.isMesh) o.castShadow = true; }); wclock.add(h); });
+  const capC = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.06, 24).rotateX(Math.PI / 2), clkSecMat); capC.position.z = 0.17; wclock.add(capC);
+  // glass with a soft reflection
+  const clkGlassTex = canvasTex(256, 256, (g, w) => { const gr = g.createLinearGradient(0, 0, w, w); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.32, 'rgba(255,255,255,0)'); gr.addColorStop(0.4, 'rgba(255,255,255,.55)'); gr.addColorStop(0.47, 'rgba(255,255,255,0)'); gr.addColorStop(0.55, 'rgba(255,255,255,.18)'); gr.addColorStop(0.6, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, w); });
+  const cGlass = new THREE.Mesh(new THREE.CircleGeometry(R0 - 0.1, 96), new THREE.MeshBasicMaterial({ map: clkGlassTex, transparent: true, opacity: 0.22, depthWrite: false })); cGlass.position.z = 0.26; wclock.add(cGlass);
   function drawClock() {
-    const d = new Date(), m = d.getHours() * 60 + d.getMinutes(); if (m === clockMin) return; clockMin = m;
-    const g = clockC.getContext('2d'), w = 256; g.fillStyle = '#efe6d6'; g.fillRect(0, 0, w, w);
-    g.translate(w / 2, w / 2); g.fillStyle = '#2a2015';
-    for (let i = 0; i < 12; i++) { g.save(); g.rotate((i / 12) * Math.PI * 2); g.fillRect(-2, -112, 4, i % 3 ? 10 : 20); g.restore(); }
-    const hand = (a, l, wd) => { g.save(); g.rotate(a); g.fillRect(-wd / 2, -l, wd, l + 14); g.restore(); };
-    hand(((m % 720) / 720) * Math.PI * 2, 62, 8); hand(((m % 60) / 60) * Math.PI * 2, 96, 5);
-    g.fillStyle = '#c4683f'; g.beginPath(); g.arc(0, 0, 8, 0, Math.PI * 2); g.fill(); g.setTransform(1, 0, 0, 1, 0, 0);
-    clockTex.needsUpdate = true;
+    const d = new Date(), s2 = d.getSeconds() + d.getMilliseconds() / 1000, m = d.getMinutes() + s2 / 60, h = (d.getHours() % 12) + m / 60;
+    hHour.rotation.z = -(h / 12) * Math.PI * 2; hMin.rotation.z = -(m / 60) * Math.PI * 2; hSec.rotation.z = -(s2 / 60) * Math.PI * 2;
   }
   drawClock();
   // opal glass pendant lights on long cords
@@ -819,7 +884,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 2.6, 24), new THREE.MeshStandardMaterial({ map: plaid, roughness: 0.95 })); roll.position.set(-12.9, FLOOR + 2.2, -0.3); roll.rotation.set(0.25, 0, 0.35); root.add(roll);
 
   function cozyFrame(t, eS) {
-    if ((t | 0) % 5 === 0) drawClock();
+    drawClock();
     pendants.forEach((p, i) => { p.material.opacity = 0.32 + Math.sin(t * 0.7 + i) * 0.03; });
     winMat.uniforms.time.value = t;
     let fl = 0;
@@ -1123,7 +1188,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     coffee: { a: [-0.6, 0.55, 10, [2.4, -4.5, 9.6], 0.02, 30], b: [0.3, 0.75, 8, [2.6, -4.6, 9.8], -0.02, 30] },
     pampas: { a: [0.5, 0.05, 7, [1.2, -2.2, 9.5], 0.03, 32], b: [-0.2, 0.15, 5.5, [1.2, -1.7, 9.5], -0.03, 32] },
     bean: { a: [-0.7, 0.3, 11, [12.2, -4.8, 8.4], 0.02, 30], b: [-0.2, 0.2, 8.5, [12.0, -4.8, 8.4], -0.02, 30] },
-    clock: { a: [-0.5, -0.05, 9, [21.4, 7.2, -4.4], 0.02, 30], b: [0.1, -0.12, 7.4, [21.0, 6.6, -4.4], -0.02, 30] },
+    clock: { a: [-0.45, -0.02, 9, [21.4, 8.3, -4.4], 0.02, 30], b: [0.12, -0.08, 7.2, [21.3, 7.9, -4.4], -0.02, 30] },
     pendant: { a: [0.5, -0.25, 9, [-16.2, 6.2, 2.4], -0.03, 32], b: [0.0, -0.3, 7, [-16.2, 6.8, 2.4], 0.03, 32] },
     basket: { a: [0.6, 0.35, 8, [-12.9, -5.2, -0.2], 0.03, 30], b: [0.2, 0.25, 6.4, [-12.9, -5.0, -0.2], -0.02, 30] },
     // low over the rug towards the music
@@ -1139,15 +1204,20 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   for (const k in MV) if (MV[k].path) { MV[k].pc = new THREE.CatmullRomCurve3(MV[k].path, false, 'centripetal'); MV[k].lc = new THREE.CatmullRomCurve3(MV[k].look, false, 'centripetal'); }
   // between record changes the camera wanders: a random shot each time, none of the last few again
   const REST = Object.keys(MV).filter((k) => !['room', 'wide', 'deck', 'deck2', 'sleeve'].includes(k));
-  let restCur = null, beatOn = !!beatSync; const recent = [];
+  const syncMode = (v) => (v === true ? 'beat' : v === 'bar' || v === 'beat' ? v : 'off');
+  let restCur = null, beatMode = syncMode(beatSync); const recent = [];
   function restAt(t, from, limit) {
-    const due = restCur && t >= restCur[3] && (!beatOn || beatNow || t >= restCur[3] + 2.5);
+    // with beat sync the shot waits for the next beat (or the next bar), at most a little while
+    const wait = beatMode === 'bar' ? 4 : 2.5;
+    const due = restCur && t >= restCur[3] && (beatMode === 'off' || (beatMode === 'bar' ? barNow : beatNow) || t >= restCur[3] + wait);
     if (!restCur || due || t < restCur[1] || restCur[1] < from) {
       let k; do { k = REST[Math.floor(Math.random() * REST.length)]; } while (recent.includes(k));
       recent.push(k); if (recent.length > 8) recent.shift();
-      let e = t + (MV[k].path ? 11 + Math.random() * 2.5 : 6.5 + Math.random() * 2.8);
+      // a mix of slow and quick shots, about one in five turns around its subject
+      const fast = Math.random() < 0.3, style = { amp: fast ? 1.6 : 1, spin: Math.random() < 0.2 ? (Math.random() < 0.5 ? -1 : 1) * (0.55 + Math.random() * 0.4) : 0 };
+      let e = t + (MV[k].path ? (fast ? 7 : 11) + Math.random() * 3 : fast ? 4.5 + Math.random() * 1.5 : 8.5 + Math.random() * 4);
       if (limit - e < 3.5) e = Math.max(e, limit);
-      restCur = [k, t, e + (beatOn ? 2.5 : 0), e];
+      restCur = [k, t, e + (beatMode === 'off' ? 0 : wait), e, style];
     }
     return restCur;
   }
@@ -1182,7 +1252,9 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     const d = narrow ? d0 * 0.82 : d0;
     return { p: V(T[0] + Math.sin(az) * Math.cos(el) * d, T[1] + Math.sin(el) * d, T[2] + Math.cos(az) * Math.cos(el) * d), l: V(...T), r, f };
   }
-  function poseAt(name, t, s, e) {
+  // keeps moving to the end of a shot instead of braking to a stop
+  const flow = (k) => k * 0.8 + smooth(k) * 0.2;
+  function poseAt(name, t, s, e, st) {
     const k = Math.min(1, Math.max(0, (t - s) / (e - s)));
     if (name === 'intro') {
       const r = MV.room.a, w = MV.wide.a, i = sine(t / 8.5);
@@ -1191,12 +1263,14 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     }
     const m = MV[name];
     if (m.path) {
-      const q = smooth(k) * 0.7 + k * 0.3;
-      return { p: m.pc.getPoint(q), l: m.lc.getPoint(q), r: lerp(m.roll[0], m.roll[1], smooth(k)), f: wide ? 30 : 38 };
+      const q = st ? flow(k) : smooth(k) * 0.7 + k * 0.3;
+      return { p: m.pc.getPoint(q), l: m.lc.getPoint(q), r: lerp(m.roll[0], m.roll[1], smooth(k)) + (st ? st.spin * 0.16 * (k - 0.5) : 0), f: wide ? 30 : 38 };
     }
     if (!m.b) return orbit(m.a, !wide && name !== 'wide');
-    const q = smooth(k), A = m.a, B = m.b;
-    const P = [lerp(A[0], B[0], q), lerp(A[1], B[1], q), lerp(A[2], B[2], q), A[3].map((v, j) => lerp(v, B[3][j], q)), lerp(A[4], B[4], q), lerp(A[5], B[5], q)];
+    const q = st ? flow(k) : smooth(k), A = m.a, B = m.b;
+    // quick shots sweep further, turning shots circle around the subject and roll a little
+    const qa = st ? 0.5 + (q - 0.5) * st.amp : q, sp = st ? st.spin * (q - 0.5) : 0;
+    const P = [lerp(A[0], B[0], qa) + sp, lerp(A[1], B[1], qa), lerp(A[2], B[2], q), A[3].map((v, j) => lerp(v, B[3][j], q)), lerp(A[4], B[4], q) + sp * 0.12, lerp(A[5], B[5], q)];
     return orbit(P, !wide);
   }
   // ── shot transitions: simple and calm. The old and the new shot are drawn into two images and mixed.
@@ -1264,21 +1338,38 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
 
   let heard = -1, playOn = true, playK = 1, changing = false, spinNow = 0;
   // beats: found in the lows of the music, used for the tempo display and (if wanted) to cut on the beat
-  let lowPrev = 0, fluxAvg = 0.02, lastBeat = -9, beatNow = false, bpm = 0, popK = 0;
-  const beatGaps = [];
+  let lowPrev = 0, fluxAvg = 0.02, lastBeat = -9, beatNow = false, barNow = false, bpm = 0, popK = 0;
+  // a small beat tracker: onsets in the lows give the tempo, then the beats are predicted ahead
+  // (no lag, no missed beats) and pulled towards every real onset. Every 4th beat, on the strongest slot, is the bar.
+  let period = 0, nextBeat = 0, beatNo = 0; const beatGaps = [], slotE = [0, 0, 0, 0];
   function listen(t) {
     const real = bands ? !!bands(bandsArr) : false;
-    beatNow = false;
+    beatNow = barNow = false;
+    let onset = 0;
     if (real) {
       const low = (bandsArr[0] + bandsArr[1] + bandsArr[2] + bandsArr[3]) / 4, fl = Math.max(0, low - lowPrev);
       lowPrev = low; fluxAvg += (fl - fluxAvg) * 0.04;
-      if (fl > fluxAvg * 2.3 + 0.025 && t - lastBeat > 0.3) {
-        beatNow = true;
+      if (fl > fluxAvg * 2.3 + 0.025 && t - lastBeat > 0.28) {
+        onset = fl;
         const gap = t - lastBeat;
-        if (gap < 1.4) { beatGaps.push(gap); if (beatGaps.length > 12) beatGaps.shift(); const m = [...beatGaps].sort((a, b) => a - b)[beatGaps.length >> 1]; bpm = beatGaps.length > 4 ? Math.round(60 / m) : 0; }
+        if (gap > 0.28 && gap < 1.4) { beatGaps.push(gap); if (beatGaps.length > 16) beatGaps.shift(); }
+        if (beatGaps.length > 5) { const m = [...beatGaps].sort((a, b) => a - b)[beatGaps.length >> 1]; period = m; bpm = Math.round(60 / m); }
         lastBeat = t;
+        // pull the predicted grid towards the real onset
+        if (period) { let d = t - nextBeat; d -= Math.round(d / period) * period; if (Math.abs(d) < period * 0.3) nextBeat += d * 0.5; }
       }
-    } else if (t - lastBeat > 4) bpm = 0;
+    }
+    if (!real || t - lastBeat > 4) { period = 0; if (t - lastBeat > 4) bpm = 0; }
+    if (period) {
+      if (nextBeat < t - period) nextBeat = t;
+      if (t >= nextBeat) {
+        beatNow = true; beatNo++; nextBeat += period;
+        for (let i = 0; i < 4; i++) slotE[i] *= 0.97;
+        slotE[beatNo % 4] += onset || 0.6 * fluxAvg;
+        let best = 0; for (let i = 1; i < 4; i++) if (slotE[i] > slotE[best]) best = i;
+        barNow = beatNo % 4 === best;
+      }
+    } else if (onset) { beatNow = true; barNow = ++beatNo % 4 === 0; }
     return real;
   }
   function deckFrame(t, up, eS, real) {
@@ -1398,16 +1489,16 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     // camera
     let cur3 = testShot ? [testShot, 0, 1] : scrollT > 0.05 ? ['wide', t, t + 1] : shotAt(t);
     if (cur3[0] !== shot || (cur3[1] !== shotS && shot !== 'wide')) {
-      const m = cur3[0] === 'wide' || shot === 'wide' || !lastP ? 0 : pickTransition(beatOn && beatNow);
+      const m = cur3[0] === 'wide' || shot === 'wide' || !lastP ? 0 : pickTransition(beatMode !== 'off' && beatNow);
       if (TRN[m][3] === 0) { from = lastP; switchT = t; glideT = shot === 'wide' || cur3[0] === 'wide' ? 5 : TRN[0][1]; trn = null; }
       else if (TRN[m][3] === 1) { from = null; trn = null; }
       else {
         // on the beat the change is (almost) instant
-        from = null; trn = { m: TRN[m][3], t0: t, d: beatOn && beatNow ? 0.12 : TRN[m][1], name: shot, s: shotS, e: shotE };
+        from = null; trn = { m: TRN[m][3], t0: t, d: beatMode !== 'off' && beatNow ? 0.12 : TRN[m][1], name: shot, s: shotS, e: shotE };
       }
       shot = cur3[0]; shotS = cur3[1]; shotE = cur3[2];
     }
-    let P = poseAt(cur3[0], t, cur3[1], cur3[2]);
+    let P = poseAt(cur3[0], t, cur3[1], cur3[2], cur3[4]);
     if (shot === 'wide') { const o = orbit([MV.wide.a[0] + scrollT * 0.3, MV.wide.a[1] - scrollT * 0.1, wide ? MV.wide.a[2] : 9.9, MV.wide.a[3]], false); P = o; }
     const bk = Math.min(1, Math.max(0, (t - switchT) / glideT)), blend = from ? bk * bk * bk * (bk * (bk * 6 - 15) + 10) : 1;
     if (from && blend < 1) {
@@ -1462,7 +1553,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     // paused music: the record slows down and stands still, like a real one
     setPlaying(on) { playOn = !!on; },
     // shot changes wait for the beat of the music
-    setBeatSync(on) { beatOn = !!on; },
+    setBeatSync(v) { beatMode = syncMode(v); },
     // swap the record (label and sleeve) for another cover, e.g. the song that plays now
     setCover(url, i = 0) {
       if (!url || !tracks[i] || tracks[i].cover === url) return;

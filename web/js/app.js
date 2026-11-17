@@ -3794,11 +3794,13 @@ async function openChill() {
   if (chill || !player.current) return;
   const el = document.createElement('div');
   el.className = 'chill';
-  el.innerHTML = `<canvas></canvas><div class="ch-ui"><button class="icon-btn ch-close" data-chill="close" title="${t('close')}">${icon('close')}</button>
+  el.innerHTML = `<canvas></canvas><div class="ch-ui"><button class="icon-btn ch-close" data-chill="close" title="${t('close')}">${icon('close')}</button><button class="icon-btn ch-pin" data-chill="pin" title="${t('chillPin')}" aria-label="${t('chillPin')}"></button>
     <div class="ch-np"><div class="ch-cover"></div><div class="ch-meta"><b class="ch-title"></b><span class="ch-artist"></span></div>
     <div class="ch-ctl"><button class="icon-btn" data-chill="prev">${icon('prev')}</button><button class="icon-btn ch-play" data-chill="toggle"></button><button class="icon-btn" data-chill="next">${icon('next')}</button></div></div></div>`;
   document.body.appendChild(el);
   chill = { el, room: null, hide: 0, lock: null, meta: [], id: player.current.id };
+  const pinSync = () => { const on = !!prefs.chillPin; el.classList.toggle('pinned', on); const b = el.querySelector('.ch-pin'); b.innerHTML = icon('pin'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); };
+  pinSync();
   chillMeta();
   const wake = () => { el.classList.remove('calm'); clearTimeout(chill?.hide); if (chill) chill.hide = setTimeout(() => el.classList.add('calm'), 3500); };
   el.addEventListener('pointermove', wake);
@@ -3808,6 +3810,7 @@ async function openChill() {
     if (!b) return;
     const k = b.dataset.chill;
     if (k === 'close') closeChill();
+    else if (k === 'pin') { prefs.chillPin = !prefs.chillPin; savePrefs(); pinSync(); }
     else if (k === 'toggle') { if (chill.hold != null) { chill.hold = null; chillMeta(); } else player.toggle(); }
     else if (k === 'next') player.next();
     else if (k === 'prev') player.prev();
@@ -3822,7 +3825,7 @@ async function openChill() {
     if (!chill || chill.el !== el) return;
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4c8dff';
     chill.meta = [chill.first];
-    chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chill.first?.src || chillCover() }], center: true, follow: false, manual: true, beatSync: !!prefs.chillBeat, bands: (o) => player.spectrum(o), onTrack: (i) => { chillShow(chill?.meta[i]); chillRelease(chill?.meta[i]); }, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
+    chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chill.first?.src || chillCover() }], center: true, follow: false, manual: true, beatSync: prefs.chillSync || 'beat', bands: (o) => player.spectrum(o), onTrack: (i) => { chillShow(chill?.meta[i]); chillRelease(chill?.meta[i]); }, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
     chillMeta();
     el.classList.add('ready');
     // Android: its visualizer delivers the sound for the dots and the beat (only if the permission was given before)
@@ -4934,7 +4937,7 @@ function prefChanged(k) {
   if (['crossfade', 'normalize', 'streamQ'].includes(k)) player?.setOptions?.(playOptions());
   if (k === 'logos') applyLogos();
   if (k === 'chill') chillSync();
-  if (k === 'chillBeat') chill?.room?.setBeatSync?.(!!prefs.chillBeat);
+  if (k === 'chillSync') chill?.room?.setBeatSync?.(prefs.chillSync || 'beat');
   if (k === 'mixStream') saveTaste();
   if (k === 'discord') discordSync();
 }
@@ -4990,7 +4993,7 @@ async function renderSettings() {
       setRow(t('streamQ'), pseg('streamQ', ['auto', 'low', 'normal', 'high', 'veryhigh'], 'auto', (v) => t('q_' + v)), { hint: t('streamQHint'), keys: 'qualität quality streaming bitrate', wide: true }) +
       setRow(t('preloadAll'), psw('preloadAll', false), { hint: t('preloadAllHint'), keys: 'vorladen preload laden neu alles' }) +
       setRow(t('chill'), psw('chill', false), { hint: t('chillHint'), keys: 'chillscreen raum room zimmer vollbild fullscreen kamera camera plattenspieler' }) +
-      setRow(t('chillBeat'), psw('chillBeat', false), { hint: t('chillBeatHint'), keys: 'chillscreen beat takt übergänge transitions rhythmus' })),
+      setRow(t('chillBeat'), pseg('chillSync', ['off', 'beat', 'bar'], 'beat', (o) => t('chillSync_' + o)), { hint: t('chillBeatHint'), keys: 'chillscreen beat takt bar übergänge transitions rhythmus' })),
     setCard('viz', 'viz', t('viz'),
       setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' }) +
       setRow(t('miniViz'), pseg('miniViz', MINI_MODES, 'bars', (v) => t('mviz_' + v)), { hint: t('miniVizHint'), keys: 'mini player visualizer klein', wide: true }) +
