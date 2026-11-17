@@ -2307,21 +2307,26 @@ const relatedCards = (list) => (list || []).map((a) => {
   if (a.picture) extCovers.set(id, a.picture);
   return { name: a.name, cover: id, sub: t('artist') };
 });
-/** Monthly listeners like Spotify shows them (read by the server from Spotify's artist page). */
-const listenersCache = new Map();
+/** Monthly listeners like Spotify shows them (read by the server; exact when a source has the full count). */
+const listenersCache = new Map(); // id -> { at, p }, kept 10 minutes so an open page always shows a fresh count
 function showListeners(spId, name) {
   const run = async () => {
     try {
       let id = spId;
       if (!id && name) id = (await spotifyFindArtist(name))?.id;
       if (!id) return;
-      if (!listenersCache.has(id)) listenersCache.set(id, get('/api/catalog/sp-listeners/' + id).then((r) => r.listeners).catch(() => null));
-      const n = await listenersCache.get(id);
+      const hit = listenersCache.get(id);
+      if (!hit || Date.now() - hit.at > 600000) listenersCache.set(id, { at: Date.now(), p: get('/api/catalog/sp-listeners/' + id).catch(() => null) });
+      const r = await listenersCache.get(id).p;
+      const n = r?.listeners;
       if (!n) listenersCache.delete(id); // ask again next time instead of keeping a miss
       const el = document.querySelector('[data-listeners]');
       if (!n || !el) return;
-      // the full number, like Spotify shows it ("522,698 monthly listeners")
-      const fmt = new Intl.NumberFormat(getLang() === 'de' ? 'de-DE' : 'en-US').format(n);
+      const loc = getLang() === 'de' ? 'de-DE' : 'en-US';
+      // exact: the full number ("94,117,336 monthly listeners"); rounded source: short like Spotify's header ("4 Mio.")
+      const fmt = r.exact === false
+        ? new Intl.NumberFormat(loc, { notation: 'compact', compactDisplay: 'short', maximumFractionDigits: 1 }).format(n)
+        : new Intl.NumberFormat(loc).format(n);
       el.textContent = t('monthlyListeners', { n: fmt });
     } catch {}
   };

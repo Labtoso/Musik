@@ -1514,23 +1514,77 @@ async fn catalog_artist(Auth(_, _): Auth, Path(id): Path<String>) -> R {
 }
 
 /// ?name=… → artists that fans of this one also listen to (for artist pages of other platforms)
-/// Monthly listeners of a Spotify artist, read from the public artist page like Spotify shows them
-/// (the Web API only knows followers). Kept for 12 hours.
-static SP_LISTENERS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (std::time::Instant, Option<u64>)>>> = std::sync::OnceLock::new();
+/// Monthly listeners of a Spotify artist.
+/// 1. kworb.net/spotify/listeners.html lists the exact count of the ~2500 biggest artists (refreshed daily
+///    from Spotify), so those get the full number ("94,117,336").
+/// 2. Everyone else: Spotify's own public artist page / link preview, which only carries a rounded value
+///    ("4M monthly listeners"); the answer says `exact: false` so the app shows it rounded like Spotify's header
+///    ("4 Mio.") instead of a fake "4.000.000".
+/// Numbers are kept 1 hour, misses 10 minutes; the kworb list is reloaded every 3 hours.
+static SP_LISTENERS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (std::time::Instant, Option<(u64, bool)>)>>> = std::sync::OnceLock::new();
+static KWORB: std::sync::OnceLock<std::sync::Mutex<(Option<std::time::Instant>, HashMap<String, u64>)>> = std::sync::OnceLock::new();
+
+/// exact counts from kworb's top list, loaded at most every 3 hours (a failed load retries after 10 minutes)
+fn kworb_exact(id: &str) -> Option<u64> {
+    let lock = KWORB.get_or_init(|| std::sync::Mutex::new((None, HashMap::new())));
+    let mut k = lock.lock().unwrap();
+    let stale = match k.0 {
+        None => true,
+        Some(at) => at.elapsed() > std::time::Duration::from_secs(if k.1.is_empty() { 600 } else { 3 * 3600 }),
+    };
+    if stale {
+        k.0 = Some(std::time::Instant::now());
+        let html = ureq::get("https://kworb.net/spotify/listeners.html")
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36")
+            .timeout(std::time::Duration::from_secs(10))
+            .call()
+            .ok()
+            .and_then(|r| r.into_string().ok());
+        if let Some(html) = html {
+            let map = parse_kworb(&html);
+            if map.len() > 100 {
+                k.1 = map;
+            }
+        }
+    }
+    k.1.get(id).copied()
+}
+
+/// rows look like `<a href="artist/<id>_songs.html">Name</a></div></td><td>94,117,336</td>`
+pub(crate) fn parse_kworb(html: &str) -> HashMap<String, u64> {
+    let mut out = HashMap::new();
+    for part in html.split("href=\"artist/").skip(1) {
+        let Some(end) = part.find("_songs.html\"") else { continue };
+        let id = &part[..end];
+        if id.len() != 22 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        let Some(td) = part.find("</td><td>") else { continue };
+        let n: String = part[td + 9..].chars().take_while(|c| c.is_ascii_digit() || *c == ',').filter(|c| *c != ',').collect();
+        if let Ok(v) = n.parse::<u64>() {
+            out.insert(id.to_string(), v);
+        }
+    }
+    out
+}
+
 async fn sp_listeners(Auth(_, _): Auth, Path(id): Path<String>) -> R {
     if id.len() > 40 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(ApiError::new(400, "bad_query"));
     }
+    let answer = |v: Option<(u64, bool)>| Json(json!({ "listeners": v.map(|x| x.0), "exact": v.map(|x| x.1).unwrap_or(false) }));
     let cache = SP_LISTENERS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
     if let Some((at, v)) = cache.lock().unwrap().get(&id).cloned() {
-        // a number is kept 12 hours, a miss only 10 minutes, so a short hiccup does not hide it for half a day
-        let keep = if v.is_some() { 12 * 3600 } else { 600 };
+        let keep = if v.is_some() { 3600 } else { 600 };
         if at.elapsed() < std::time::Duration::from_secs(keep) {
-            return Ok(Json(json!({ "listeners": v })));
+            return Ok(answer(v));
         }
     }
     let id2 = id.clone();
     let v = tokio::task::spawn_blocking(move || {
+        if let Some(n) = kworb_exact(&id2) {
+            return Some((n, true));
+        }
         // Spotify answers link previews (Discord, Facebook) with a page that carries "… monthly listeners";
         // the browser page and the embed are tried as well, the first page with the number wins
         let tries: [(&str, &str); 4] = [
@@ -1558,21 +1612,22 @@ async fn sp_listeners(Auth(_, _): Auth, Path(id): Path<String>) -> R {
         c.clear();
     }
     c.insert(id, (std::time::Instant::now(), v));
-    Ok(Json(json!({ "listeners": v })))
+    Ok(answer(v))
 }
-/// "monthlyListeners":4123456 in the page data, otherwise "4.1M monthly listeners" in its description.
-pub(crate) fn parse_listeners(html: &str) -> Option<u64> {
+/// "monthlyListeners":4123456 in the page data (exact), otherwise "4.1M monthly listeners" in its description
+/// (exact only when written out in full, like "812,345 monthly listeners").
+pub(crate) fn parse_listeners(html: &str) -> Option<(u64, bool)> {
     if let Some(i) = html.find("\"monthlyListeners\":") {
         let n: String = html[i + 19..].chars().take_while(|c| c.is_ascii_digit()).collect();
         if let Ok(v) = n.parse() {
-            return Some(v);
+            return Some((v, true));
         }
     }
     for key in ["\"monthly_listeners\":", "\"monthlyListeners\" :"] {
         if let Some(i) = html.find(key) {
             let n: String = html[i + key.len()..].trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
             if let Ok(v) = n.parse() {
-                return Some(v);
+                return Some((v, true));
             }
         }
     }
@@ -1586,17 +1641,25 @@ pub(crate) fn parse_listeners(html: &str) -> Option<u64> {
         'B' | 'b' => (&tok[..tok.len() - 1], 1e9),
         _ => (tok.as_str(), 1.0),
     };
-    num.parse::<f64>().ok().map(|v| (v * mul).round() as u64)
+    num.parse::<f64>().ok().map(|v| ((v * mul).round() as u64, mul == 1.0))
 }
 
 #[cfg(test)]
 mod listeners_tests {
     #[test]
     fn reads_listeners() {
-        assert_eq!(super::parse_listeners(r#"x "monthlyListeners":4123456,"y"#), Some(4123456));
-        assert_eq!(super::parse_listeners(r#"<meta property="og:description" content="Artist · 4.1M monthly listeners.">"#), Some(4_100_000));
-        assert_eq!(super::parse_listeners(r#"content="Artist · 812,345 monthly listeners.""#), Some(812_345));
+        assert_eq!(super::parse_listeners(r#"x "monthlyListeners":4123456,"y"#), Some((4123456, true)));
+        assert_eq!(super::parse_listeners(r#"<meta property="og:description" content="Artist · 4.1M monthly listeners.">"#), Some((4_100_000, false)));
+        assert_eq!(super::parse_listeners(r#"content="Artist · 812,345 monthly listeners.""#), Some((812_345, true)));
         assert_eq!(super::parse_listeners("nothing"), None);
+    }
+    #[test]
+    fn reads_kworb() {
+        let html = r#"<tr><td>8</td><td class="text"><div><a href="artist/3TVXtAsR1Inumwj472S9r4_songs.html">Drake</a></div></td><td>94,117,336</td><td>63,462</td><td>3</td><td class="smaller">100,057,064</td></tr>
+<tr><td>9</td><td class="text"><div><a href="artist/4gzpq5DPGxSnKTe4SA8HAU_songs.html">Coldplay</a></div></td><td>88,000,001</td></tr>"#;
+        let m = super::parse_kworb(html);
+        assert_eq!(m.get("3TVXtAsR1Inumwj472S9r4"), Some(&94_117_336));
+        assert_eq!(m.get("4gzpq5DPGxSnKTe4SA8HAU"), Some(&88_000_001));
     }
 }
 
