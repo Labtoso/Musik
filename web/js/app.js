@@ -1781,6 +1781,20 @@ function genCoverHtml(id, cls) {
   return `<div class="cover ${cls} gen" style="--gc:${g.color}">${g.picture ? `<img loading="lazy" alt="" src="${esc(g.picture)}" onerror="this.remove()">` : ''}<i class="gen-tint"></i><div class="gen-ov"><span class="gen-mark">${STREYN_MARK}</span><b>${esc(g.label)}</b></div></div>`;
 }
 const userName = () => conn.user?.name || '';
+// Own name, description and cover for a generated list (kept in the account settings, so on every device).
+// key: 'mix~<id>' or 'top~<year>'. The cover is stored like other covers under kind "gen".
+const genEdit = (key) => settings.genEdits?.[key] || {};
+function genRef(key) {
+  let h = 0x811c9dc5;
+  for (const c of key) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0;
+  return (conn.user?.id || 0) * 4294967296 + h;
+}
+/** The list with its own name/description/cover laid over the made one. */
+function withGenEdit(x, key) {
+  const e = genEdit(key);
+  const own = e.art ? artKey('gen', genRef(key), e.art) : null;
+  return { ...x, key, madeTitle: x.title, madeDesc: x.desc, title: e.name || x.title, desc: e.desc ?? x.desc, cover: own || x.cover, madeCover: x.cover };
+}
 const namesText = (names) => (names.length ? t('mixAndMore', { names: names.slice(0, 3).join(', ') }) : '');
 /** One mix from the server as the app shows it: name, description, cover, songs. */
 function mixInfo(m) {
@@ -1801,7 +1815,7 @@ function mixInfo(m) {
   const picture = m.picture || m.tracks?.[0]?.cover || '';
   genCovers.set(cover, { label, picture, color: mixColor(m.id) });
   if (picture) extCovers.set(cover, picture);
-  return { slug: m.id, title, desc, cover, tracks: (m.tracks || []).map(extTrack) };
+  return withGenEdit({ slug: m.id, title, desc, cover, tracks: (m.tracks || []).map(extTrack) }, 'mix~' + m.id);
 }
 function streynMixList(r) {
   if (!r || settings.streynMixes === false) return [];
@@ -1825,14 +1839,14 @@ function topInfo(y) {
   const color = `hsl(${hue} 85% 58%)`, color2 = `hsl(${(hue + 140) % 360} 80% 42%)`;
   genCovers.set(cover, { year: y.year, color, color2 });
   extCovers.set(cover, `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="${color2}"/></linearGradient></defs><rect width="10" height="10" fill="url(#g)"/></svg>`)}`);
-  return {
+  return withGenEdit({
     year: y.year,
     title: t('topSongsTitle', { year: y.year }),
     desc: t('topSongsDesc', { year: y.year }),
     cover,
     plays: y.plays,
     tracks: y.tracks.map((x) => (x.track ? x.track : extTrack(x.ext))).filter(Boolean)
-  };
+  }, 'top~' + y.year);
 }
 const topCard = (y) => `<a class="card" href="#/topsongs/${y.year}">${coverImg(y.cover, 'lg')}<div class="c-title">${esc(y.title)}</div><div class="c-sub">${esc(t('playlist'))} · ${esc(t('forUser', { name: userName() }))}</div></a>`;
 
@@ -1853,8 +1867,9 @@ views.mix = async (params, id) => {
     coverId: m.cover,
     kind: t('streynMix'),
     title: m.title,
+    edit: 'gen:' + m.key,
     sub: `<span class="pl-desc">${esc(m.desc)}</span>${esc(t('forUser', { name: userName() }))} · ${songCount(m.tracks.length)} · ${fmtTime(m.tracks.reduce((s, x) => s + (x.duration || 0), 0))}`,
-    actions: genListActions('mix', m.title)
+    actions: genListActions('mix', m.title) + `<button class="icon-btn lg" data-edit="gen:${m.key}" title="${t('editDetails')}">${icon('edit')}</button>`
   }) + trackList(m.tracks);
 };
 views.topsongs = async (params, id) => {
@@ -1866,8 +1881,9 @@ views.topsongs = async (params, id) => {
     coverId: y.cover,
     kind: t('playlist'),
     title: y.title,
+    edit: 'gen:' + y.key,
     sub: `<span class="pl-desc">${esc(y.desc)}</span>${esc(t('forUser', { name: userName() }))} · ${songCount(y.tracks.length)} · ${fmtTime(y.tracks.reduce((s, x) => s + (x.duration || 0), 0))}`,
-    actions: genListActions('top', y.title)
+    actions: genListActions('top', y.title) + `<button class="icon-btn lg" data-edit="gen:${y.key}" title="${t('editDetails')}">${icon('edit')}</button>`
   }) + trackList(y.tracks);
 };
 // keep a mix or a year as an own playlist (it then stays as it is, the mix itself goes on changing)
@@ -5227,7 +5243,7 @@ function playlistDialog(pl = null, kind = 'playlist') {
     wrap.className = 'modal-wrap';
     const imp = kind === 'import';
     // without an own picture: what the page shows (first song, or the platform's cover)
-    const std = !pl || pl.likes ? '' : imp ? pl.cover || coverUrl(pl.items?.find((x) => x.local)?.local.id || '') || pl.items?.find((x) => x.cover)?.cover || '' : coverUrl(pl.tracks?.[0]?.id || pl.cover_id || '');
+    const std = pl?.gen ? coverUrl(pl.made.madeCover || '') || '' : !pl || pl.likes ? '' : imp ? pl.cover || coverUrl(pl.items?.find((x) => x.local)?.local.id || '') || pl.items?.find((x) => x.cover)?.cover || '' : coverUrl(pl.tracks?.[0]?.id || pl.cover_id || '');
     const cur = pl?.art ? coverUrl(artKey(kind, pl.id, pl.art)) : std;
     let own = !!pl?.art;
     const desc = imp ? pl?.meta?.description || '' : pl?.description || '';
@@ -5285,6 +5301,14 @@ function playlistDialog(pl = null, kind = 'playlist') {
         let id = pl?.id;
         if (kind === 'likes') {
           await saveSettings({ likesName: name === t('likes') ? '' : name, likesDesc: description, ...(blob ? { likesArt: Date.now() } : removeArt ? { likesArt: 0 } : {}) });
+        } else if (kind === 'gen') {
+          // the made name/description stay the default: only what was changed is kept
+          const prev = genEdit(pl.gen);
+          const e = { name: name === pl.made.madeTitle ? '' : name, desc: description === pl.made.madeDesc ? undefined : description, art: blob ? Date.now() : removeArt ? 0 : prev.art || 0 };
+          const all = { ...(settings.genEdits || {}) };
+          if (!e.name && e.desc === undefined && !e.art) delete all[pl.gen];
+          else all[pl.gen] = e;
+          await saveSettings({ genEdits: all });
         } else if (imp) await put(`/api/imports/${id}`, { name, meta: { ...(pl.meta || {}), description } });
         else if (id) await put(`/api/playlists/${id}`, { name, description });
         else id = (await post('/api/playlists', { name, description })).id;
@@ -5307,6 +5331,20 @@ function likesArtKey() {
 }
 /** Picture, name and description of a playlist (own or imported) are changed in one dialog. */
 async function editDetails(kind, id, info) {
+  if (kind === 'gen') {
+    // Streyn Mixes and Your Top Songs: the list as it is shown now
+    const list = id.startsWith('top~') ? (await loadTopSongs()).find((x) => x.key === id) : streynMixList(await (fyLoad?.p || loadForYou(null))).find((x) => x.key === id);
+    if (!list) return;
+    const e = genEdit(id);
+    const r = await playlistDialog({ id: genRef(id), name: list.title, description: list.desc, art: e.art || 0, likes: true, gen: id, made: list, tracks: list.tracks }, 'gen');
+    if (r) {
+      topLoad = null;
+      dropHome();
+      renderSidebarPlaylists();
+      render();
+    }
+    return;
+  }
   if (kind === 'likes') {
     const r = await playlistDialog({ id: Number(id), name: settings.likesName || t('likes'), description: settings.likesDesc || '', art: settings.likesArt || 0, likes: true }, 'likes');
     if (r) render();

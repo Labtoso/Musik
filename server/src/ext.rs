@@ -817,6 +817,8 @@ fn art_kind(k: &str) -> Result<&'static str, ApiError> {
         "import" => Ok("import"),
         "user" => Ok("user"),
         "likes" => Ok("likes"),
+        // generated lists (Streyn Mixes, Your Top Songs): id = user id << 32 | number of the list
+        "gen" => Ok("gen"),
         _ => Err(nf()),
     }
 }
@@ -824,6 +826,9 @@ fn own_ref(db: &Connection, uid: i64, kind: &str, id: i64) -> Result<(), ApiErro
     // a profile picture belongs to the user with that id
     if kind == "user" || kind == "likes" {
         return if id == uid { Ok(()) } else { Err(nf()) };
+    }
+    if kind == "gen" {
+        return if id >> 32 == uid { Ok(()) } else { Err(nf()) };
     }
     let table = if kind == "playlist" { "playlists" } else { "imports" };
     db.query_row(&format!("SELECT id FROM {table} WHERE id = ? AND user_id = ?"), params![id, uid], |r| r.get::<_, i64>(0))
