@@ -201,10 +201,18 @@ jobs:
           DV=$(tr -d ' \n\r' < ../DESKTOP_VERSION)
           H=$(cd .. && git ls-files -s desktop/src-tauri desktop/ui desktop/package.json desktop/package-lock.json tools/protect DESKTOP_VERSION | git hash-object --stdin | cut -c1-10)
           RAW="streyn-desktop-$DV-$H-windows-x64.exe"
+          # the offline-mode server inside the installer is pinned the same way (same file until DESKTOP_VERSION changes)
+          SRV="streyn-desktop-server-$DV-windows-x64.exe"
+          SIDECAR="src-tauri/binaries/streyn-server-${{ matrix.triple }}${{ matrix.ext }}"
+          # installer hooks live outside desktop/ so changing them never changes the app file
+          CFG="{\"version\":\"$DV\",\"bundle\":{\"windows\":{\"nsis\":{\"installerHooks\":\"../../tools/installer/hooks.nsh\"}}}}"
           npm ci
           reuse=0
           if [ "${{ matrix.name }}" = windows ]; then
             names=$(gh release view -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)
+            if grep -qx "$SRV" <<< "$names"; then
+              gh release download -R "$GITHUB_REPOSITORY" -p "$SRV" -D prevsrv && cp "prevsrv/$SRV" "$SIDECAR" && echo "Offline server for $DV unchanged: reusing $SRV"
+            fi
             if grep -qx "$RAW" <<< "$names"; then
               gh release download -R "$GITHUB_REPOSITORY" -p "$RAW" -D prev && reuse=1
             elif grep -q "^streyn-desktop-$DV-" <<< "$names"; then
@@ -215,15 +223,16 @@ jobs:
             echo "Desktop app $DV unchanged: reusing $RAW"
             mkdir -p src-tauri/target/release
             cp "prev/$RAW" src-tauri/target/release/streyn.exe
-            npx tauri bundle --bundles ${{ matrix.bundle }} --config "{\"version\":\"$DV\"}"
+            npx tauri bundle --bundles ${{ matrix.bundle }} --config "$CFG"
           else
-            npx tauri build --bundles ${{ matrix.bundle }} --config "{\"version\":\"$DV\"}"
+            npx tauri build --bundles ${{ matrix.bundle }} --config "$CFG"
           fi
           f=$(find src-tauri/target/release/bundle/${{ matrix.bundle }} -maxdepth 1 \( -name "*.exe" -o -name "*.AppImage" \) | head -n1)
           cp "$f" "../${{ matrix.out }}"
           if [ "${{ matrix.name }}" = windows ]; then
             cp src-tauri/target/release/streyn.exe "../$RAW"
-            sha256sum "../$RAW"
+            cp "$SIDECAR" "../$SRV"
+            sha256sum "../$RAW" "../$SRV"
           fi
       - uses: actions/upload-artifact@v4
         with:
@@ -231,6 +240,7 @@ jobs:
           path: |
             ${{ matrix.out }}
             streyn-desktop-*-windows-x64.exe
+            streyn-desktop-server-*-windows-x64.exe
           if-no-files-found: error
 
   release:
