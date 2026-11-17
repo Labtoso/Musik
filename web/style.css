@@ -1875,3 +1875,8 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
 
 /* the ring visualizer keeps its round cover in every theme (Liquid Glass corners must not square it off) */
 :root .fs[data-viz='ring'] .fs-cover .cover.huge:not(.round) { border-radius: 50%; }
+
+/* 1.25.3: queue and lyrics sheet grow and shrink with one soft curve, every edge moves together */
+.fs-queue { --sheet-ease: cubic-bezier(0.32, 0.72, 0, 1); transition: transform 0.4s var(--sheet-ease), top 0.42s var(--sheet-ease), bottom 0.42s var(--sheet-ease), left 0.42s var(--sheet-ease), right 0.42s var(--sheet-ease), border-radius 0.42s var(--sheet-ease), visibility 0s 0.4s; }
+.fs-queue.open { transition: transform 0.4s var(--sheet-ease), top 0.42s var(--sheet-ease), bottom 0.42s var(--sheet-ease), left 0.42s var(--sheet-ease), right 0.42s var(--sheet-ease), border-radius 0.42s var(--sheet-ease); }
+.fs-lyrics .lyrics p { transition: font-size 0.42s var(--sheet-ease, ease); }

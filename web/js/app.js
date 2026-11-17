@@ -4278,26 +4278,56 @@ function toggleFsQueue() {
     el.classList.remove('open', 'full');
     fsButtons();
   };
+  // the sheet follows the finger: top edge while growing or shrinking, a slide down while closing; on release it springs to its place
   let t = null;
+  const drag = (el, top, slide) => {
+    el.style.transition = 'none';
+    el.style.top = top == null ? '' : top + 'px';
+    el.style.transform = slide ? `translateY(${slide}px)` : '';
+  };
+  const release = (el) => {
+    el.style.transition = el.style.top = el.style.transform = '';
+  };
   document.addEventListener('touchstart', (e) => {
     const el = sheet(e.target);
     if (!el || !el.classList.contains('open')) return (t = null);
     const r = el.getBoundingClientRect();
-    t = { el, y: e.touches[0].clientY, grip: e.touches[0].clientY - r.top < 34, top: el.scrollTop <= 0, done: false };
+    const host = el.offsetParent?.getBoundingClientRect().top || 0;
+    t = { el, y: e.touches[0].clientY, top0: r.top - host, grip: e.touches[0].clientY - r.top < 34, top: el.scrollTop <= 0, full: el.classList.contains('full'), moved: false, dy: 0 };
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
-    if (!t || t.done) return;
+    if (!t) return;
     const dy = e.touches[0].clientY - t.y;
-    const full = t.el.classList.contains('full');
-    if (!full) {
+    const minTop = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-t')) || 0;
+    if (!t.full) {
+      // small: never scrolls, the finger moves the sheet (up = bigger, down = away)
       if (e.cancelable) e.preventDefault();
-      if (dy < -24) { setFull(t.el, true); t.done = true; } else if (dy > 70) { close(t.el); t.done = true; }
-    } else if ((t.grip || t.top) && dy > 60) {
+      t.moved = true; t.dy = dy;
+      if (dy < 0) drag(t.el, Math.max(minTop, t.top0 + dy * 1.15), 0);
+      else drag(t.el, null, dy);
+    } else if ((t.grip || t.top) && (t.moved || dy > 6)) {
+      // big and at the top: pulling down brings it back down with the finger
       if (e.cancelable) e.preventDefault();
-      setFull(t.el, false); t.done = true;
+      t.moved = true; t.dy = dy;
+      t.el.style.transition = 'none';
+      t.el.style.setProperty('top', Math.max(minTop, t.top0 + Math.max(0, dy)) + 'px', 'important');
     }
   }, { passive: false });
-  document.addEventListener('touchend', () => (t = null), { passive: true });
+  const end = () => {
+    if (!t) return;
+    const { el, dy, moved, full } = t;
+    t = null;
+    if (!moved) return;
+    // one frame with the release transition set, then the class change animates from where the finger left the sheet
+    if (!full) {
+      if (dy < -40) { release(el); setFull(el, true); }
+      else if (dy > 90) { release(el); close(el); }
+      else release(el);
+    } else if (dy > 90) { release(el); setFull(el, false); }
+    else release(el);
+  };
+  document.addEventListener('touchend', end, { passive: true });
+  document.addEventListener('touchcancel', end, { passive: true });
   // mouse: the wheel on a small sheet makes it big, the grip switches between small and big
   document.addEventListener('wheel', (e) => {
     const el = sheet(e.target);
