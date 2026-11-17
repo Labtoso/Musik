@@ -102,7 +102,7 @@ export function lensSettle(id, from = 3, ms = 620) {
   requestAnimationFrame(step);
 }
 
-// ---------- morph: a menu grows out of its button like a drop that swells, and melts back into it ----------
+// ---------- menus grow out of their button and shrink back into it ----------
 function rectOf(anchor) {
   if (!anchor) return null;
   if (anchor instanceof Element) {
@@ -129,21 +129,21 @@ export function morphIn(el, anchor) {
   const a = rectOf(anchor);
   if (!a) return;
   el.classList.add('lg-morph');
-  el.style.transformOrigin = '50% 50%';
-  const anim = el.animate(morphFrames(el, a), { duration: 560, easing: easing(SOFT) });
-  // the content fades in once the glass has nearly grown, so the words never look squashed
-  [...el.children].forEach((c, i) => c.animate([{ opacity: 0, transform: 'translateY(-4px) scale(0.96)' }, { opacity: 1, transform: 'none' }], { duration: 300, delay: 110 + i * 18, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', fill: 'backwards' }));
+  // calm, like iOS: the menu grows from its button in one short, smooth move, no wobble, no stretching
+  const m = el.getBoundingClientRect();
+  const ox = Math.max(0, Math.min(m.width, a.x + a.w / 2 - m.left)), oy = Math.max(0, Math.min(m.height, a.y + a.h / 2 - m.top));
+  el.style.transformOrigin = `${ox}px ${oy}px`;
+  const anim = el.animate([{ opacity: 0, transform: 'scale(0.55)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1)' });
   anim.onfinish = () => (el.style.transformOrigin = '');
-  requestAnimationFrame(() => lensSettle('lg-menu', 3.2, 600));
+  requestAnimationFrame(() => lensSettle('lg-menu', 1.8, 360));
 }
 /** Melts the menu back into its button. Resolves when the shape is gone; the element is removed by the caller. */
 export function morphOut(el, anchor) {
   if (!on() || reduced() || !el.isConnected) return Promise.resolve();
-  const a = rectOf(anchor);
-  if (!a) return el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(0.9)' }], { duration: 180, easing: 'ease-in' }).finished.catch(() => {});
   el.style.pointerEvents = 'none';
-  [...el.children].forEach((c) => c.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: 'forwards' }));
-  return el.animate(morphFrames(el, a).reverse(), { duration: 340, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' }).finished.catch(() => {});
+  const a = rectOf(anchor), m = el.getBoundingClientRect();
+  if (a) el.style.transformOrigin = `${Math.max(0, Math.min(m.width, a.x + a.w / 2 - m.left))}px ${Math.max(0, Math.min(m.height, a.y + a.h / 2 - m.top))}px`;
+  return el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(0.7)' }], { duration: 170, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' }).finished.catch(() => {});
 }
 
 // The tab bar stays full while scrolling, like in the standard theme (Sebastian 2026-11-17).

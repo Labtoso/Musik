@@ -422,8 +422,8 @@ function lensFilter(id, w, h, r, bezel, scale, split = 0, mag = 1) {
 const glassPanes = (() => {
   // every floating layer is real glass: it bends what lies under its rim (Chromium: Windows app, Android, browsers)
   // [selector, key, frost blur]: bars stay almost clear so the bend at the rim is plainly visible, big sheets frost more for reading
-  // Apple's regular glass: the rim bends the light, the body blurs enough that text on it reads over any cover
-  const PANES = [['.bottomnav', 'nav', 10], ['.player', 'player', 10], ['.toast', 'toast', 12], ['.menu', 'menu', 16], ['.side', 'side', 14], ['.modal', 'modal', 18], ['.profile', 'profile', 18], ['.devsheet', 'devsheet', 18]];
+  // bars are clear glass like Apple's tab bar: you see what lies under them, bent at the rim, only a breath of blur (Sebastian: never just blur)
+  const PANES = [['.bottomnav', 'nav', 2], ['.player', 'player', 2], ['.toast', 'toast', 3], ['.menu', 'menu', 5], ['.side', 'side', 8], ['.modal', 'modal', 14], ['.profile', 'profile', 14], ['.devsheet', 'devsheet', 14]];
   const sizes = new Map();
   const seen = new WeakSet();
   let ro = null;
@@ -435,8 +435,8 @@ const glassPanes = (() => {
     if (sizes.get(key) !== sig) {
       sizes.set(key, sig);
       // a thick convex rim: the bezel grows with the pane, the bend is strongest right at the edge, colours split a little like real glass
-      const bezel = Math.max(12, Math.min(26, Math.min(w, h) * 0.28));
-      lensFilter('lg-' + key, w, h, parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, bezel, bezel * 2.4, 0.05);
+      const bezel = Math.max(14, Math.min(30, Math.min(w, h) * 0.34));
+      lensFilter('lg-' + key, w, h, parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, bezel, bezel * 2.8, 0.07);
     }
     el.style.backdropFilter = `url(#lg-${key}) blur(${frost}px) saturate(1.8) brightness(1.06)`;
     // a pane that just appeared materialises: its rim bends the light strongly at first and settles into clear glass
