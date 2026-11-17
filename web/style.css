@@ -70,7 +70,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
   width: 36px; height: 36px; display: inline-grid; place-items: center; border-radius: var(--r-ctl);
   color: var(--muted); transition: color 0.12s, background 0.12s; flex: none;
 }
-.icon-btn:hover { color: var(--text); background: var(--surface2); }
+.icon-btn:hover { color: var(--text); }
 .icon-btn.sm { width: 28px; height: 28px; }
 .icon-btn.sm .ic { width: 16px; height: 16px; }
 .icon-btn.lg .ic { width: 28px; height: 28px; }
@@ -1983,3 +1983,6 @@ html.has-wall[data-theme='green'] .settings, html.has-wall[data-theme='green'] .
 .set-row > .sr-ctl:has(> .off-folder) { position: absolute; right: 0; top: 6px; }
 .off-folder { width: 36px; height: 36px; border-radius: 10px; background: var(--surface2); color: var(--text); }
 .off-folder:hover { background: color-mix(in srgb, var(--accent) 22%, var(--surface2)); }
+
+/* 1.28.1: symbols get no circle or ring behind them when hovered, pressed or clicked, in every theme; only the colour changes */
+button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
