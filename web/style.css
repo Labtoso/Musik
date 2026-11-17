@@ -1861,3 +1861,14 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
   .ce-stage { padding: 4px 34px 12px; }
   .ce-panel { flex: 1; }
 }
+
+/* ---------- 1.25.1: the strip around and below the tab bar is plain page colour, nothing shows or reacts through it ---------- */
+@media (max-width: 899px) {
+  :root:not([data-theme='green']) .shell::after {
+    content: ''; position: fixed; left: 0; right: 0; bottom: 0; z-index: 4;
+    height: calc(82px + var(--safe-b)); background: var(--bg); pointer-events: auto;
+  }
+  /* glass: nothing solid behind the glass, it has to bend the page; the strip only catches taps */
+  [data-theme='glass'] .shell::after { height: calc(86px + var(--safe-b)); background: none; }
+  body:has(.wiz) .shell::after { display: none; }
+}
