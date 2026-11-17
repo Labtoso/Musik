@@ -4099,10 +4099,15 @@ function chillSync() {
 const chillCover = () => $('#fs-cover img')?.src || $('#np-cover img')?.src || '';
 function chillShow(m) {
   if (!chill || !m) return;
-  chill.el.querySelector('.ch-title').textContent = m.title;
-  chill.el.querySelector('.ch-artist').textContent = m.artist;
+  chill.last = m;
+  const ti = chill.el.querySelector('.ch-title'), ar = chill.el.querySelector('.ch-artist');
+  ti.textContent = m.title;
+  // phone like Spotify: every artist on its own link, long lines run in a loop; desktop stays as it is
+  if (matchMedia('(max-width: 899px)').matches && m.links) ar.innerHTML = m.links; else ar.textContent = m.artist;
   chill.el.querySelector('.ch-cover').innerHTML = m.src ? `<img src="${esc(m.src)}" alt="">` : '';
+  requestAnimationFrame(() => { spotMarquee(ti); spotMarquee(ar); });
 }
+addEventListener('resize', () => chill?.last && chillShow(chill.last));
 // the room is decorated with what plays next: crate, CDs, shelf and the wall show the upcoming covers
 function chillDecor() {
   const q = player.queue || [], i = player.index;
@@ -4115,7 +4120,7 @@ function chillMeta() {
   const tr = player.current;
   chill.el.querySelector('[data-chill="toggle"]').innerHTML = icon(player.playing || chill.hold != null ? 'pause' : 'play');
   if (!tr) return;
-  const m = { id: tr.id, title: tr.title || '', artist: artistName(tr), src: chillCover() };
+  const m = { id: tr.id, title: tr.title || '', artist: artistName(tr), links: artistLinks(tr), src: chillCover() };
   if (!chill.room) { chill.first = m; chill.id = m.id; chillShow(m); return; }
   chillDecor();
   // a new song: the record change runs completely, the title switches once the new record spins
@@ -4148,6 +4153,9 @@ async function openChill() {
   el.addEventListener('pointermove', wake);
   el.addEventListener('pointerdown', wake);
   el.addEventListener('click', (e) => {
+    // an artist link: leave the room, then open the artist
+    const al = e.target.closest('a.alink');
+    if (al) { e.preventDefault(); const href = al.getAttribute('href'); closeChill(); setTimeout(() => { location.hash = href.replace(/^#/, ''); }, 150); return; }
     const b = e.target.closest('[data-chill]');
     if (!b) return;
     const k = b.dataset.chill;
