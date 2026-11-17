@@ -1776,9 +1776,9 @@ function mixColor(id) {
 function genCoverHtml(id, cls) {
   const g = genCovers.get(id);
   if (g.year) {
-    return `<div class="cover ${cls} gen year" style="--gc:${g.color};--gc2:${g.color2}"><div class="gen-ov"><span class="gen-mark">${STREYN_MARK}</span><small>${esc(t('topSongsShort'))}</small><b>${g.year}</b></div></div>`;
+    return `<div class="cover ${cls} gen year" style="--gc:${g.color};--gc2:${g.color2}"><i class="gen-tint"></i><div class="gen-ov"><span class="gen-mark">${STREYN_MARK}</span><small>${esc(t('topSongsShort'))}</small><b>${g.year}</b></div></div>`;
   }
-  return `<div class="cover ${cls} gen" style="--gc:${g.color}">${g.picture ? `<img loading="lazy" alt="" src="${esc(g.picture)}" onerror="this.remove()">` : ''}<div class="gen-ov"><span class="gen-mark">${STREYN_MARK}</span><b>${esc(g.label)}</b></div></div>`;
+  return `<div class="cover ${cls} gen" style="--gc:${g.color}">${g.picture ? `<img loading="lazy" alt="" src="${esc(g.picture)}" onerror="this.remove()">` : ''}<i class="gen-tint"></i><div class="gen-ov"><span class="gen-mark">${STREYN_MARK}</span><b>${esc(g.label)}</b></div></div>`;
 }
 const userName = () => conn.user?.name || '';
 const namesText = (names) => (names.length ? t('mixAndMore', { names: names.slice(0, 3).join(', ') }) : '');
@@ -1868,7 +1868,7 @@ views.topsongs = async (params, id) => {
     title: y.title,
     sub: `<span class="pl-desc">${esc(y.desc)}</span>${esc(t('forUser', { name: userName() }))} · ${songCount(y.tracks.length)} · ${fmtTime(y.tracks.reduce((s, x) => s + (x.duration || 0), 0))}`,
     actions: genListActions('top', y.title)
-  }) + trackList(y.tracks, { numbers: true });
+  }) + trackList(y.tracks);
 };
 // keep a mix or a year as an own playlist (it then stays as it is, the mix itself goes on changing)
 document.addEventListener('click', async (e) => {

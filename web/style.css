@@ -1906,25 +1906,25 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
   #np-artist { font-size: 13px; }
 }
 
-/* ---------- Streyn Mixes and yearly top songs: covers drawn by the app ---------- */
-.cover.gen { position: relative; display: block; container-type: inline-size; background: var(--gc); color: #fff; isolation: isolate; }
-.cover.gen img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.9) contrast(1.05); }
-.cover.gen::after { content: ''; position: absolute; inset: 0; z-index: 0; background: linear-gradient(to top, var(--gc) 4%, color-mix(in srgb, var(--gc) 62%, transparent) 36%, transparent 68%), linear-gradient(to bottom, rgba(0, 0, 0, .28), transparent 30%); }
-.cover.gen .gen-ov { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; padding: 7cqw 8cqw; text-align: left; }
-.cover.gen .gen-mark svg { display: block; width: 12cqw; height: 12cqw; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .35)); }
-.cover.gen .gen-ov b { font-weight: 800; font-size: 12.5cqw; line-height: 1.02; letter-spacing: -.02em; text-shadow: 0 1px 10px rgba(0, 0, 0, .3); overflow-wrap: anywhere; }
-.cover.gen.year { background: radial-gradient(120% 90% at 85% 10%, color-mix(in srgb, var(--gc) 70%, #fff) 0, transparent 55%), linear-gradient(140deg, var(--gc), var(--gc2)); }
-.cover.gen.year::after { background: repeating-linear-gradient(-35deg, rgba(255, 255, 255, .07) 0 6cqw, transparent 6cqw 14cqw); }
-.cover.gen.year .gen-ov { justify-content: flex-end; gap: 1cqw; }
-.cover.gen.year .gen-mark { position: absolute; top: 7cqw; left: 8cqw; }
-.cover.gen.year small { font-size: 9cqw; font-weight: 700; letter-spacing: -.01em; line-height: 1.05; }
-.cover.gen.year .gen-ov b { font-size: 33cqw; line-height: .86; letter-spacing: -.05em; text-shadow: 0 2px 18px rgba(0, 0, 0, .22); }
+/* ---------- Streyn Mixes and yearly top songs: covers drawn by the app (:root so no theme washes them out) ---------- */
+:root .cover.gen { position: relative; display: block; container-type: inline-size; background: var(--gc); color: #fff; isolation: isolate; }
+:root .cover.gen img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.9) contrast(1.05); }
+:root .cover.gen > .gen-tint { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: linear-gradient(to top, var(--gc) 4%, color-mix(in srgb, var(--gc) 62%, transparent) 36%, transparent 68%), linear-gradient(to bottom, rgba(0, 0, 0, .28), transparent 30%); }
+:root .cover.gen .gen-ov { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; padding: 7cqw 8cqw; text-align: left; }
+:root .cover.gen .gen-mark svg { display: block; width: 12cqw; height: 12cqw; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .35)); }
+:root .cover.gen .gen-ov b { font-weight: 800; font-size: 12.5cqw; line-height: 1.02; letter-spacing: -.02em; text-shadow: 0 1px 10px rgba(0, 0, 0, .3); overflow-wrap: anywhere; }
+:root .cover.gen.year { background: radial-gradient(120% 90% at 85% 10%, color-mix(in srgb, var(--gc) 70%, #fff) 0, transparent 55%), linear-gradient(140deg, var(--gc), var(--gc2)); }
+:root .cover.gen.year > .gen-tint { background: repeating-linear-gradient(-35deg, rgba(255, 255, 255, .07) 0 6cqw, transparent 6cqw 14cqw); }
+:root .cover.gen.year .gen-ov { justify-content: flex-end; gap: 1cqw; }
+:root .cover.gen.year .gen-mark { position: absolute; top: 7cqw; left: 8cqw; }
+:root .cover.gen.year small { font-size: 9cqw; font-weight: 700; letter-spacing: -.01em; line-height: 1.05; }
+:root .cover.gen.year .gen-ov b { font-size: 33cqw; line-height: .86; letter-spacing: -.05em; text-shadow: 0 2px 18px rgba(0, 0, 0, .22); }
 @container (max-width: 80px) {
-  .cover.gen .gen-ov { padding: 9cqw; justify-content: flex-end; }
-  .cover.gen:not(.year) .gen-ov b, .cover.gen.year small { display: none; }
-  .cover.gen .gen-mark svg { width: 34cqw; height: 34cqw; }
-  .cover.gen.year .gen-mark { display: none; }
-  .cover.gen.year .gen-ov b { font-size: 30cqw; }
+  :root .cover.gen .gen-ov { padding: 9cqw; justify-content: flex-end; }
+  :root .cover.gen:not(.year) .gen-ov b, :root .cover.gen.year small { display: none; }
+  :root .cover.gen .gen-mark svg { width: 34cqw; height: 34cqw; }
+  :root .cover.gen.year .gen-mark { display: none; }
+  :root .cover.gen.year .gen-ov b { font-size: 30cqw; }
 }
 
 /* 1.27.1: Standard theme on Android phones: the page runs on behind the tab bar and mini player and stays visible there,
