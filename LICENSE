@@ -11,7 +11,8 @@ You may download and run the official releases from
 https://github.com/Labtoso/Musik/releases for your own personal use.
 
 Third-party components keep their own licenses (for example three.js under
-web/vendor/three.LICENSE and the Figtree font under web/vendor/figtree.LICENSE).
+web/vendor/three.LICENSE, the Figtree font under web/vendor/figtree.LICENSE, and the Inter font under
+web/vendor/inter.LICENSE).
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR

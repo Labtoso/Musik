@@ -422,7 +422,8 @@ function lensFilter(id, w, h, r, bezel, scale, split = 0, mag = 1) {
 const glassPanes = (() => {
   // every floating layer is real glass: it bends what lies under its rim (Chromium: Windows app, Android, browsers)
   // [selector, key, frost blur]: bars stay almost clear so the bend at the rim is plainly visible, big sheets frost more for reading
-  const PANES = [['.bottomnav', 'nav', 1.5], ['.player', 'player', 1.5], ['.toast', 'toast', 2], ['.menu', 'menu', 7], ['.side', 'side', 5], ['.modal', 'modal', 12], ['.profile', 'profile', 14], ['.devsheet', 'devsheet', 12]];
+  // Apple's regular glass: the rim bends the light, the body blurs enough that text on it reads over any cover
+  const PANES = [['.bottomnav', 'nav', 10], ['.player', 'player', 10], ['.toast', 'toast', 12], ['.menu', 'menu', 16], ['.side', 'side', 14], ['.modal', 'modal', 18], ['.profile', 'profile', 18], ['.devsheet', 'devsheet', 18]];
   const sizes = new Map();
   const seen = new WeakSet();
   let ro = null;
@@ -3802,6 +3803,9 @@ function renderPlayer() {
       coverBox.dataset.id = tr.id;
       coverBox.innerHTML = coverImg(tr.id, 'md');
       big.innerHTML = coverImg(tr.id, 'huge');
+      // Liquid Glass: the big player lies on the blurred artwork, like Apple Music
+      const art = coverUrl(tr.id);
+      $('#fs').style.setProperty('--art', art ? `url("${art.replace(/"/g, '%22')}")` : 'none');
       viz?.attach(big);
     }
     // like Spotify: once the sound plays on another device the artist moves up next to the song, after a dot

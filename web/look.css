@@ -159,3 +159,114 @@ html[data-theme='glass'][data-oled] { background: #000; }
 
 /* light Liquid Glass: the bar with "Next" in the start assistant fades into the light page, not into black */
 [data-theme='glass'][data-mode='light'] .wiz-nav { background: linear-gradient(180deg, rgba(238, 240, 246, 0), rgba(238, 240, 246, 0.9) 40%); }
+
+/* ==========================================================================
+   1.25.0: Liquid Glass polished after Apple's own apps
+   Glass is only for what floats (bars, sidebar, menus, sheets, buttons on top); the content below stays calm.
+   ========================================================================== */
+@font-face {
+  font-family: 'Streyn Inter';
+  src: url('vendor/inter.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+/* type: San Francisco on Apple devices, Inter (its closest open sibling) everywhere else, tight titles */
+[data-theme='glass'] body { font-family: -apple-system, 'SF Pro Text', 'Streyn Inter', system-ui, sans-serif; font-feature-settings: 'cv11', 'ss03'; letter-spacing: -0.006em; }
+[data-theme='glass'] h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.022em; line-height: 1.12; }
+[data-theme='glass'] h2 { font-size: 21px; font-weight: 700; letter-spacing: -0.018em; }
+[data-theme='glass'] .mhead h1 { font-size: 30px; }
+@media (max-width: 899px) { [data-theme='glass'] .detail-head h1 { font-size: 28px; } }
+[data-theme='glass'] .muted, [data-theme='glass'] .c-sub, [data-theme='glass'] .sr-hint { color: rgba(235, 235, 245, 0.6); }
+[data-theme='glass'][data-mode='light'] .muted, [data-theme='glass'][data-mode='light'] .c-sub, [data-theme='glass'][data-mode='light'] .sr-hint { color: rgba(60, 60, 67, 0.6); }
+
+/* bars: regular glass, a dark veil that keeps every label readable over bright covers */
+[data-theme='glass'] .player, [data-theme='glass'] .side { background: linear-gradient(180deg, rgba(38, 38, 46, 0.44), rgba(18, 18, 24, 0.56)); }
+[data-theme='glass'].dyn .player { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 16%, rgba(38, 38, 46, 0.42)), rgba(18, 18, 24, 0.56)); }
+@media (max-width: 899px) {
+  [data-theme='glass'] .bottomnav { background: linear-gradient(180deg, rgba(38, 38, 46, 0.44), rgba(18, 18, 24, 0.56)); }
+}
+[data-theme='glass'] .toast { background: rgba(30, 30, 36, 0.6); }
+[data-theme='glass'] .menu { background: linear-gradient(180deg, rgba(40, 40, 48, 0.62), rgba(22, 22, 28, 0.7)); }
+[data-theme='glass'] .player, [data-theme='glass'] .bottomnav, [data-theme='glass'] .toast { text-shadow: none; }
+[data-theme='glass'] .player .ic, [data-theme='glass'] .bottomnav .ic { filter: none; }
+/* the same veil in light mode, white instead of dark */
+[data-theme='glass'][data-mode='light'] .player, [data-theme='glass'][data-mode='light'].dyn .player, [data-theme='glass'][data-mode='light'] .bottomnav, [data-theme='glass'][data-mode='light'] .side { background: linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(246, 246, 250, 0.7)); }
+[data-theme='glass'][data-mode='light'] .menu { background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(246, 246, 250, 0.82)); }
+
+/* scroll edge: what scrolls under the bars fades and softens instead of running hard into them */
+[data-theme='glass'] .shell::after {
+  content: ''; position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; pointer-events: none;
+  height: calc(var(--bar) + 50px);
+  background: linear-gradient(180deg, rgba(9, 10, 14, 0), rgba(9, 10, 14, 0.55));
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 70%); mask-image: linear-gradient(180deg, transparent, #000 70%);
+}
+@media (max-width: 899px) {
+  [data-theme='glass'] .shell::after { height: calc(190px + var(--safe-b)); }
+  [data-theme='glass'] .shell::before {
+    content: ''; position: fixed; left: 0; right: 0; top: 0; z-index: 4; pointer-events: none; height: calc(var(--safe-t) + 26px);
+    background: linear-gradient(180deg, rgba(9, 10, 14, 0.7), rgba(9, 10, 14, 0));
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+    -webkit-mask-image: linear-gradient(180deg, #000 40%, transparent); mask-image: linear-gradient(180deg, #000 40%, transparent);
+  }
+}
+@media (min-width: 900px) { [data-theme='glass'] .shell::after { left: calc(var(--side) + 20px); } }
+[data-theme='glass'][data-mode='light'] .shell::after { background: linear-gradient(180deg, rgba(238, 240, 246, 0), rgba(238, 240, 246, 0.6)); }
+[data-theme='glass'][data-mode='light'] .shell::before { background: linear-gradient(180deg, rgba(238, 240, 246, 0.8), rgba(238, 240, 246, 0)); }
+[data-theme='glass'][data-oled] .shell::after { background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.6)); }
+[data-theme='glass'][data-oled] .shell::before { background: linear-gradient(180deg, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); }
+
+/* content is not glass (Apple keeps glass for the floating layer): calm tiles, no rims, rounder corners */
+[data-theme='glass'] .qt { box-shadow: none; background: rgba(255, 255, 255, 0.075); border-radius: 12px; }
+[data-theme='glass'] .qt:hover { background: rgba(255, 255, 255, 0.12); }
+[data-theme='glass'] .set-card { border-color: transparent; box-shadow: none; background: rgba(255, 255, 255, 0.06); border-radius: 26px; }
+[data-theme='glass'] .themeopt, [data-theme='glass'] .srccard { box-shadow: none; border-color: rgba(255, 255, 255, 0.1); }
+[data-theme='glass'][data-mode='light'] .qt { background: rgba(255, 255, 255, 0.6); }
+[data-theme='glass'][data-mode='light'] .set-card { background: rgba(255, 255, 255, 0.66); }
+
+/* menus like iOS: rounder, roomier rows, hairline separators */
+[data-theme='glass'] .menu { border-radius: 26px; padding: 8px; min-width: 220px; }
+[data-theme='glass'] .menu button { border-radius: 18px; min-height: 42px; padding: 0 14px; font-size: 15px; font-weight: 500; }
+[data-theme='glass'] .menu hr { border-top-color: rgba(255, 255, 255, 0.1); margin: 6px 10px; }
+[data-theme='glass'][data-mode='light'] .menu hr { border-top-color: rgba(60, 60, 67, 0.16); }
+[data-theme='glass'] .modal { border-radius: 34px; }
+
+/* the big player lies on its own artwork, blurred and slowly breathing, like Apple Music */
+[data-theme='glass'] .fs { background: #0b0b0f; isolation: isolate; overflow: hidden; }
+[data-theme='glass'] .fs::before {
+  content: ''; position: absolute; inset: -30%; z-index: -1; pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.5)), var(--art, none) center / cover, linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg, var(--accent)) 60%, #0b0b0f), #0b0b0f);
+  filter: blur(80px) saturate(1.35) brightness(0.45); transform: scale(1.1); animation: lg-art 40s ease-in-out infinite alternate;
+}
+@keyframes lg-art { from { transform: scale(1.1) rotate(0deg); } to { transform: scale(1.25) rotate(12deg); } }
+[data-theme='glass'][data-mode='light'] .fs::before { filter: blur(80px) saturate(1.35) brightness(0.5); }
+[data-theme='glass'][data-oled] .fs::before { filter: blur(80px) saturate(1.5) brightness(0.45); }
+[data-theme='glass'] .fs .cover.huge { border-radius: 14px; box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.6); }
+@media (prefers-reduced-motion: reduce) { [data-theme='glass'] .fs::before { animation: none; } }
+
+/* corners like Apple's: continuous and concentric (an inner corner = outer corner minus the gap), artwork rounded by its size */
+[data-theme='glass'] .cover:not(.round) { border-radius: 10px; }
+[data-theme='glass'] .cover.sm:not(.round) { border-radius: 8px; }
+[data-theme='glass'] .cover.md:not(.round) { border-radius: 12px; }
+[data-theme='glass'] .cover.lg:not(.round) { border-radius: 14px; }
+[data-theme='glass'] .cover.xl:not(.round) { border-radius: 22px; }
+[data-theme='glass'] .cover.huge:not(.round), [data-theme='glass'] .fs .cover.huge:not(.round) { border-radius: 24px; }
+[data-theme='glass'] .libgrid .card .cover:not(.round) { border-radius: 12px; }
+[data-theme='glass'] .qt { border-radius: 14px; }
+[data-theme='glass'] .qt .cover:not(.round) { border-radius: 0; }
+[data-theme='glass'] .card { border-radius: 20px; }
+[data-theme='glass'] .row { border-radius: 14px; }
+[data-theme='glass'] .hero, [data-theme='glass'] .topres, [data-theme='glass'] .srccard, [data-theme='glass'] .themeopt { border-radius: 24px; }
+[data-theme='glass'] .themeprev { border-radius: 16px; }
+[data-theme='glass'] .devsheet, [data-theme='glass'] .fs-queue { border-radius: 34px 34px 0 0; }
+[data-theme='glass'] .field input, [data-theme='glass'] .select, [data-theme='glass'] .textin, [data-theme='glass'] .field textarea { border-radius: 14px; }
+[data-theme='glass'] .icon-btn { border-radius: 999px; }
+/* phone: the mini player is a capsule like the tab bar under it, its artwork sits concentric inside */
+@media (max-width: 899px) {
+  [data-theme='glass'] .player { border-radius: 999px; padding-left: 11px; padding-right: 14px; }
+  [data-theme='glass'] .np .cover.md:not(.round) { border-radius: 16px; width: 48px; height: 48px; }
+  [data-theme='glass'] #mini-progress { left: 34px; max-width: calc(100% - 68px); }
+}
+[data-theme='glass'] .bt { border-radius: 18px; }
+[data-theme='glass'] .bt .cover:not(.round) { border-radius: 10px; }
