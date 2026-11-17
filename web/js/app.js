@@ -2949,8 +2949,11 @@ async function paintOffline() {
   b.classList.toggle('busy', loading);
   b.dataset.key = set?.key || '';
   b.dataset.state = set?.state || '';
-  b.querySelector('span').textContent = loading ? t('offLoading', { n: set.done, total: set.total || '…' }) : set?.state === 'ready' ? t('offOn') : set ? t('offRetry') : t('offDownload');
-  b.style.setProperty('--p', loading && set.total ? (set.done / set.total) * 100 + '%' : '0%');
+  const label = loading ? t('offLoading', { n: set.done, total: set.total || '…' }) : set?.state === 'ready' ? t('offOn') : set ? t('offRetry') : t('offDownload');
+  b.querySelector('span').textContent = label;
+  b.title = label;
+  // songs done plus how far the song coming in right now is, so the bar grows steadily from 0 to the end
+  b.style.setProperty('--p', loading && set.total ? Math.min(100, ((set.done + (set.part || 0)) / set.total) * 100).toFixed(2) + '%' : '0%');
   clearTimeout(offTimer);
   // a kept playlist follows changes on the server: copied again quietly when it is older than ten minutes
   if (set?.state === 'ready' && Date.now() - set.updated > 600000 && state.detail?.[b.dataset.offlist]?.length) {
@@ -2958,7 +2961,7 @@ async function paintOffline() {
     offTimer = setTimeout(paintOffline, 1200);
     return;
   }
-  if (loading) offTimer = setTimeout(paintOffline, 1200);
+  if (loading) offTimer = setTimeout(paintOffline, 700);
   else if (set && set.state !== 'ready' && b.dataset.was === 'loading') toast(t('offError'));
   b.dataset.was = set?.state || '';
 }
@@ -2983,6 +2986,55 @@ document.addEventListener('click', async (e) => {
     return redrawOffline();
   }
 });
+// ---------- download to the server: the songs that only stream are stored on the server, then they count as local ----------
+const srvDl = new Map();
+async function serverDownload(id, total) {
+  if (srvDl.has(id)) return;
+  try {
+    await post(`/api/imports/${id}/store`);
+  } catch (err) {
+    return toast(errorText(err));
+  }
+  watchServerDl(id, total);
+}
+async function watchServerDl(id, total, quiet) {
+  if (srvDl.has(id)) return;
+  let last = -1;
+  srvDl.set(id, true);
+  const stop = () => (srvDl.delete(id), importStatus(null));
+  for (;;) {
+    let s;
+    try {
+      s = await get(`/api/imports/${id}/store`);
+    } catch {
+      return stop();
+    }
+    if (s.state !== 'loading') {
+      stop();
+      if (!quiet || last >= 0) {
+        if (s.state === 'ready' || s.state === 'error') {
+          const got = (s.done || 0) - (s.failed || 0);
+          toast(s.failed ? t('srvDlSome', { n: got, failed: s.failed }) : t('srvDlDone', { n: got }));
+          if (location.hash.includes('/imported/' + id)) render();
+        }
+      }
+      return;
+    }
+    const n = s.done || 0;
+    const pct = s.total ? ((n + (s.part || 0)) / s.total) * 100 : 0;
+    importStatus(t('srvDlLoading', { n, total: s.total || '…' }), pct);
+    // the "X of Y local" line counts along
+    if (n !== last) {
+      last = n;
+      const el = $(`[data-implocal="${id}"]`);
+      if (el) {
+        const r = await get('/api/imports/' + id).catch(() => null);
+        if (r) el.textContent = t('importedOf', { local: r.items.filter((x) => x.local).length, total: r.items.length || total });
+      }
+    }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+}
 async function offlineHtml() {
   const sets = await offline.status();
   const size = (n) => (n > 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(n / 1e6)) + ' MB');
@@ -3424,6 +3476,7 @@ views.imported = async (params, id) => {
   for (const it of r.items) if (!it.local && it.cover) extCovers.set('off:' + it.pos, it.cover);
   state.detail = { imp: tracks.filter((x) => !x._off) };
   state.importInfo = r;
+  setTimeout(() => watchServerDl(r.id, r.items.length, true), 0);
   const local = r.items.filter((x) => x.local).length;
   let coverId = r.items.find((x) => x.local)?.local.id || null;
   if (r.cover) {
@@ -3438,7 +3491,7 @@ views.imported = async (params, id) => {
       coverId,
       kind: t('playlist'),
       title: r.name,
-      sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge(r.source)} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(r.items.length)}${dur ? ', ' + fmtLong(dur) : ''} · ${t('importedOf', { local, total: r.items.length })}`,
+      sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge(r.source)} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${m.followers ? t('likesN', { n: m.followers.toLocaleString() }) + ' · ' : ''}${songCount(r.items.length)}${dur ? ', ' + fmtLong(dur) : ''} · <span data-implocal="${r.id}">${t('importedOf', { local, total: r.items.length })}</span>`,
       edit: `import:${r.id}`,
       actions: listActions('imp') + `<button class="icon-btn lg" data-preload="imp" title="${t('preload')}">${icon('bolt')}</button>` + offBtn('imp' + r.id, 'imp', r.name) + (r.kept ? '' : `<button class="btn" data-saveimp="${r.id}" title="${t('saveAsPlaylist')}">${icon('plus')}${t('saveAsPlaylist')}</button>`) + shareBtn('import', r.id, r.name) + `<button class="icon-btn lg" data-edit="import:${r.id}" title="${t('editDetails')}">${icon('edit')}</button>` + (r.items.length ? `<button class="icon-btn lg m-only" data-pledit="import:${r.id}" title="${t('editMode')}">${icon('drag')}</button>` : '') + `<button class="icon-btn" data-cmenu="import:${r.id}" title="…">${icon('more')}</button>`
     }) + trackList(tracks)
@@ -5048,6 +5101,11 @@ async function collectionMenu(anchor, ref) {
           label: t('saveAsPlaylist'),
           icon: 'plus',
           run: () => saveImportAsPlaylist(id)
+        },
+        (info.items || []).some((x) => !x.local) && {
+          label: t(srvDl.has(Number(id)) ? 'srvDlBusy' : 'srvDl'),
+          icon: 'server',
+          run: () => serverDownload(Number(id), (info.items || []).length)
         },
         {
           label: t('rematch'),

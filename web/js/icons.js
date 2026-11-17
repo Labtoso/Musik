@@ -59,6 +59,7 @@ const P = {
   drag: '<path d="M8 7h8M8 12h8M8 17h8"/>',
   album: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/>',
   mix: '<path d="M4 17c3 0 4-10 8-10s5 10 8 10"/>',
+  server: '<rect x="4" y="4.5" width="16" height="6" rx="1.6"/><rect x="4" y="13.5" width="16" height="6" rx="1.6"/><path d="M7.5 7.5h.01M7.5 16.5h.01M11 7.5h5M11 16.5h5"/>',
   download: '<path d="M12 4.5v11M7.5 11 12 15.5 16.5 11"/><path d="M5 19.5h14"/>',
   lyrics: '<path d="M5 6.5h10M5 11h10M5 15.5h5"/><path d="M17.5 17.5V9l3-1"/><circle cx="15.8" cy="17.5" r="1.8"/>',
   share: '<circle cx="17.5" cy="6" r="2.3"/><circle cx="6.5" cy="12" r="2.3"/><circle cx="17.5" cy="18" r="2.3"/><path d="m8.5 10.9 7-3.8M8.5 13.1l7 3.8"/>',

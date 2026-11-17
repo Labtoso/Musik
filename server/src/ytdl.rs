@@ -573,7 +573,7 @@ fn fetch_full(vid: &str) -> Result<(), String> {
         let mut s = stream_with(vid, false)?;
         let part = dir.join(format!("{vid}.part"));
         for attempt in 0..2 {
-            match download_ranges(&s, &part) {
+            match download_ranges(&s, &part, vid) {
                 Ok(ctype) => {
                     std::fs::write(dir.join(format!("{vid}.type")), &ctype).ok();
                     std::fs::rename(&part, dir.join(format!("{vid}.audio"))).map_err(|e| e.to_string())?;
@@ -593,10 +593,39 @@ fn fetch_full(vid: &str) -> Result<(), String> {
         Err("failed".into())
     })();
     busy.lock().unwrap().remove(vid);
+    if let Some(m) = DL_PROG.get() {
+        m.lock().unwrap().remove(vid);
+    }
     r
 }
+/// How far the song being fetched is (bytes so far, size), for progress bars.
+static DL_PROG: OnceLock<Mutex<std::collections::HashMap<String, (u64, u64)>>> = OnceLock::new();
+pub fn progress(vid: &str) -> Option<f64> {
+    let (pos, total) = *DL_PROG.get()?.lock().unwrap().get(vid)?;
+    (total > 0 && total != u64::MAX).then(|| (pos as f64 / total as f64).clamp(0.0, 1.0))
+}
+/// Fetches a whole song onto this server's disk and returns (file, content type).
+/// Waits when the same song is already coming in (the play button or preload got there first).
+pub fn whole_song(vid: &str) -> Result<(PathBuf, String), String> {
+    for _ in 0..240 {
+        if let Some((f, ctype, _)) = cached(vid) {
+            return Ok((f, ctype));
+        }
+        let busy = FETCHING.get().map(|b| b.lock().unwrap().contains(vid)).unwrap_or(false);
+        if busy {
+            std::thread::sleep(Duration::from_millis(500));
+            continue;
+        }
+        fetch_full(vid)?;
+        if let Some((f, ctype, _)) = cached(vid) {
+            return Ok((f, ctype));
+        }
+    }
+    Err("timeout".into())
+}
 /// The whole stream in 1 MB ranges (one long request gets slowed down by YouTube); returns its content type.
-fn download_ranges(s: &Stream, to: &Path) -> Result<String, String> {
+fn download_ranges(s: &Stream, to: &Path, vid: &str) -> Result<String, String> {
+    let prog = DL_PROG.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
     use std::io::Write;
     let mut f = std::fs::File::create(to).map_err(|e| e.to_string())?;
     let (mut pos, mut total, mut ctype) = (0u64, u64::MAX, String::from("audio/mp4"));
@@ -626,6 +655,7 @@ fn download_ranges(s: &Stream, to: &Path) -> Result<String, String> {
         }
         f.write_all(&buf).map_err(|e| e.to_string())?;
         pos += buf.len() as u64;
+        prog.lock().unwrap().insert(vid.to_string(), (pos, total));
     }
     Ok(ctype)
 }

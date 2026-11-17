@@ -1477,9 +1477,9 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 .icon-btn.lg .ic { width: 23px; height: 23px; }
 .icon-btn.offbtn .sr { display: none; }
 .icon-btn.offbtn.on, [data-preload].on { color: var(--accent); }
-.icon-btn.offbtn.busy::after, [data-preload].busy::after { left: 9px; right: 9px; bottom: 4px; width: auto; border-radius: 2px; }
+/* the bar under the icon: a quiet track, the accent fills it as far as the download really is (1.26.7) */
 [data-preload] { position: relative; }
-[data-preload].busy::after { content: ''; position: absolute; height: 3px; background: linear-gradient(90deg, var(--accent) var(--p, 0%), var(--line) var(--p, 0%)); }
+.icon-btn.offbtn.busy::after, [data-preload].busy::after { content: ''; position: absolute; left: 9px; right: 9px; bottom: 4px; width: auto; height: 3px; border-radius: 2px; background: linear-gradient(var(--accent), var(--accent)) left / var(--p, 0%) 100% no-repeat, var(--line); transition: background-size 0.7s linear; }
 [data-preload].busy .ic { animation: off-pulse 1s ease-in-out infinite alternate; }
 /* add songs and edit order */
 .modal.addsongs, .modal.reorder { max-width: 520px; max-height: min(86vh, 760px); display: flex; flex-direction: column; padding: 18px; }

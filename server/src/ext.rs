@@ -112,6 +112,7 @@ pub fn routes() -> Router<St> {
             get(get_import).put(replace_import).delete(delete_import),
         )
         .route("/imports/{id}/rematch", post(rematch))
+        .route("/imports/{id}/store", get(store_status).post(store_start))
         .route("/imports/{id}/items", post(append_items))
         .route("/imports/{id}/playlist", post(import_to_playlist))
         .route("/fetch/deezer", get(fetch_deezer))
@@ -2369,4 +2370,124 @@ mod tests {
         assert!(m.find("nightdrive", "Neon Coast, Someone", 201.0).is_some());
         assert!(m.find("Nightdrive", "Other Band", 260.0).is_none());
     }
+}
+
+// ---------- "Download to server": the songs of an imported playlist that only stream are fetched once
+// and kept in the library on this server, so they count as local and play without YouTube ----------
+static STORE: std::sync::OnceLock<std::sync::Mutex<HashMap<i64, Value>>> = std::sync::OnceLock::new();
+fn store_map() -> &'static std::sync::Mutex<HashMap<i64, Value>> {
+    STORE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+fn store_set(id: i64, f: impl FnOnce(&mut Value)) {
+    let mut m = store_map().lock().unwrap();
+    let v = m.entry(id).or_insert_with(|| json!({}));
+    f(v);
+}
+
+async fn store_status(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
+    {
+        let db = st.db.lock().unwrap();
+        own_import(&db, u.id, id)?;
+    }
+    let mut v = store_map().lock().unwrap().get(&id).cloned().unwrap_or_else(|| json!({ "state": "idle" }));
+    if v["state"] == "loading" {
+        // the song coming in right now counts with its bytes, so the bar moves smoothly
+        let part = v["vid"].as_str().and_then(crate::ytdl::progress).unwrap_or(0.0);
+        v["part"] = json!(part);
+    }
+    Ok(Json(v))
+}
+
+async fn store_start(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
+    let base = st.library.upload_dir.clone().or_else(|| st.library.roots().into_iter().next()).ok_or(ApiError::new(400, "no_upload_dir"))?;
+    let items: Vec<(i64, String, String, String, f64, String)> = {
+        let db = st.db.lock().unwrap();
+        own_import(&db, u.id, id)?;
+        let mut s = db
+            .prepare("SELECT pos, title, artist, album, duration, cover FROM import_items WHERE import_id = ? AND track_id IS NULL ORDER BY pos")
+            .unwrap();
+        let v = s
+            .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        v
+    };
+    {
+        let m = store_map().lock().unwrap();
+        if let Some(v) = m.get(&id).filter(|v| v["state"] == "loading") {
+            return Ok(Json(v.clone()));
+        }
+    }
+    let total = items.len();
+    let first = json!({ "state": "loading", "done": 0, "total": total, "failed": 0, "vid": "", "part": 0.0 });
+    store_map().lock().unwrap().insert(id, first.clone());
+    let uid = u.id;
+    std::thread::spawn(move || {
+        let dir = base.join("Streyn");
+        let mut failed = 0;
+        for (i, (pos, title, artist, album, dur, cover)) in items.into_iter().enumerate() {
+            crate::ytdl::yield_to_play();
+            let ok = (|| -> Option<()> {
+                let vid = find_video(&st, uid, &title, &artist, dur, "", &[], false).ok().filter(|v| !v.is_empty())?;
+                store_set(id, |v| v["vid"] = json!(vid));
+                let (file, ctype) = crate::ytdl::whole_song(&vid).ok()?;
+                let ext = if ctype.contains("webm") { "webm" } else if ctype.contains("ogg") || ctype.contains("opus") { "ogg" } else if ctype.contains("mpeg") { "mp3" } else { "m4a" };
+                let name = format!("{} - {}", crate::offline::clean(&artist), crate::offline::clean(&title));
+                let name = name.trim_start_matches(" - ").to_string();
+                let folder = dir.join(&name);
+                std::fs::create_dir_all(&folder).ok()?;
+                let dest = folder.join(format!("{name}.{ext}"));
+                std::fs::copy(&file, &dest).ok()?;
+                write_tags(&dest, &title, &artist, &album);
+                if cover.starts_with("https://") && !folder.join("cover.jpg").exists() {
+                    if let Ok(r) = ureq::get(&cover).timeout(Duration::from_secs(15)).call() {
+                        let mut buf = Vec::new();
+                        if r.into_reader().take(8 << 20).read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+                            std::fs::write(folder.join("cover.jpg"), &buf).ok();
+                        }
+                    }
+                }
+                let db = st.db.lock().unwrap();
+                let tid = st.library.add_file(&db, &dest)?;
+                db.execute(
+                    "UPDATE import_items SET track_id = ? WHERE track_id IS NULL AND import_id = ? AND pos = ?",
+                    params![tid, id, pos],
+                )
+                .ok();
+                Some(())
+            })();
+            if ok.is_none() {
+                failed += 1;
+            }
+            store_set(id, |v| {
+                v["done"] = json!(i + 1);
+                v["failed"] = json!(failed);
+                v["vid"] = json!("");
+                v["part"] = json!(0.0);
+            });
+        }
+        st.rec.invalidate();
+        store_set(id, |v| v["state"] = json!(if failed > 0 && failed == total { "error" } else { "ready" }));
+    });
+    Ok(Json(first))
+}
+
+/// Title, artist and album into the file itself, so the library shows it right on every device.
+fn write_tags(p: &std::path::Path, title: &str, artist: &str, album: &str) {
+    use lofty::file::TaggedFileExt;
+    use lofty::tag::{Accessor, Tag};
+    let Ok(mut tf) = lofty::read_from_path(p) else { return };
+    let tt = tf.primary_tag_type();
+    if tf.tag(tt).is_none() {
+        tf.insert_tag(Tag::new(tt));
+    }
+    let Some(tag) = tf.tag_mut(tt) else { return };
+    tag.set_title(title.to_string());
+    tag.set_artist(artist.to_string());
+    if !album.is_empty() {
+        tag.set_album(album.to_string());
+    }
+    use lofty::file::AudioFile;
+    let _ = tf.save_to_path(p, lofty::config::WriteOptions::default());
 }

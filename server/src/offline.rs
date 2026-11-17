@@ -94,6 +94,11 @@ fn sets(db: &Connection) -> Vec<Value> {
     })
     .unwrap()
     .filter_map(Result::ok)
+    .map(|mut v: Value| {
+        let part = if v["state"] == "loading" { part_map().lock().unwrap().get(v["key"].as_str().unwrap_or("")).copied().unwrap_or(0.0) } else { 0.0 };
+        v["part"] = json!(part);
+        v
+    })
     .collect()
 }
 
@@ -195,7 +200,7 @@ fn url_host(u: &str) -> String {
     hostport.rsplit_once(':').map(|(h, _)| h).unwrap_or(hostport).to_string()
 }
 
-fn clean(s: &str) -> String {
+pub(crate) fn clean(s: &str) -> String {
     let c: String = s.chars().map(|c| if "<>:\"/\\|?*".contains(c) || (c as u32) < 32 { '_' } else { c }).collect();
     let c = c.trim().trim_matches('.').to_string();
     c.chars().take(80).collect()
@@ -212,6 +217,44 @@ fn ext_for(mime: &str) -> &'static str {
         "audio/webm" => "webm",
         _ => "mp3",
     }
+}
+
+/// How far the song coming in right now is (0..1), per download, for a smooth bar in the app.
+static PART: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, f64>>> = std::sync::OnceLock::new();
+fn part_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, f64>> {
+    PART.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+fn set_part(key: &str, p: f64) {
+    part_map().lock().unwrap().insert(key.to_string(), p.clamp(0.0, 1.0));
+}
+
+/// Like save, but counts the bytes along: by the size the server names, else guessed from the length (128 kbit/s).
+fn save_counted(res: ureq::Response, dest: &Path, key: &str, duration: f64) -> Result<u64, &'static str> {
+    use std::io::Write;
+    let size: f64 = res.header("Content-Length").and_then(|n| n.parse::<f64>().ok()).filter(|n| *n > 0.0).unwrap_or(duration.max(60.0) * 16_000.0);
+    let tmp = dest.with_extension("part");
+    let mut r = res.into_reader().take(2 << 30);
+    let mut f = std::fs::File::create(&tmp).map_err(|_| "error_disk")?;
+    let mut buf = vec![0u8; 64 * 1024];
+    let (mut n, mut last) = (0u64, std::time::Instant::now());
+    set_part(key, 0.0);
+    loop {
+        let k = r.read(&mut buf).map_err(|_| "error_network")?;
+        if k == 0 {
+            break;
+        }
+        f.write_all(&buf[..k]).map_err(|_| "error_disk")?;
+        n += k as u64;
+        if last.elapsed() > Duration::from_millis(200) {
+            last = std::time::Instant::now();
+            // a guessed size never shows the song as done before it is
+            set_part(key, (n as f64 / size).min(0.97));
+        }
+    }
+    drop(f);
+    std::fs::rename(&tmp, dest).map_err(|_| "error_disk")?;
+    set_part(key, 0.0);
+    Ok(n)
 }
 
 fn save(res: ureq::Response, dest: &Path) -> Result<u64, &'static str> {
@@ -286,7 +329,7 @@ fn copy_tracks(st: &St, key: &str, server: &str, token: &str, id: i64, ip: &str,
                     let ext = ext_for(res.header("Content-Type").unwrap_or(""));
                     let fname = format!("{} - {}.{ext}", clean(&artist), clean(&title));
                     let dest = dir.join(fname.trim_start_matches(" - "));
-                    save(res, &dest)?;
+                    save_counted(res, &dest, key, t["duration"].as_f64().unwrap_or(0.0))?;
                     if let Some(c) = t["cover"].as_str().filter(|c| c.starts_with("https://")) {
                         if let Ok(r) = ag.get(&format!("{server}/api/imgproxy?u={}&t={token}", crate::ext::urlencode(c))).call() {
                             if r.status() == 200 {
@@ -315,7 +358,7 @@ fn copy_tracks(st: &St, key: &str, server: &str, token: &str, id: i64, ip: &str,
                 let ext = ext_for(res.header("Content-Type").unwrap_or(""));
                 let fname = format!("{} - {}.{ext}", clean(t["artist"].as_str().unwrap_or("")), clean(t["title"].as_str().unwrap_or("Song")));
                 let dest = dir.join(fname.trim_start_matches(" - "));
-                save(res, &dest)?;
+                save_counted(res, &dest, key, t["duration"].as_f64().unwrap_or(0.0))?;
                 if t["has_cover"].as_bool().unwrap_or(false) || !dir.join("cover.jpg").exists() {
                     if let Ok(c) = ag.get(&format!("{server}/api/cover/{tid}?t={token}")).call() {
                         if c.status() == 200 {
