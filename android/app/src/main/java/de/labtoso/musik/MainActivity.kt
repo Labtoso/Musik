@@ -60,6 +60,8 @@ class MainActivity : ComponentActivity() {
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private val prefs by lazy { getSharedPreferences("musik", MODE_PRIVATE) }
     private lateinit var statusStrip: android.view.View
+    private lateinit var navStrip: android.view.View
+    private lateinit var rootView: android.widget.FrameLayout
 
     private val pickFiles = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         fileCallback?.onReceiveValue(uris.toTypedArray())
@@ -92,11 +94,18 @@ class MainActivity : ComponentActivity() {
         statusStrip.setBackgroundColor(Color.parseColor("#111214"))
         root.addView(frame, android.widget.FrameLayout.LayoutParams(-1, -1))
         root.addView(statusStrip, android.widget.FrameLayout.LayoutParams(-1, 0, android.view.Gravity.TOP))
+        // and the strip behind the navigation bar (gesture handle) takes the colour of the bottom of the page
+        navStrip = android.view.View(this)
+        navStrip.setBackgroundColor(Color.parseColor("#111214"))
+        root.addView(navStrip, android.widget.FrameLayout.LayoutParams(-1, 0, android.view.Gravity.BOTTOM))
+        rootView = root
         setContentView(root)
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
             frame.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             statusStrip.layoutParams = (statusStrip.layoutParams as android.widget.FrameLayout.LayoutParams).apply { height = bars.top }
+            val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            navStrip.layoutParams = (navStrip.layoutParams as android.widget.FrameLayout.LayoutParams).apply { height = nav.bottom }
             WindowInsetsCompat.CONSUMED
         }
 
@@ -629,6 +638,16 @@ class MainActivity : ComponentActivity() {
             window.statusBarColor = c
             val lum = (0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255
             androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = lum > 0.6
+        }
+        /** Colour of the bottom of the page behind the navigation bar (and the side edges); dark buttons on a light colour. */
+        @JavascriptInterface fun setNavBar(color: String) = main.post {
+            val c = runCatching { Color.parseColor(color) }.getOrNull() ?: return@post
+            navStrip.setBackgroundColor(c)
+            rootView.setBackgroundColor(c)
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = c
+            val lum = (0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightNavigationBars = lum > 0.6
         }
         @JavascriptInterface fun setAccent(name: String) {
             prefs.edit().putString("accent", name).apply()

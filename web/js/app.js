@@ -647,7 +647,7 @@ const paintBars = (() => {
     if (/color\(srgb/.test(v)) [r, g, b] = [r, g, b].map((x) => x * 255);
     return '#' + [r, g, b].map((x) => Math.round(x).toString(16).padStart(2, '0')).join('');
   };
-  let last = '', raf = 0;
+  let last = '', lastB = '', raf = 0;
   const now = () => {
     raf = 0;
     const root = getComputedStyle(document.documentElement);
@@ -664,8 +664,14 @@ const paintBars = (() => {
       const tint = head && getComputedStyle(head).getPropertyValue('--tint').trim();
       if (tint && head.getBoundingClientRect().top > -200) c = `color-mix(in srgb, ${tint} ${Math.max(0, 100 - sc / 3).toFixed(0)}%, ${bg})`;
     }
+    // the navigation bar at the bottom takes the colour of the bottom of the page (plain background, or the open sheet)
+    let cb = bg;
+    const fullSheet = fs?.classList.contains('open') && document.querySelector('.fs-queue.full');
+    if (fullSheet && getComputedStyle(fullSheet).backgroundColor !== 'rgba(0, 0, 0, 0)') cb = getComputedStyle(fullSheet).backgroundColor;
     const h = hex(c) || hex(bg);
+    const hb = hex(cb) || hex(bg);
     if (h && h !== last) { last = h; window.MusikAndroid.setBars(h); }
+    if (hb && hb !== lastB && window.MusikAndroid.setNavBar) { lastB = hb; window.MusikAndroid.setNavBar(hb); }
   };
   const later = () => { if (!raf) raf = requestAnimationFrame(now); };
   document.addEventListener('scroll', later, { capture: true, passive: true });
