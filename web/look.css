@@ -1,8 +1,8 @@
 /* ==========================================================================
    1.22.0
    1. Liquid Glass like Apple's original: glass that swells and lights up from the finger, a lens that
-      magnifies while dragged, menus that grow out of their button, panes that materialise, a tab bar
-      that shrinks while scrolling, switches and sliders that turn into glass while held.
+      magnifies while dragged, menus that grow out of their button, panes that materialise,
+      switches and sliders that turn into glass while held.
    2. Own accent colour: picker with a saturation/brightness field, hue strip, hex input, recent colours.
    3. OLED mode: a setting of dark mode that turns every theme pure black.
    Loaded after style.css and green.css.
@@ -64,17 +64,6 @@ lg-dot {
   box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.95), inset 0 -1px 0.5px rgba(255, 255, 255, 0.4), inset 0 0 8px rgba(255, 255, 255, 0.35), 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 
-/* phone: scrolling down shrinks the tab bar to the open tab, the mini player moves down beside it; scrolling up brings it back */
-@media (max-width: 899px) {
-  [data-theme='glass'] .bottomnav { justify-self: start; width: calc(100% - 28px); transition: width 0.6s var(--lg-spring), padding 0.4s; }
-  [data-theme='glass'] .bottomnav a { transition: flex-grow 0.5s var(--lg-spring), opacity 0.25s, color 0.22s; }
-  [data-theme='glass'] .player { transition: margin 0.6s var(--lg-spring); }
-  [data-theme='glass'].lg-min .bottomnav { width: 70px; }
-  [data-theme='glass'].lg-min .bottomnav a:not(.on) { flex-grow: 0; flex-basis: 0; opacity: 0; overflow: hidden; pointer-events: none; }
-  [data-theme='glass'].lg-min .bottomnav a.on { background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.04)); box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.45); color: var(--accent); }
-  [data-theme='glass'].lg-min .bottomnav a span { opacity: 0; font-size: 0; }
-  [data-theme='glass'].lg-min .navblob { opacity: 0; transition: opacity 0.15s; }
-  [data-theme='glass'].lg-min .player { margin-bottom: calc(8px + var(--safe-b)); margin-left: calc(14px + 70px + 8px); }
 }
 
 /* ---------- 2. own accent colour ---------- */

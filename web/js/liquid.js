@@ -1,6 +1,6 @@
 // Liquid Glass motion, after Apple's material: glass that flexes and lights up from the finger when pressed,
 // menus that grow out of the button that opened them and melt back into it, panes that materialise by bending
-// the light more and more until they settle, a tab bar that shrinks while you scroll down.
+// the light more and more until they settle.
 // Everything here only runs while the Liquid Glass theme is on.
 
 const root = document.documentElement;
@@ -38,7 +38,7 @@ function glowOut(g) {
 function pressStart(e) {
   if (!on() || e.button > 0) return;
   const el = e.target.closest?.(PRESS);
-  if (!el || el.disabled || el.closest('.bottomnav.lg-mini')) return;
+  if (!el || el.disabled) return;
   if (press) pressEnd();
   const r = el.getBoundingClientRect();
   const grow = el.matches(GROW), sink = el.matches(SINK);
@@ -146,33 +146,4 @@ export function morphOut(el, anchor) {
   return el.animate(morphFrames(el, a).reverse(), { duration: 340, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' }).finished.catch(() => {});
 }
 
-// ---------- tab bar: shrinks to the open tab while scrolling down, the player moves up beside it ----------
-let lastY = 0, acc = 0;
-const phone = () => matchMedia('(max-width: 899px)').matches;
-function setMini(v) {
-  if (root.classList.contains('lg-min') === v) return;
-  root.classList.toggle('lg-min', v);
-  document.querySelector('.bottomnav')?.classList.toggle('lg-mini', v);
-}
-document.addEventListener('scroll', (e) => {
-  const c = e.target;
-  if (!(c instanceof Element) || c.id !== 'content') return;
-  if (!on() || !phone()) return setMini(false);
-  const y = c.scrollTop;
-  const d = y - lastY;
-  lastY = y;
-  if (Math.sign(d) !== Math.sign(acc)) acc = 0;
-  acc += d;
-  if (y < 60) setMini(false);
-  else if (acc > 48) setMini(true);
-  else if (acc < -28) setMini(false);
-}, { capture: true, passive: true });
-// a tap on the small tab bar opens it again instead of switching tabs
-document.addEventListener('click', (e) => {
-  if (!root.classList.contains('lg-min') || !e.target.closest?.('.bottomnav')) return;
-  e.preventDefault();
-  e.stopPropagation();
-  setMini(false);
-}, true);
-addEventListener('hashchange', () => setMini(false));
-export const liquidReset = () => setMini(false);
+// The tab bar stays full while scrolling, like in the standard theme (Sebastian 2026-11-17).
