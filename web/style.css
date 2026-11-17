@@ -1872,3 +1872,6 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
   [data-theme='glass'] .shell::after { height: calc(86px + var(--safe-b)); background: none; }
   body:has(.wiz) .shell::after { display: none; }
 }
+
+/* the ring visualizer keeps its round cover in every theme (Liquid Glass corners must not square it off) */
+:root .fs[data-viz='ring'] .fs-cover .cover.huge:not(.round) { border-radius: 50%; }
