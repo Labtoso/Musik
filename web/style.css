@@ -690,7 +690,7 @@ body:has(.fs.open) .toast { top: calc(64px + var(--safe-t)); bottom: auto; }
 /* ---------- 1.5: title bar, sidebar, menus, cover editor, columns, search modes, profile ---------- */
 /* desktop app: own title bar like Spotify */
 :root { --tb: 0px; }
-.frameless { --tb: 48px; }
+.frameless { --tb: 64px; } /* 1.26.4: taller bar on the PC, 12 px above and below the search field */
 .frameless .shell { height: calc(100dvh - var(--tb)); }
 .titlebar {
   height: var(--tb); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px) minmax(0, 1fr); align-items: center; gap: 12px;
