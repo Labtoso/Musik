@@ -165,6 +165,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   // room decoration (crate, CDs, shelf, ledge, prints): the tracks by default, or any covers (e.g. the queue) via setDecor
   const deco = [];
   let decoTex = coverTex.slice();
+  let decoNames = tracks.map((tr) => ({ artist: tr.artist || '', title: tr.title || '' }));
   const decoMat = (i, opts, plain) => {
     const m = new THREE.MeshStandardMaterial({ ...opts });
     deco.push({ m, i, plain }); paintDeco(deco[deco.length - 1]); return m;
@@ -309,14 +310,29 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const edgeMat = new THREE.MeshStandardMaterial({ map: edgeTex, roughness: 0.45 }), trayMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.4 });
   const spineCds = ['#e9e4d8', '#15161c', '#b8432f', '#2f4a6a', '#d8b25a', '#3f5e46', '#f0efe9', '#5a2f4e', '#1d2b3a'];
   const caseGeo = new THREE.BoxGeometry(1.4, 0.13, 1.25), inGeo = new THREE.BoxGeometry(1.36, 0.1, 1.2);
+  const cdSpines = [];
+  function paintSpine(d) {
+    const n = decoNames.length, nm = n ? decoNames[d.i % n] : null, c = d.c.getContext('2d'), w = d.c.width, h = d.c.height;
+    c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.fillStyle = d.bg; c.fillRect(0, 0, w, h);
+    const artist = (nm?.artist || 'Streyn').toUpperCase(), title = nm?.title || '';
+    c.fillStyle = d.ink; c.textBaseline = 'middle';
+    let fs = 24; c.font = `800 ${fs}px "Inter", sans-serif`;
+    const maxW = w - 110; let aw = c.measureText(artist).width;
+    while (aw > maxW * 0.7 && fs > 14) { fs--; c.font = `800 ${fs}px "Inter", sans-serif`; aw = c.measureText(artist).width; }
+    c.fillText(artist, 26, h / 2 + 1, maxW * 0.7);
+    if (title) { c.globalAlpha = 0.72; c.font = `500 ${Math.round(fs * 0.85)}px "Inter", sans-serif`; c.fillText(title, 26 + Math.min(aw, maxW * 0.7) + 16, h / 2 + 1, Math.max(0, maxW - Math.min(aw, maxW * 0.7) - 16)); }
+    // a small logo block at the end, like the label mark on real spines
+    c.globalAlpha = 0.55; c.fillRect(w - 66, 12, 40, 16); c.globalAlpha = 1;
+    d.tex.needsUpdate = true;
+  }
   function jewelCase(i) {
     const g = new THREE.Group();
     const bg = spineCds[i % spineCds.length], ink = /^#(1|2|3|5)/.test(bg) ? '#efe9dc' : '#1a1a1e';
-    const spine = canvasTex(256, 20, (c, w, h) => {
-      c.fillStyle = bg; c.fillRect(0, 0, w, h); c.fillStyle = ink;
-      c.font = '700 13px "Inter", sans-serif'; c.textBaseline = 'middle'; c.fillText(['NIGHT DRIVE', 'SLOW BLOOM', 'LOW TIDE', 'GOLDEN HOUR', 'AFTERGLOW', 'SOFT FOCUS', 'NORTHBOUND', 'VELVET', 'MIDNIGHT'][i % 9], 18, h / 2 + 1);
-      c.globalAlpha = 0.6; c.fillRect(w - 46, 6, 28, 8);
-    });
+    // the printed spine shows the artist (and the title) of the cover on this case, like a real CD
+    const spC = document.createElement('canvas'); spC.width = 512; spC.height = 40;
+    const spine = new THREE.CanvasTexture(spC); spine.colorSpace = THREE.SRGBColorSpace; spine.anisotropy = 8;
+    cdSpines.push({ i: i + 2, c: spC, tex: spine, bg, ink });
+    paintSpine(cdSpines[cdSpines.length - 1]);
     const sp = new THREE.MeshStandardMaterial({ map: spine, roughness: 0.5 });
     const top = decoMat(i + 2, { roughness: 0.4 });
     const inner = new THREE.Mesh(inGeo, [edgeMat, edgeMat, top, trayMat, sp, edgeMat]); inner.castShadow = inner.receiveShadow = true; g.add(inner);
@@ -335,6 +351,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     const cd = jewelCase(i + 9); cd.rotation.set(Math.PI / 2 - 0.05, -0.3, 0.04 * i, 'YXZ');
     cd.position.set(1.95 + i * 0.16, 0.63, 0.45 - i * 0.12); cds.add(cd);
   }
+  document.fonts?.ready.then(() => cdSpines.forEach(paintSpine));
   // a loose disc lying flat on the sideboard
   const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.012, 64), new THREE.MeshStandardMaterial({ color: 0xd8dbe6, roughness: 0.15, metalness: 1 }));
   disc.position.set(-10.75, TOP + 0.007, -0.1); root.add(disc); disc.name = 'disc';
@@ -1583,8 +1600,11 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       return i;
     },
     // the covers the room is decorated with (crate, CDs, shelf, wall), e.g. the upcoming songs
-    setDecor(urls) {
-      const list = (urls || []).filter(Boolean);
+    // urls: the covers; names (optional, same order): [{ artist, title }] for the CD spines
+    setDecor(urls, names) {
+      const keep = (urls || []).map((u, k) => [u, names?.[k]]).filter(([u]) => u);
+      const list = keep.map(([u]) => u);
+      if (names) { const nn = keep.map(([, n]) => n || { artist: '', title: '' }); if (JSON.stringify(nn) !== JSON.stringify(decoNames)) { decoNames = nn.length ? nn : decoNames; cdSpines.forEach(paintSpine); } }
       if (list.join('|') === (decoTex.urls || []).join('|')) return;
       const old = new Map((decoTex.urls || []).map((u, i) => [u, decoTex[i]]));
       decoTex = list.length ? list.map((u) => old.get(u) || loadTex(u)) : coverTex.slice();

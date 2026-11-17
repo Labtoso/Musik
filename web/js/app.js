@@ -4112,8 +4112,11 @@ addEventListener('resize', () => chill?.last && chillShow(chill.last));
 function chillDecor() {
   const q = player.queue || [], i = player.index;
   const up = [...q.slice(i + 1), ...q.slice(0, Math.max(0, i))].filter((x) => x && x.id != null && x.has_cover !== false).slice(0, 16);
-  const urls = [...new Set(up.map((x) => sharpCover(coverUrl(x.id))))];
-  chill?.room?.setDecor(urls.length ? urls : [chillCover()]);
+  // covers for the room, and the artist + title of each for the CD spines (same order)
+  const seen = new Set(), urls = [], names = [];
+  for (const x of up) { const u = sharpCover(coverUrl(x.id)); if (seen.has(u)) continue; seen.add(u); urls.push(u); names.push({ artist: artistName(x), title: x.title || '' }); }
+  const cur = player.current;
+  chill?.room?.setDecor(urls.length ? urls : [chillCover()], urls.length ? names : cur ? [{ artist: artistName(cur), title: cur.title || '' }] : null);
 }
 function chillMeta() {
   if (!chill) return;
