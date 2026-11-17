@@ -1880,3 +1880,14 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
 .fs-queue { --sheet-ease: cubic-bezier(0.32, 0.72, 0, 1); transition: transform 0.4s var(--sheet-ease), top 0.42s var(--sheet-ease), bottom 0.42s var(--sheet-ease), left 0.42s var(--sheet-ease), right 0.42s var(--sheet-ease), border-radius 0.42s var(--sheet-ease), visibility 0s 0.4s; }
 .fs-queue.open { transition: transform 0.4s var(--sheet-ease), top 0.42s var(--sheet-ease), bottom 0.42s var(--sheet-ease), left 0.42s var(--sheet-ease), right 0.42s var(--sheet-ease), border-radius 0.42s var(--sheet-ease); }
 .fs-lyrics .lyrics p { transition: font-size 0.42s var(--sheet-ease, ease); }
+
+/* 1.25.4: "Edit playlist" on phones fills the screen, so it is a plain page: no blur or glass lens to recompute on
+   every scrolled frame, rows are light layers and only the lifted one gets its own */
+@media (max-width: 899px) {
+  .modal-wrap:has(.modal.reorder) { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--bg); }
+  .modal.reorder { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; background: var(--bg) !important; box-shadow: none !important; animation: none !important; }
+  .modal.reorder::after, .modal.reorder::before { display: none !important; }
+  .modal.reorder .ro-row { will-change: auto; contain: layout paint style; }
+  .modal.reorder .ro-row.lifted, .modal.reorder .ro-list.sorting .ro-row { will-change: transform; }
+  .modal.reorder .ro-list { scroll-behavior: auto; }
+}
