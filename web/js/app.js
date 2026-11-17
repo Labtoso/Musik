@@ -4481,10 +4481,13 @@ function chillMeta() {
   if (m.id !== chill.id && m.src) {
     chill.id = m.id; chill.meta[chill.room.next(m.src)] = m;
     // and the song itself only starts when the needle is down
-    chill.hold = m.id; if (player.playing) player.pause();
+    // (not while the screen is off or the app is in the background: no frames run there, so the song would wait forever)
+    if (!document.hidden) { chill.hold = m.id; if (player.playing) player.pause(); }
   }
 }
 // the record of the held song is down: now it plays, from the start
+// screen locked or app in the background while a song waits for its record: let it play right away
+document.addEventListener('visibilitychange', () => { if (document.hidden && chill?.hold != null) chillRelease(); });
 function chillRelease(m) {
   if (!chill || chill.hold == null || (m && m.id !== chill.hold)) return;
   chill.hold = null;
