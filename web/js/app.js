@@ -2446,9 +2446,97 @@ async function browseView(box) {
     .slice(0, 18)
     .map((a, i) => `<a class="bt" href="${albumHref(a.album, a.artist)}" data-tint="${a.cover_id ? coverUrl(a.cover_id) : ''}" style="--h:${hues[i % hues.length]}"><span>${esc(a.album)}</span>${coverImg(a.cover_id)}</a>`)
     .join('')}</div>`);
+  // Spotify's own world of playlists: every category (charts, genres, moods …) opens its playlists
+  const cats = await spCategories();
+  if ($('#q')?.value.trim()) return;
+  html += section(t('spBrowse'), `<div class="browse">${cats.map((c, i) => `<a class="bt hue spcat" href="#/spcat?id=${encodeURIComponent(c.id)}&name=${encodeURIComponent(c.name)}" style="--h:${(i * 47 + 8) % 360}"><span>${esc(c.name)}</span>${c.icon ? `<div class="cover"><img loading="lazy" alt="" src="${esc(c.icon)}"></div>` : ''}</a>`).join('')}</div>`);
   box.innerHTML = html;
   tintAll(box);
 }
+
+// ---------- every playlist Spotify has: categories (charts, genres, moods) and their playlists ----------
+// With Spotify connected: Spotify's own categories and playlists (its editorial ones first), names, covers and
+// descriptions from Spotify like the Msik bot, the sound from YouTube. Without: the same categories from the catalog.
+const SP_CATS = [
+  ['toplists', 'Charts', 'Charts'], ['pop', 'Pop', 'Pop'], ['hiphop', 'Hip-Hop', 'Hip-Hop'], ['deutschrap', 'German rap', 'Deutschrap'], ['rock', 'Rock', 'Rock'],
+  ['dance', 'Dance/Electronic', 'Dance/Electronic'], ['indie', 'Indie', 'Indie'], ['rnb', 'R&B', 'R&B'], ['chill', 'Chill', 'Chill'], ['mood', 'Mood', 'Stimmung'],
+  ['party', 'Party', 'Party'], ['workout', 'Workout', 'Workout'], ['focus', 'Focus', 'Fokus'], ['sleep', 'Sleep', 'Schlafen'], ['romance', 'Love', 'Liebe'],
+  ['decades', 'Decades', 'Jahrzehnte'], ['metal', 'Metal', 'Metal'], ['punk', 'Punk', 'Punk'], ['jazz', 'Jazz', 'Jazz'], ['classical', 'Classical', 'Klassik'],
+  ['latin', 'Latin', 'Latin'], ['country', 'Country', 'Country'], ['soul', 'Soul', 'Soul'], ['blues', 'Blues', 'Blues'], ['reggae', 'Reggae', 'Reggae'],
+  ['folk', 'Folk & Acoustic', 'Folk & Akustik'], ['kpop', 'K-Pop', 'K-Pop'], ['anime', 'Anime', 'Anime'], ['gaming', 'Gaming', 'Gaming'], ['instrumental', 'Instrumental', 'Instrumental'],
+  ['lofi', 'Lo-fi', 'Lo-fi'], ['summer', 'Summer', 'Sommer'], ['travel', 'Travel', 'Unterwegs'], ['wellness', 'Wellness', 'Wellness'], ['kids', 'Kids & Family', 'Kinder & Familie'],
+  ['christmas', 'Christmas', 'Weihnachten']
+];
+let spCatCache = null;
+async function spCategories() {
+  const builtin = SP_CATS.map(([id, en, de]) => ({ id: 'q:' + id, name: getLang() === 'de' ? de : en, icon: '' }));
+  if (!spotify.connected()) return builtin;
+  if (spCatCache?.lang === getLang()) return spCatCache.list;
+  const list = [];
+  try {
+    const loc = getLang() === 'de' ? 'de_DE' : 'en_US';
+    for (let off = 0; off < 200; off += 50) {
+      const j = await spotify.api(`/browse/categories?limit=50&offset=${off}&locale=${loc}`);
+      const items = (j?.categories?.items || []).filter(Boolean);
+      list.push(...items.map((c) => ({ id: c.id, name: c.name, icon: c.icons?.[0]?.url || '' })));
+      if (items.length < 50) break;
+    }
+  } catch {}
+  // Spotify's own list when it gives one, the built-in names fill what is missing
+  const have = new Set(list.map((c) => c.name.toLowerCase()));
+  const out = [...list, ...builtin.filter((c) => !have.has(c.name.toLowerCase()))];
+  spCatCache = { lang: getLang(), list: out };
+  return out;
+}
+const spPl = (p) => ({ id: p.id, title: p.name, owner: p.owner?.display_name || '', cover: spImg(p.images), total: p.tracks?.total || p.items?.total || 0, desc: unhtml(p.description || '') });
+function spImg(images) {
+  return (images || []).slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0]?.url || '';
+}
+function unhtml(s) {
+  const d = document.createElement('div');
+  d.innerHTML = String(s || '');
+  return d.textContent || '';
+}
+/** The playlists of one category: Spotify's own ones first, then the most followed of everyone else. */
+async function spCategoryPlaylists(id, name) {
+  if (spotify.connected()) {
+    const seen = new Set();
+    const out = [];
+    const add = (l) => l.filter(Boolean).forEach((p) => p.id && !seen.has(p.id) && (seen.add(p.id), out.push(spPl(p))));
+    if (!id.startsWith('q:')) {
+      try {
+        const j = await spotify.api(`/browse/categories/${encodeURIComponent(id)}/playlists?limit=50`);
+        add(j?.playlists?.items || []);
+      } catch {}
+    }
+    // categories Spotify no longer hands out to apps: its search finds the same playlists by name
+    for (const q of [name, name + ' spotify']) {
+      if (out.length >= 60) break;
+      for (const off of [0, 50]) {
+        try {
+          const j = await spotify.api(`/search?type=playlist&limit=50&offset=${off}&market=from_token&q=${encodeURIComponent(q)}`);
+          add(j?.playlists?.items || []);
+        } catch {
+          break;
+        }
+      }
+    }
+    const isSp = (p) => /^spotify$/i.test(p.owner);
+    return { src: 'spotify', list: [...out.filter(isSp), ...out.filter((p) => !isSp(p))] };
+  }
+  const r = await get('/api/catalog/playlists?q=' + encodeURIComponent(name)).catch(() => []);
+  return { src: 'deezer', list: r };
+}
+views.spcat = async (params) => {
+  const id = params.get('id') || '';
+  const name = params.get('name') || '';
+  const r = await spCategoryPlaylists(id, name);
+  const cards = r.src === 'spotify'
+    ? r.list.map((p) => ({ ...spPlaylist(p), artist: [p.owner, p.total ? songCount(p.total) : ''].filter(Boolean).join(' · ') }))
+    : r.list.map(catPlaylist);
+  const note = r.src === 'spotify' ? '' : `<p class="muted small">${t('spBrowseConnect')}</p>`;
+  return `<button class="mback" data-back title="${t('back')}">${icon('back')}</button>${pageHead(name)}${note}${cards.length ? plainAlbumCards(cards).replace('class="cards"', 'class="cards libgrid"') : `<p class="muted empty">${t('empty')}</p>`}`;
+};
 // Settings → Updates → playback check: asks the server to find and open one known song
 document.addEventListener('click', async (e) => {
   if (!e.target.closest('[data-playcheck]')) return;

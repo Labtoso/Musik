@@ -842,7 +842,10 @@ pub fn record(db: &Connection, user_id: i64, song: &Value, kind: &str, played: f
 // ---------- HTTP ----------
 
 pub fn routes() -> Router<St> {
-    Router::new().route("/catalog/radio", post(radio_route)).route("/catalog/foryou", get(foryou_route))
+    Router::new()
+        .route("/catalog/radio", post(radio_route))
+        .route("/catalog/foryou", get(foryou_route))
+        .route("/catalog/playlists", get(playlists_route))
 }
 
 /// The song in the shape the catalog gives it (source, ext_id, title, artist, …).
@@ -896,6 +899,32 @@ async fn radio_route(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R 
     let out = tokio::task::spawn_blocking(move || radio(&Deezer, &t, &seeds, &exclude, limit, now, now as u64))
         .await
         .map_err(|_| ApiError::new(500, "internal"))?;
+    Ok(Json(json!(out)))
+}
+
+/// Playlists of the catalog for a category name (browse without Spotify). ?q=rock
+async fn playlists_route(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let q: String = q.get("q").map(|s| s.chars().take(80).collect()).unwrap_or_default();
+    if q.trim().is_empty() {
+        return Ok(Json(json!([])));
+    }
+    let out = tokio::task::spawn_blocking(move || {
+        let list = cached(&format!("https://api.deezer.com/search/playlist?limit=50&q={}", urlencode(&q)))
+            .and_then(|v| v["data"].as_array().cloned())
+            .unwrap_or_default();
+        list.into_iter()
+            .filter(|p| p["nb_tracks"].as_i64().unwrap_or(0) >= 5)
+            .map(|p| {
+                json!({
+                    "id": p["id"].to_string(), "title": p["title"].as_str().unwrap_or(""),
+                    "cover": p["picture_xl"].as_str().or(p["picture_medium"].as_str()).unwrap_or(""),
+                    "owner": p["user"]["name"].as_str().unwrap_or(""), "count": p["nb_tracks"].as_i64().unwrap_or(0),
+                })
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?;
     Ok(Json(json!(out)))
 }
 
