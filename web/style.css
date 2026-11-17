@@ -1862,15 +1862,17 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
   .ce-panel { flex: 1; }
 }
 
-/* ---------- 1.25.1: the strip around and below the tab bar is plain page colour, nothing shows or reacts through it ---------- */
-@media (max-width: 899px) {
-  :root:not([data-theme='green']) .shell::after {
-    content: ''; position: fixed; left: 0; right: 0; bottom: 0; z-index: 4;
-    height: calc(82px + var(--safe-b)); background: var(--bg); pointer-events: auto;
+/* ---------- 1.25.1 / 1.26.1: on phones the strip from the floating bars down to the screen edge is plain page colour in every theme
+   (Liquid Glass too): nothing shows or reacts through it. Its height follows the highest bar (--band-h, set in app.js). ---------- */
+@media (max-width: 899px) and (pointer: coarse) {
+  :root .shell::after {
+    content: ''; position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 4;
+    height: calc(var(--band-h, 94px) + 22px); background: linear-gradient(180deg, transparent, var(--bg) 22px) !important; pointer-events: auto;
   }
-  /* glass: nothing solid behind the glass, it has to bend the page; the strip only catches taps */
-  [data-theme='glass'] .shell::after { height: calc(86px + var(--safe-b)); background: none; }
+  :root .player { z-index: 5; }
+  :root .player:not([style*='position']) { position: relative; }
   body:has(.wiz) .shell::after { display: none; }
+}
 }
 
 /* the ring visualizer keeps its round cover in every theme (Liquid Glass corners must not square it off) */

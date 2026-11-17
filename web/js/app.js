@@ -3814,6 +3814,7 @@ function renderPlayer() {
     $('#fs-title').textContent = tr.title;
     $('#fs-artist').innerHTML = artistLinks(tr);
     playerMarquees();
+    requestAnimationFrame(paintBand);
     document.title = `${tr.title} · ${artistName(tr)}`;
     applyDyn(tr);
   } else {
@@ -3826,6 +3827,7 @@ function renderPlayer() {
     $('#fs-title').textContent = t('nothingPlaying');
     $('#fs-artist').textContent = '';
     playerMarquees();
+    requestAnimationFrame(paintBand);
     document.title = 'Streyn';
     applyDyn(null);
   }
@@ -5454,11 +5456,26 @@ function accountDevicesHtml() {
       <button class="btn small primary" data-takeover="${esc(d.device)}">${t('devPlayHere')}</button></div>`)
     .join('')}</div>`;
 }
+/** Phone: how far the floating bars (banner, mini player, tab bar) reach up from the bottom; the plain strip behind them follows it. */
+function paintBand() {
+  if (!matchMedia('(max-width: 899px) and (pointer: coarse)').matches) return;
+  let top = innerHeight;
+  ['#elsewhere', '#mini', '.bottomnav'].forEach((sel) => {
+    const e = document.querySelector(sel);
+    if (!e) return;
+    const r = e.getBoundingClientRect();
+    if (r.height > 0 && r.top > innerHeight * 0.5) top = Math.min(top, r.top);
+  });
+  const h = Math.ceil(innerHeight - top + 8);
+  if (h > 8) document.documentElement.style.setProperty('--band-h', h + 'px');
+}
+addEventListener('resize', () => requestAnimationFrame(paintBand));
 /** A small bar like Spotify's "Listening on …" while another device of the account plays and this one does not. */
 function paintElsewhere() {
   const d = remoteDevs.find((x) => x.playing);
   let el = $('#elsewhere');
   const show = d && !player?.playing && elsewhereHidden !== d.device + d.track.title;
+  requestAnimationFrame(paintBand);
   if (!show) return el?.remove();
   if (!el) {
     el = document.createElement('div');
