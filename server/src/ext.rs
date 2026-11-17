@@ -101,6 +101,11 @@ CREATE TABLE IF NOT EXISTS ext_likes (
   created INTEGER NOT NULL,
   PRIMARY KEY (user_id, key)
 );
+CREATE TABLE IF NOT EXISTS sp_covers (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
 "#;
 
 pub fn routes() -> Router<St> {

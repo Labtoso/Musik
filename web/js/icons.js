@@ -81,7 +81,8 @@ const P = {
   share: '<circle cx="17.5" cy="6" r="2.3"/><circle cx="6.5" cy="12" r="2.3"/><circle cx="17.5" cy="18" r="2.3"/><path d="m8.5 10.9 7-3.8M8.5 13.1l7 3.8"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   viz: '<path d="M4 14v-4M8 17V7M12 20V4M16 16V8M20 13v-2"/>',
-  eq: '<path d="M6 4.5v15M12 4.5v15M18 4.5v15"/><path d="M4 14h4M10 8h4M16 16h4"/>'
+  eq: '<path d="M6 4.5v15M12 4.5v15M18 4.5v15"/><path d="M4 14h4M10 8h4M16 16h4"/>',
+  folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M3.5 10.5h17"/>'
 };
 
 export function icon(name, cls = '') {

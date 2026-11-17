@@ -273,7 +273,11 @@ html[data-theme='glass'][data-oled] { background: #000; }
 [data-theme='glass'] .row { border-radius: 14px; }
 [data-theme='glass'] .hero, [data-theme='glass'] .topres, [data-theme='glass'] .srccard, [data-theme='glass'] .themeopt { border-radius: 24px; }
 [data-theme='glass'] .themeprev { border-radius: 16px; }
-[data-theme='glass'] .devsheet, [data-theme='glass'] .fs-queue { border-radius: 34px 34px 0 0; }
+/* bottom sheets only on the phone; on the PC the device picker is a floating dialog, round on every corner */
+[data-theme='glass'] .devsheet { border-radius: 34px; }
+/* the queue / lyrics panel in the big player floats above its buttons: round on every corner too */
+[data-theme='glass'] .fs-queue { border-radius: 30px; }
+@media (max-width: 899px) { [data-theme='glass'] .devsheet { border-radius: 34px 34px 0 0; } }
 [data-theme='glass'] .field input, [data-theme='glass'] .select, [data-theme='glass'] .textin, [data-theme='glass'] .field textarea { border-radius: 14px; }
 [data-theme='glass'] .icon-btn { border-radius: 999px; }
 /* phone: the mini player is a capsule like the tab bar under it, its artwork sits concentric inside */
@@ -284,3 +288,35 @@ html[data-theme='glass'][data-oled] { background: #000; }
 }
 [data-theme='glass'] .bt { border-radius: 18px; }
 [data-theme='glass'] .bt .cover:not(.round) { border-radius: 10px; }
+
+/* ---------- 1.27: Liquid Glass sliders, the colour ends just before the glass knob (also while dragging) ---------- */
+@property --tw { syntax: '<length>'; inherits: true; initial-value: 0px; }
+@property --tg { syntax: '<length>'; inherits: true; initial-value: 0px; }
+[data-theme='glass'] input[type='range'] {
+  --tw: 0px; --tg: 0px; --fill: var(--text); --rest: #3a3d44;
+  transition: --tw 0.4s var(--lg-spring, ease), --tg 0.2s ease;
+}
+[data-theme='glass'] input[type='range']:hover, [data-theme='glass'] input[type='range']:focus-visible { --tw: 12px; --tg: 3px; --fill: var(--accent); }
+[data-theme='glass'] input[type='range'].vol:hover, [data-theme='glass'] input[type='range'].vol:active { --fill: var(--text); }
+[data-theme='glass'] .prng input[type='range'], [data-theme='glass'] .prng input[type='range']:hover { --tw: 16px; --tg: 3px; --fill: var(--accent); --rest: color-mix(in srgb, var(--text) 18%, transparent); }
+[data-theme='glass'] .fs-vol input[type='range'].vol { --rest: rgba(255, 255, 255, 0.22); }
+[data-theme='glass'] input[type='range']:active, [data-theme='glass'] .prng input[type='range']:active { --tw: 34px; --tg: 4px; }
+[data-theme='glass'] input[type='range']::-webkit-slider-runnable-track {
+  background: linear-gradient(to right,
+    var(--fill) max(0px, calc(var(--pn, 0) * (100% - var(--tw)) - var(--tg))),
+    transparent 0 calc(var(--pn, 0) * (100% - var(--tw)) + var(--tw) + var(--tg)),
+    var(--rest) 0);
+}
+/* phone: the media sliders always show their knob */
+@media (max-width: 899px) {
+  [data-theme='glass'] .fs input[type='range'].seek, [data-theme='glass'] .fs input[type='range'].seek:hover { --tw: 14px; --tg: 3px; }
+  [data-theme='glass'] .fs input[type='range'].seek:active { --tw: 34px; --tg: 4px; }
+}
+@media (min-width: 900px) {
+  [data-theme='glass'] .player input[type='range'].seek:hover, [data-theme='glass'] .fs input[type='range'].seek, [data-theme='glass'] .fs input[type='range'].seek:hover { --tw: 14px; --tg: 3px; }
+  [data-theme='glass'] .player input[type='range'].seek:active, [data-theme='glass'] .fs input[type='range'].seek:active { --tw: 34px; --tg: 4px; }
+}
+
+/* ALWAYS: with the ring visualizer the cover in the big player is a circle, in every theme (Liquid Glass's rounded-corner
+   rules for artwork must never win over it, so it is pinned here with the highest priority) */
+.fs[data-viz='ring'] .fs-cover .cover.huge, .fs[data-viz='ring'] .fs-cover .cover.huge img { border-radius: 50% !important; }

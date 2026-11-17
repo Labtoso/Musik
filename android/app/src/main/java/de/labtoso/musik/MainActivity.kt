@@ -616,6 +616,20 @@ class MainActivity : ComponentActivity() {
             if (!url.startsWith("https://")) return
             main.post { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
         }
+        /** Settings → Offline → folder button: the downloaded songs in the system's Files app. */
+        @JavascriptInterface fun openOfflineFolder(): Boolean {
+            OfflineFiles.dir(filesDir).mkdirs()
+            val auth = OfflineFiles.authority(packageName)
+            val tries = listOf(
+                Intent(Intent.ACTION_VIEW).setDataAndType(android.provider.DocumentsContract.buildRootUri(auth, OfflineFiles.ROOT), "vnd.android.document/root"),
+                Intent(Intent.ACTION_VIEW).setDataAndType(android.provider.DocumentsContract.buildDocumentUri(auth, OfflineFiles.ROOT), android.provider.DocumentsContract.Document.MIME_TYPE_DIR),
+                Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.provider.DocumentsContract.buildRootUri(auth, OfflineFiles.ROOT))
+            ).map { it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK) }
+            for (i in tries) {
+                if (runCatching { startActivity(i) }.isSuccess) return true
+            }
+            return false
+        }
         @JavascriptInterface fun copy(text: String) {
             main.post {
                 val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager

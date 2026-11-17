@@ -109,7 +109,13 @@ export function streamUrl(id) {
 /** Cover URLs of songs from other platforms, keyed by their string id (e.g. "yt:abc"). */
 export const extCovers = new Map();
 export function coverUrl(id) {
-  if (typeof id === 'string') return extCovers.get(id) || '';
+  if (typeof id === 'string') {
+    const c = extCovers.get(id);
+    if (c) return c;
+    // YouTube songs always have a picture under their video id, also when none was stored with them
+    const yt = /^(youtube|ytmusic):([\w-]{11})$/.exec(id);
+    return yt ? `https://i.ytimg.com/vi/${yt[2]}/hqdefault.jpg` : '';
+  }
   return `${conn.server}/api/cover/${id}?t=${conn.token}`;
 }
 

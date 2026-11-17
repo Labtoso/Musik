@@ -208,6 +208,24 @@ fn off_key(app: &AppHandle) -> String {
     save_config(app, &cfg);
     k
 }
+/// Settings → Offline → folder button: shows the downloaded songs in Explorer / the file manager.
+fn open_off_folder(app: &AppHandle) {
+    let Some(dir) = off_dir(app) else { return };
+    let songs = dir.join("music").join("songs");
+    let target = if songs.is_dir() {
+        songs
+    } else {
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    };
+    // the file manager itself, no shell in between
+    #[cfg(windows)]
+    let _ = std::process::Command::new("explorer.exe").arg(&target).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&target).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
+}
 fn has_offline(app: &AppHandle) -> bool {
     off_dir(app).map(|d| ["streyn.db", "musik.db"].iter().any(|f| d.join("data").join(f).exists())).unwrap_or(false) && server_bin().is_file()
 }
@@ -338,7 +356,7 @@ fn main() {
             let handle = app.handle().clone();
             // Available on every page, also on the server's web app: switch back to the connect page.
             let init = format!(
-                "window.musikDesktop = {{ version: {:?}, frameless: true, changeServer: function () {{ location.href = {:?} + '?change=1'; }}, update: function () {{ location.href = {:?} + '?update=1'; }}, win: function (a) {{ location.href = 'musik-win://' + a; }}, offlineCall: {}, goOnline: function () {{ location.href = 'musik-win://goonline'; }}, discord: function (j) {{ location.href = 'musik-win://discord?d=' + encodeURIComponent(j); }} }};",
+                "window.musikDesktop = {{ version: {:?}, frameless: true, changeServer: function () {{ location.href = {:?} + '?change=1'; }}, update: function () {{ location.href = {:?} + '?update=1'; }}, win: function (a) {{ location.href = 'musik-win://' + a; }}, offlineCall: {}, openFolder: function () {{ location.href = 'musik-win://folder'; return true; }}, goOnline: function () {{ location.href = 'musik-win://goonline'; }}, discord: function (j) {{ location.href = 'musik-win://discord?d=' + encodeURIComponent(j); }} }};",
                 app.package_info().version.to_string(),
                 home_url(),
                 home_url(),
@@ -381,6 +399,7 @@ fn main() {
                                         }
                                     });
                                 }
+                                "folder" => open_off_folder(&wh),
                                 "goonline" => open_best(wh.clone(), w.clone()),
                                 "discord" => {
                                     let d = query_param(url, "d");

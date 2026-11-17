@@ -31,6 +31,7 @@ pub fn routes() -> Router<St> {
         .route("/spotify/token", get(token))
         .route("/spotify/disconnect", post(disconnect))
         .route("/spotify/embed", get(embed))
+        .route("/spotify/covers", get(covers))
 }
 
 struct Pending {
@@ -294,6 +295,81 @@ async fn embed(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R 
     .map_err(|_| ApiError::new(500, "internal"))?
     .ok_or_else(|| ApiError::new(502, "spotify_unreachable"))?;
     parse_embed(&html).map(Json).ok_or_else(|| ApiError::new(404, "notfound"))
+}
+
+const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+
+/// The album cover of one Spotify song without a sign-in: the public oEmbed answer first (small JSON),
+/// then the song's embed page. Same metadata the Msik bot shows.
+fn track_cover(id: &str) -> Option<String> {
+    let t = std::time::Duration::from_secs(8);
+    let o = ureq::get(&format!("https://open.spotify.com/oembed?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F{id}"))
+        .set("user-agent", BROWSER_UA)
+        .timeout(t)
+        .call()
+        .ok()
+        .and_then(|r| r.into_json::<Value>().ok())
+        .and_then(|v| v["thumbnail_url"].as_str().map(str::to_string))
+        .filter(|u| u.starts_with("https://"));
+    if o.is_some() {
+        return o;
+    }
+    let html = ureq::get(&format!("https://open.spotify.com/embed/track/{id}")).set("user-agent", BROWSER_UA).timeout(t).call().ok()?.into_string().ok()?;
+    parse_embed(&html).and_then(|v| v["cover"].as_str().map(str::to_string)).filter(|u| u.starts_with("https://"))
+}
+
+/// ?ids=a,b,c (Spotify song ids, up to 50) -> { id: cover url }. Kept on the server, so every device and every
+/// later visit gets them at once; imported playlists that stored no cover or the playlist's cover get the right one.
+async fn covers(State(st): State<St>, Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let mut ids: Vec<String> = vec![];
+    for x in q.get("ids").map(String::as_str).unwrap_or("").split(',') {
+        let x: String = x.chars().filter(|c| c.is_ascii_alphanumeric()).take(40).collect();
+        if x.len() >= 10 && !ids.contains(&x) && ids.len() < 50 {
+            ids.push(x);
+        }
+    }
+    let now = now_ms();
+    let mut out = serde_json::Map::new();
+    let mut todo = vec![];
+    {
+        let db = st.db.lock().unwrap();
+        for id in &ids {
+            let row: Option<(String, i64)> = db.query_row("SELECT url, at FROM sp_covers WHERE id = ?", [id], |r| Ok((r.get(0)?, r.get(1)?))).optional().ok().flatten();
+            match row {
+                Some((u, _)) if !u.is_empty() => {
+                    out.insert(id.clone(), json!(u));
+                }
+                // not found lately: ask Spotify again only after a day
+                Some((_, at)) if now - at < 86_400_000 => {}
+                _ => todo.push(id.clone()),
+            }
+        }
+    }
+    let mut found = vec![];
+    for chunk in todo.chunks(8) {
+        let hs: Vec<_> = chunk.iter().cloned().map(|id| tokio::task::spawn_blocking(move || { let c = track_cover(&id); (id, c) })).collect();
+        for h in hs {
+            if let Ok(r) = h.await {
+                found.push(r);
+            }
+        }
+    }
+    if !found.is_empty() {
+        let db = st.db.lock().unwrap();
+        for (id, c) in found {
+            let u = c.unwrap_or_default();
+            let _ = db.execute("INSERT INTO sp_covers (id, url, at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET url = excluded.url, at = excluded.at", params![id, u, now]);
+            if !u.is_empty() {
+                let _ = db.execute(
+                    "UPDATE import_items SET cover = ?1 WHERE source = 'spotify' AND ext_id = ?2 AND cover <> ?1
+                     AND (cover = '' OR cover = (SELECT cover FROM imports WHERE imports.id = import_items.import_id))",
+                    params![u, id],
+                );
+                out.insert(id, json!(u));
+            }
+        }
+    }
+    Ok(Json(Value::Object(out)))
 }
 
 #[cfg(test)]

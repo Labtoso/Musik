@@ -445,7 +445,14 @@ export async function spotifyEmbedItems(kind, id, onProgress, pre) {
     }
   };
   if (spotify.connected()) await Promise.all([work(), work(), work(), work()]);
-  for (const it of out) if (!it.cover) it.cover = e?.cover || '';
+  // the songs' own album covers from Spotify's public pages (looked up and kept by the server), never the playlist's cover for every song
+  const miss = out.filter((it) => !it.cover).map((it) => it.ext_id);
+  for (let k = 0; k < miss.length && kind !== 'album'; k += 40) {
+    const r = await get('/api/spotify/covers?ids=' + miss.slice(k, k + 40).join(',')).catch(() => null);
+    if (r) for (const it of out) if (!it.cover && r[it.ext_id]) it.cover = r[it.ext_id];
+  }
+  // an album's songs all share its cover
+  if (kind === 'album') for (const it of out) if (!it.cover) it.cover = e?.cover || '';
   return out;
 }
 /** A Spotify playlist with everything it shows there: cover, description, owner, followers, songs. */

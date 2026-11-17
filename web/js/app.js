@@ -17,6 +17,11 @@ const esc = (s) =>
 
 // ---------- settings ----------
 const PREFS_KEY = 'musik.prefs';
+/** Fill of a slider: --p for the plain fill, --pn (0 to 1) so Liquid Glass can end the colour just before its glass knob. */
+const setP = (el, v) => {
+  el.style.setProperty('--p', v);
+  el.style.setProperty('--pn', String(Math.max(0, Math.min(1, parseFloat(v) / 100 || 0))));
+};
 // English unless the person picked a language (kept on this device, in the Android app and on the server)
 const nativeLang = (() => {
   try {
@@ -56,6 +61,55 @@ if (window.MusikAndroid) {
   document.documentElement.style.setProperty('--safe-b', '0px');
 }
 if (prefs.sink) audioOut.id = prefs.sink;
+// ---------- own background: a picture or one of ten made ones, with its own opacity and blur (every theme, every device) ----------
+const WALL_KEY = 'streyn.wall';
+const LOGO_RING = 'M256 8a248 248 0 1 0 0 496 248 248 0 1 0 0-496Zm0 13a235 235 0 1 1 0 470 235 235 0 1 1 0-470Z';
+const LOGO_NOTE = 'M149 151 404 78q6-2 7 4l24 214q3 32-24 52-30 22-74 18-34-3-52-24-14-18-4-38 14-26 52-32 30-5 54 8l-16-138-151 36 18 154q4 32-24 52-30 22-74 18-34-3-52-24-14-18-4-38 14-26 52-32 30-5 54 8L142 158q-1-6 7-7Z';
+const logoUri = (fill, ring = true) =>
+  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'>${ring ? `<path fill='${fill}' fill-rule='evenodd' d='${LOGO_RING}'/>` : ''}<path fill='${fill}' transform='translate(-4 16)' d='${LOGO_NOTE}'/></svg>`)}")`;
+const WALLS = [
+  { id: 'aurora', de: 'Polarlicht', en: 'Aurora', css: 'radial-gradient(60% 55% at 18% 22%, #7b5cff 0%, transparent 70%), radial-gradient(55% 50% at 84% 26%, #12c2b0 0%, transparent 72%), radial-gradient(75% 60% at 55% 100%, #2b4dff 0%, transparent 70%), #0a0b1a' },
+  { id: 'sunset', de: 'Abendrot', en: 'Sunset', css: 'radial-gradient(70% 60% at 80% 100%, #ff8a3d 0%, transparent 70%), radial-gradient(60% 55% at 20% 70%, #ff3d7f 0%, transparent 70%), radial-gradient(70% 60% at 40% 0%, #5b2a86 0%, transparent 72%), #160912' },
+  { id: 'ocean', de: 'Ozean', en: 'Ocean', css: 'radial-gradient(70% 60% at 10% 90%, #00b3a4 0%, transparent 70%), radial-gradient(65% 55% at 90% 15%, #2c6cff 0%, transparent 70%), linear-gradient(160deg, #04131c, #061a2c)' },
+  { id: 'forest', de: 'Wald', en: 'Forest', css: 'radial-gradient(65% 55% at 75% 80%, #2fbf71 0%, transparent 70%), radial-gradient(50% 45% at 20% 20%, #a6d95055 0%, transparent 70%), linear-gradient(200deg, #06140c, #0b1f14)' },
+  { id: 'ember', de: 'Glut', en: 'Ember', css: 'radial-gradient(80% 55% at 50% 110%, #ff3b30 0%, transparent 68%), radial-gradient(45% 40% at 85% 70%, #ff9f0a99 0%, transparent 70%), linear-gradient(180deg, #0b0505, #170707)' },
+  { id: 'night', de: 'Sternennacht', en: 'Starry night', css: 'radial-gradient(1.2px 1.2px at 20px 30px, #fff9, transparent 60%) 0 0 / 140px 140px, radial-gradient(1px 1px at 90px 80px, #fff7, transparent 60%) 0 0 / 140px 140px, radial-gradient(1.4px 1.4px at 60px 120px, #fffa, transparent 60%) 0 0 / 200px 200px, radial-gradient(80% 60% at 50% 110%, #283a8a 0%, transparent 70%), linear-gradient(180deg, #05060f, #0b1030)' },
+  { id: 'graphite', de: 'Graphit', en: 'Graphite', css: 'repeating-linear-gradient(135deg, #ffffff06 0 2px, transparent 2px 14px), radial-gradient(70% 60% at 30% 20%, #3a3d46 0%, transparent 70%), linear-gradient(180deg, #16171b, #0c0d10)' },
+  { id: 'streyn', de: 'Streyn Glühen', en: 'Streyn glow', css: `${logoUri('rgba(255,255,255,0.10)')} 50% 46% / min(46vmin, 420px) no-repeat, radial-gradient(45% 45% at 50% 46%, color-mix(in srgb, var(--accent) 55%, transparent) 0%, transparent 72%), #08080c` },
+  { id: 'streynpattern', de: 'Streyn Muster', en: 'Streyn pattern', css: `${logoUri('rgba(255,255,255,0.05)', false)} 0 0 / 74px 74px, radial-gradient(70% 60% at 20% 10%, color-mix(in srgb, var(--accent) 40%, transparent) 0%, transparent 70%), radial-gradient(70% 60% at 90% 100%, #ff5ca855 0%, transparent 70%), #0b0b10` },
+  { id: 'streyncorner', de: 'Streyn Ecke', en: 'Streyn corner', css: `${logoUri('rgba(255,255,255,0.08)')} right -12vmin bottom -14vmin / 70vmin no-repeat, linear-gradient(135deg, color-mix(in srgb, var(--accent) 34%, #0a0a0f) 0%, #0a0a0f 65%)` }
+];
+function wallBg(id = prefs.wall) {
+  if (id === 'custom') {
+    let d = '';
+    try {
+      d = localStorage.getItem(WALL_KEY) || '';
+    } catch {}
+    return d ? `center / cover no-repeat url("${d}"), #000` : '';
+  }
+  return WALLS.find((w) => w.id === id)?.css || '';
+}
+function applyWall() {
+  const root = document.documentElement;
+  const bg = wallBg();
+  root.classList.toggle('has-wall', !!bg);
+  let el = document.getElementById('wall');
+  if (!bg) return el?.remove();
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'wall';
+    el.setAttribute('aria-hidden', 'true');
+    el.appendChild(document.createElement('i'));
+    document.body.prepend(el);
+  }
+  const key = prefs.wall + ':' + bg.length;
+  if (el.dataset.k !== key) {
+    el.dataset.k = key;
+    el.firstChild.style.background = bg;
+  }
+  root.style.setProperty('--wall-op', String(prefs.wallOp ?? 0.7));
+  root.style.setProperty('--wall-blur', Number(prefs.wallBlur ?? 0) + 'px');
+}
 function applyPrefs() {
   setLang(prefs.lang);
   document.documentElement.dataset.accent = isHex(accentNow()) ? 'custom' : accentNow();
@@ -72,6 +126,7 @@ function applyPrefs() {
   window.MusikAndroid?.setMode?.(light ? 'light' : 'dark');
   window.MusikAndroid?.setAccent?.(accentNow());
   if (document.getElementById('gpanel')) gSync();
+  applyWall();
 }
 document.addEventListener('click', async (e) => {
   if (!e.target.closest('[data-savepublic]')) return;
@@ -794,11 +849,75 @@ function sharpCover(u) {
   if (/googleusercontent\.com|ggpht\.com/.test(u)) return u.replace(/=w\d+-h\d+[^?]*/, '=w1000-h1000-l90-rj').replace(/=s\d+[^?]*/, '=s1000');
   return u;
 }
+/* Spotify songs that came without a cover (or with only their playlist's cover): the server looks the real
+   album cover up once (like the Msik bot, from Spotify's public page) and keeps it for every device. */
+const healAlias = new Map(); // ids of rows that show a Spotify song under another id (rows of imported playlists)
+const healAsked = new Set();
+let healQ = new Set();
+let healT = 0;
+function spotifyIdOf(id) {
+  const m = /^spotify:([A-Za-z0-9]{10,40})$/.exec(String(id || ''));
+  return m ? m[1] : healAlias.get(String(id)) || '';
+}
+function healCover(sp) {
+  if (!sp || healAsked.has(sp)) return;
+  healAsked.add(sp);
+  healQ.add(sp);
+  clearTimeout(healT);
+  healT = setTimeout(healRun, 80);
+}
+async function healRun() {
+  const ids = [...healQ];
+  healQ = new Set();
+  for (let i = 0; i < ids.length; i += 40) {
+    const r = await get('/api/spotify/covers?ids=' + ids.slice(i, i + 40).join(',')).catch(() => null);
+    if (r) for (const [sp, url] of Object.entries(r)) url && healed(sp, url);
+  }
+}
+function healed(sp, url) {
+  const key = 'spotify:' + sp;
+  extCovers.set(key, url);
+  for (const [cid, s] of healAlias) if (s === sp) extCovers.set(cid, url);
+  document.querySelectorAll(`[data-heal="${sp}"]`).forEach((el) => {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = coverImg(el.dataset.hid, el.dataset.hcls || '');
+    el.replaceWith(tmp.firstChild);
+  });
+  // the songs played lately keep it too
+  const h = extHistory();
+  if (h.some((x) => x.id === key && x.cover !== url)) {
+    h.forEach((x) => x.id === key && (x.cover = url));
+    try {
+      localStorage.setItem(HIST_KEY, JSON.stringify(h));
+    } catch {}
+  }
+  if (typeof player !== 'undefined' && player?.current?.id === key) applyDyn(player.current, true);
+}
+/** Imported Spotify playlists read without a sign-in used to give every song the playlist's cover: drop those so the real one is looked up. */
+function fixImportCovers(r) {
+  if (!r?.items) return r;
+  const album = /\/album\//.test(r.url || '');
+  for (const it of r.items) {
+    if (it.local || it.source !== 'spotify' || !it.ext_id) continue;
+    if (!album && it.cover && r.cover && it.cover === r.cover && r.items.length > 1) it.cover = '';
+    healAlias.set('off:' + it.pos, it.ext_id);
+    healAlias.set('ro:' + it.pos, it.ext_id);
+  }
+  return r;
+}
+const getImport = (id) => get('/api/imports/' + id).then(fixImportCovers);
 function coverImg(id, cls = '') {
   if (typeof id === 'string' && genCovers.has(id)) return genCoverHtml(id, cls);
   if (!id) return `<div class="cover ${cls} ph">${icon('note')}</div>`;
   const ph = `this.parentNode.classList.add('ph');this.parentNode.innerHTML='${icon('note').replace(/"/g, '&quot;')}'`;
   const url = coverUrl(id);
+  if (!url && typeof id === 'string') {
+    const sp = spotifyIdOf(id);
+    if (sp) {
+      healCover(sp);
+      return `<div class="cover ${cls} ph" data-heal="${esc(sp)}" data-hid="${esc(id)}" data-hcls="${esc(cls)}">${icon('note')}</div>`;
+    }
+  }
   const sharp = /\b(huge|xl)\b/.test(cls) ? sharpCover(url) : url;
   // the sharp one may be missing (YouTube has no large picture for every video): fall back to the normal one first
   const onerr = sharp !== url ? `if(!this.dataset.fb){this.dataset.fb=1;this.src='${esc(url)}'}else{${ph}}` : ph;
@@ -1184,8 +1303,8 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
   const extra = ['year', 'genre', 'added'].filter((k) => c.has(k));
   // grid: lead, title, [album], [extras], side, [duration], more
   const w = { year: '52px', genre: 'minmax(0, 1fr)', added: '104px' };
-  const full = ['40px', 'minmax(0, 3fr)', showAlb && 'minmax(0, 2fr)', ...extra.map((k) => w[k]), '72px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
-  const mid = ['40px', 'minmax(0, 1fr)', '72px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
+  const full = ['40px', 'minmax(0, 3fr)', showAlb && 'minmax(0, 2fr)', ...extra.map((k) => w[k]), c.has('source') ? '108px' : '72px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
+  const mid = ['40px', 'minmax(0, 1fr)', c.has('source') ? '108px' : '72px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
   // Green on the desktop: Spotify's table, with a number column and a header line
   const gt = gOn();
   const nolead = numbers || !c.has('cover');
@@ -1195,11 +1314,12 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
     .map((tr, i) => {
       const reason = reasons && tr.reason ? `<span class="reason">${esc(t('reason_' + tr.reason, { artist: artistName(tr) }))}</span>` : '';
       const src = tr.ext?.source || tr._src;
-      const side = tr._off || (tr.ext && !extLikes.has(tr.id))
+      // every song gets the heart next to the +, also songs from Spotify & co. (they go to the liked songs as well)
+      const on = tr.ext ? extLikes.has(tr.id) : !!tr.liked;
+      const badge = src && c.has('source') ? `<span class="like-slot">${srcBadge(src)}</span>` : '';
+      const side = tr._off
         ? `<span class="like-slot">${c.has('source') ? srcBadge(src) : ''}</span>`
-        : tr.ext
-        ? `<button class="icon-btn like on" data-like="${esc(String(tr.id))}" title="${t('unlike')}">${icon('heartFill')}</button>`
-        : `<button class="icon-btn like ${tr.liked ? 'on' : ''}" data-like="${tr.id}" title="${tr.liked ? t('unlike') : t('like')}">${icon(tr.liked ? 'heartFill' : 'heart')}</button>`;
+        : `<button class="icon-btn like ${on ? 'on' : ''}" data-like="${esc(String(tr.id))}" title="${on ? t('unlike') : t('like')}">${icon(on ? 'heartFill' : 'heart')}</button>`;
       const add = tr._off ? '' : `<button class="icon-btn addpl" title="${t('addPlaylist')}">${icon('plusCircle')}</button>`;
       const lead = numbers || !c.has('cover') ? `<span class="num">${(numbers && tr.track_no) || i + 1}</span>` : coverImg(tr.id, 'sm');
       // in lists the artist is only text (tapping the row plays it); the big player and the PC mini player link to the artist
@@ -1210,7 +1330,7 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
         <div class="main"><div class="title">${esc(tr.title)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>
         ${showAlb ? `<div class="alb">${albumLink(tr)}</div>` : ''}
         ${extra.map((k) => `<div class="alb xcol">${xc[k]}</div>`).join('')}
-        <div class="acts">${add}${side}</div>
+        <div class="acts">${tr._off ? '' : badge}${add}${side}</div>
         ${c.has('duration') ? `<div class="dur">${fmtTime(tr.duration)}</div>` : ''}
         <button class="icon-btn more" title="…">${icon('more')}</button>
       </div>`;
@@ -1552,7 +1672,8 @@ function rememberPlay(tr) {
   if (!tr?.ext || tr.id === lastRemembered) return;
   lastRemembered = tr.id;
   const h = extHistory().filter((x) => x.id !== tr.id);
-  h.unshift({ id: tr.id, title: tr.title, artist: tr.artist, album: tr.album, duration: tr.duration, cover: extCovers.get(tr.id) || '', ext: tr.ext, at: Date.now() });
+  const before = extHistory().find((x) => x.id === tr.id);
+  h.unshift({ id: tr.id, title: tr.title, artist: tr.artist, album: tr.album, duration: tr.duration, cover: extCovers.get(tr.id) || tr.cover || before?.cover || '', ext: tr.ext, at: Date.now() });
   try {
     localStorage.setItem(HIST_KEY, JSON.stringify(h.slice(0, 200)));
   } catch {}
@@ -2868,7 +2989,7 @@ document.addEventListener('click', async (e) => {
     if (!list.length) return toast(t('preloadDone'));
     pre.classList.add('busy');
     const n = await preloadSongs(list, (d, total) => {
-      pre.style.setProperty('--p', total ? (d / total) * 100 + '%' : '0%');
+      setP(pre, total ? (d / total) * 100 + '%' : '0%');
       pre.title = t('preloading', { n: d, total });
     });
     pre.classList.remove('busy');
@@ -2945,7 +3066,7 @@ async function reorderDialog(ref) {
   const id = Number(sid);
   let order, save, title = '';
   if (kind === 'import') {
-    const r = await get('/api/imports/' + id);
+    const r = await getImport(id);
     title = r.name;
     order = r.items.map((it) => {
       const cid = it.local ? it.local.id : 'ro:' + it.pos;
@@ -3107,7 +3228,7 @@ async function paintOffline() {
   b.querySelector('span').textContent = label;
   b.title = label;
   // songs done plus how far the song coming in right now is, so the bar grows steadily from 0 to the end
-  b.style.setProperty('--p', loading && set.total ? Math.min(100, ((set.done + (set.part || 0)) / set.total) * 100).toFixed(2) + '%' : '0%');
+  setP(b, loading && set.total ? Math.min(100, ((set.done + (set.part || 0)) / set.total) * 100).toFixed(2) + '%' : '0%');
   clearTimeout(offTimer);
   // a kept playlist follows changes on the server: copied again quietly when it is older than ten minutes
   if (set?.state === 'ready' && Date.now() - set.updated > 600000 && state.detail?.[b.dataset.offlist]?.length) {
@@ -3134,6 +3255,15 @@ document.addEventListener('click', async (e) => {
     return paintOffline();
   }
   if (e.target.closest('[data-goonline]')) return goOnline();
+  if (e.target.closest('[data-offfolder]')) {
+    const f = offFolderFn();
+    let ok = false;
+    try {
+      ok = f ? f() !== false : false;
+    } catch {}
+    if (!ok) toast(t('offFolderFail'));
+    return;
+  }
   const rm = e.target.closest('[data-offrm]');
   if (rm) {
     await offline.remove(rm.dataset.offrm);
@@ -3189,13 +3319,19 @@ async function watchServerDl(id, total, quiet) {
     await new Promise((r) => setTimeout(r, 700));
   }
 }
+/** The apps can show where the downloads lie: Explorer / the file manager on the computer, the Files app on Android. */
+function offFolderFn() {
+  if (window.MusikAndroid?.openOfflineFolder) return () => window.MusikAndroid.openOfflineFolder();
+  if (window.musikDesktop?.openFolder) return () => window.musikDesktop.openFolder();
+  return null;
+}
 async function offlineHtml() {
   const sets = await offline.status();
   const size = (n) => (n > 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(n / 1e6)) + ' MB');
   const rows = sets.map((x) => `<div class="offrow">${icon(x.state === 'loading' ? 'refresh' : 'download')}<span><b>${esc(x.name || '…')}</b><small>${x.state === 'loading' ? t('offLoading', { n: x.done, total: x.total }) : x.state === 'ready' ? `${songCount(x.total)} · ${size(x.bytes)}` : t('offError')}</small></span><button class="btn sm" data-offrm="${esc(x.key)}">${t('offRemove')}</button></div>`).join('');
   return (
     setRow(t('offTitle'), offlineMode ? `<button class="btn primary" data-goonline>${t('goOnline')}</button>` : '', { hint: t('offHint'), keys: 'offline download herunterladen ohne internet' }) +
-    setRow(t('offSaved'), '', { wide: true, hint: rows ? `<div class="offlist">${rows}</div>` : t('offNone'), keys: 'offline download' })
+    setRow(t('offSaved'), offFolderFn() ? `<button class="icon-btn off-folder" data-offfolder title="${t('offFolder')}" aria-label="${t('offFolder')}">${icon('folder')}</button>` : '', { wide: true, hint: rows ? `<div class="offlist">${rows}</div>` : t('offNone'), keys: 'offline download' })
   );
 }
 async function redrawOffline() {
@@ -3624,7 +3760,7 @@ document.addEventListener('click', async (e) => {
 });
 
 views.imported = async (params, id) => {
-  const r = await get('/api/imports/' + id);
+  const r = await getImport(id);
   const list = playableItems(r.items);
   const tracks = r.items.map((it, i) => list[i] || { id: 'off:' + it.pos, title: it.title, artist: it.artist, album: it.album, duration: it.duration, _off: true, _src: it.source });
   for (const it of r.items) if (!it.local && it.cover) extCovers.set('off:' + it.pos, it.cover);
@@ -4080,7 +4216,7 @@ function renderState() {
   });
   document.querySelectorAll('input.vol').forEach((v) => {
     if (document.activeElement !== v) v.value = player.volume;
-    v.style.setProperty('--p', Number(v.value) * 100 + '%');
+    setP(v, Number(v.value) * 100 + '%');
   });
   document.querySelectorAll('[data-act="mute"]').forEach((b) => (b.innerHTML = icon(player.volume === 0 ? 'mute' : 'volume')));
 }
@@ -4092,7 +4228,7 @@ function renderTime() {
     if (seeking && document.activeElement === s) return;
     s.max = d || 1;
     s.value = p;
-    s.style.setProperty('--p', d ? (p / d) * 100 + '%' : '0%');
+    setP(s, d ? (p / d) * 100 + '%' : '0%');
   });
   document.querySelectorAll('.t-pos').forEach((e) => (e.textContent = fmtTime(p)));
   document.querySelectorAll('.t-dur').forEach((e) => (e.textContent = fmtTime(d)));
@@ -4148,11 +4284,11 @@ function bindPlayer() {
     if (e.target.classList.contains('seek')) {
       seeking = true;
       const s = e.target;
-      s.style.setProperty('--p', (s.value / s.max) * 100 + '%');
+      setP(s, (s.value / s.max) * 100 + '%');
       document.querySelectorAll('.t-pos').forEach((x) => (x.textContent = fmtTime(Number(s.value))));
     }
     if (e.target.classList.contains('vol')) {
-      e.target.style.setProperty('--p', Number(e.target.value) * 100 + '%');
+      setP(e.target, Number(e.target.value) * 100 + '%');
       player.setVolume(Number(e.target.value));
       prefs.volume = player.volume;
       savePrefs();
@@ -5196,7 +5332,7 @@ async function togglePin(ref) {
 }
 async function refTracks(kind, id) {
   if (kind === 'playlist') return (await get(`/api/playlists/${id}`)).tracks;
-  if (kind === 'import') return playableItems((await get('/api/imports/' + id)).items).filter(Boolean);
+  if (kind === 'import') return playableItems((await getImport(id)).items).filter(Boolean);
   if (kind === 'album') {
     const [album, artist] = id.split('\u0001');
     return (await get(`/api/album?album=${encodeURIComponent(album)}&artist=${encodeURIComponent(artist)}`)).tracks;
@@ -5820,8 +5956,8 @@ const pct = (v) => Math.round(Number(v) * 100) + ' %';
 const pv = (k, d) => (prefs[k] ?? d);
 const psw = (k, d) => `<label class="switch"><input type="checkbox" data-pref="${k}" ${pv(k, d) ? 'checked' : ''}><span></span></label>`;
 const rngP = (v, min, max) => `${(((Number(v) - min) / (max - min)) * 100).toFixed(1)}%`;
-const prng = (k, min, max, step, d, fmt = (v) => v) => `<div class="prng"><input type="range" data-pref="${k}" min="${min}" max="${max}" step="${step}" value="${pv(k, d)}" style="--p:${rngP(pv(k, d), min, max)}"><b data-prefval="${k}">${fmt(pv(k, d))}</b></div>`;
-const PREF_FMT = { crossfade: (v) => (Number(v) ? v + ' s' : t('off')), vizSpeed: (v) => Number(v).toFixed(1) + '×', vizSens: pct, vizBass: pct, vizMid: pct, vizHigh: pct, mixStream: (v) => `${Math.round((1 - v) * 100)} : ${Math.round(v * 100)}` };
+const prng = (k, min, max, step, d, fmt = (v) => v) => `<div class="prng"><input type="range" data-pref="${k}" min="${min}" max="${max}" step="${step}" value="${pv(k, d)}" style="--p:${rngP(pv(k, d), min, max)};--pn:${parseFloat(rngP(pv(k, d), min, max)) / 100}"><b data-prefval="${k}">${fmt(pv(k, d))}</b></div>`;
+const PREF_FMT = { wallOp: pct, wallBlur: (v) => (Number(v) ? v + ' px' : t('off')), crossfade: (v) => (Number(v) ? v + ' s' : t('off')), vizSpeed: (v) => Number(v).toFixed(1) + '×', vizSens: pct, vizBass: pct, vizMid: pct, vizHigh: pct, mixStream: (v) => `${Math.round((1 - v) * 100)} : ${Math.round(v * 100)}` };
 const pseg = (k, opts, d, label) => `<div class="seg wrap">${opts.map((o) => `<button data-prefseg="${k}" data-v="${o}" class="${pv(k, d) === o ? 'on' : ''}">${label(o)}</button>`).join('')}</div>`;
 /** What has to follow a changed setting. */
 function prefChanged(k) {
@@ -5837,13 +5973,14 @@ function prefChanged(k) {
   if (k === 'chillSync') chill?.room?.setBeatSync?.(prefs.chillSync || 'beat');
   if (k === 'mixStream') saveTaste();
   if (k === 'discord') discordSync();
+  if (k === 'wallOp' || k === 'wallBlur') applyWall();
 }
 const playOptions = () => ({ crossfade: Number(prefs.crossfade || 0), normalize: !!prefs.normalize, streamQ: prefs.streamQ || 'auto' });
 document.addEventListener('input', (e) => {
   const k = e.target.dataset?.pref;
   if (!k || e.target.type !== 'range') return;
   prefs[k] = Number(e.target.value);
-  e.target.style.setProperty('--p', rngP(e.target.value, Number(e.target.min), Number(e.target.max)));
+  setP(e.target, rngP(e.target.value, Number(e.target.min), Number(e.target.max)));
   const b = $(`[data-prefval="${k}"]`);
   if (b) b.textContent = (PREF_FMT[k] || ((v) => v))(prefs[k]);
   savePrefs();
@@ -5865,6 +6002,74 @@ document.addEventListener('click', (e) => {
   b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
   prefChanged(k);
 });
+function wallPicker() {
+  const cur = prefs.wall || '';
+  let own = '';
+  try {
+    own = localStorage.getItem(WALL_KEY) || '';
+  } catch {}
+  const tile = (id, label, style, inner = '') =>
+    `<button type="button" class="wall-t ${cur === id ? 'on' : ''}" data-wall="${id}" title="${esc(label)}"><i style="${esc(style)}">${inner}</i><span>${esc(label)}</span></button>`;
+  return `<div class="wall-grid">${tile('', t('wallNone'), '', icon('close'))}${tile('custom', t('wallOwn'), own ? `background:center/cover no-repeat url("${own}")` : '', own ? `<em class="wall-edit" data-wallpick title="${t('wallPick')}">${icon('upload')}</em>` : icon('upload'))}${WALLS.map((w) => tile(w.id, w[getLang()] || w.en, `background:${w.css.replace(/min\(46vmin, 420px\)|70vmin/g, '62%').replace(/-12vmin|-14vmin/g, '-14%')}`)).join('')}</div>`;
+}
+function wallRefresh() {
+  document.querySelectorAll('.wall-grid').forEach((g) => (g.outerHTML = wallPicker()));
+  const o = $('.wall-only');
+  if (o) o.hidden = !prefs.wall;
+}
+/** A picture of one's own: made smaller (at most 2560 px) and kept on this device. */
+function wallChoose() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.onchange = () => {
+    const f = inp.files?.[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let max = 2560, q = 0.86, data = '';
+      for (let k = 0; k < 4; k++) {
+        const sc = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.naturalWidth * sc));
+        c.height = Math.max(1, Math.round(img.naturalHeight * sc));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        data = c.toDataURL('image/jpeg', q);
+        if (data.length < 2_400_000) break;
+        max = Math.round(max * 0.75);
+        q -= 0.06;
+      }
+      try {
+        localStorage.setItem(WALL_KEY, data);
+      } catch {
+        return toast(t('wallTooBig'));
+      }
+      prefs.wall = 'custom';
+      savePrefs();
+      applyWall();
+      wallRefresh();
+    };
+    img.onerror = () => (URL.revokeObjectURL(url), toast(t('badImage')));
+    img.src = url;
+  };
+  inp.click();
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-wallpick]')) {
+    e.stopPropagation();
+    return wallChoose();
+  }
+  const b = e.target.closest('[data-wall]');
+  if (!b) return;
+  const id = b.dataset.wall;
+  if (id === 'custom' && !wallBg('custom')) return wallChoose();
+  prefs.wall = id;
+  savePrefs();
+  applyWall();
+  wallRefresh();
+});
 async function renderSettings() {
   const s = $('#settings-body');
   const user = conn.user || {};
@@ -5877,6 +6082,8 @@ async function renderSettings() {
     setCard('general', 'gear', t('set_general'),
       setRow(t('language'), `<div class="seg">${['de', 'en'].map((l) => `<button data-lang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`, { keys: 'deutsch english sprache language' }) +
       setRow(t('theme'), themePicker(), { hint: t('themeHint'), keys: 'theme design liquid glass glas aussehen look', wide: true }) +
+      setRow(t('wall'), wallPicker(), { hint: t('wallHint'), keys: 'hintergrund background wallpaper bild picture eigenes custom blur unschärfe deckkraft opacity streyn logo', wide: true }) +
+      `<div class="wall-only" ${prefs.wall ? '' : 'hidden'}>${setRow(t('wallOp'), prng('wallOp', 0.1, 1, 0.05, 0.7, pct), { keys: 'hintergrund background deckkraft opacity transparenz' })}${setRow(t('wallBlur'), prng('wallBlur', 0, 40, 1, 0, PREF_FMT.wallBlur), { keys: 'hintergrund background blur unschärfe weich' })}</div>` +
       setRow(t('mode'), `<div class="seg">${['dark', 'light'].map((m) => `<button data-mode-pick="${m}" class="${(prefs.mode === 'light' ? 'light' : 'dark') === m ? 'on' : ''}">${icon(m === 'light' ? 'sun' : 'moon')}${t('mode_' + m)}</button>`).join('')}</div>`, { hint: t('modeHint'), keys: 'hell dunkel light dark mode darkmode lightmode' }) +
       setRow(t('oled'), sw('oledsw', !!prefs.oled), { hint: t('oledHint'), keys: 'oled amoled schwarz black pure dark dunkel akku battery', cls: 'oledrow' }) +
       setRow(t('accent'), accentPicker(accents), { hint: t('accentHint'), keys: 'farbe color theme cover akzent accent hex eigene custom farbwähler picker', wide: true }) +
@@ -7145,7 +7352,7 @@ function buildShell() {
   document.documentElement.classList.toggle('frameless', frameless);
   $('#app').innerHTML = `
   ${`<div class="titlebar${frameless ? '' : ' tb-web'}" data-drag>
-    <div class="tb-left"><button class="tb-more gonly" data-appmenu title="${t('gAppMenu')}">${icon('more')}</button><span class="tb-logo"><span class="brandmark" aria-hidden="true"></span></span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
+    <div class="tb-left"><button class="tb-more gonly" data-appmenu title="${t('gAppMenu')}">${icon('more')}</button><a class="tb-logo home-logo" href="#/home" title="${t('home')}" aria-label="${t('home')}"><span class="brandmark" aria-hidden="true"></span></a><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
     <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><label class="tb-search">${icon('search')}<input id="tbq" type="search" placeholder="${t('tbSearch')}" autocomplete="off" spellcheck="false"><a class="tb-browse gonly" href="#/search" title="${t('gBrowse')}">${icon('browse')}</a></label></div>
     <div class="tb-right">${discordBtn('tb-discord')}<a class="tb-icon gonly" href="#/gnew" title="${t('gWhatsNew')}">${icon('bell')}</a><button class="tb-icon gonly" data-gpanel="friends" title="${t('gFriends')}">${icon('friends')}</button><button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
       ${frameless ? `<button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
@@ -7154,14 +7361,14 @@ function buildShell() {
   </div>`}
   <div class="shell">
     <aside class="side">
-      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></span>${discordBtn('side-discord')}</div>
+      <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><a class="logo home-logo" href="#/home" title="${t('home')}"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></a>${discordBtn('side-discord')}</div>
       <nav class="side-nav">${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}${nav('likes', 'heart', t('likes'))}${nav('queue', 'queue', t('queue'))}</nav>
       <div class="side-head">${t('playlists')}<button class="icon-btn sm" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button></div>
       <div class="glib-head gonly"><button class="glib-tog" data-glibmin title="${t(prefs.gLibMin ? 'gShowLib' : 'gHideLib')}">${icon('libside')}<span>${t('gLibrary')}</span></button><button class="glib-create" data-gcreate title="${t('gCreate')}">${icon('plus')}<span>${t('gCreate')}</span></button><a class="icon-btn glib-open" href="#/library" title="${t('gOpenLib')}">${icon('expand')}</a></div>
       <div class="glib-chips gonly"><button class="chip" data-glibchip="playlist">${t('gChipPl')}</button><button class="chip" data-glibchip="album">${t('gChipAl')}</button><button class="chip" data-glibchip="artist">${t('gChipAr')}</button></div>
       <div id="side-playlists" class="side-pls"></div>
     </aside>
-    <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
+    <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><a class="logo home-logo" href="#/home" title="${t('home')}"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></a><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
     <main id="content">${offlineMode ? `<div class="offbar">${icon('download')}<span id="offbar-text"><b>${t('offMode')}</b> ${t('offModeHint')}</span><button class="btn sm" data-goonline>${t('goOnline')}</button></div>` : ''}<div id="view"></div></main>
     <aside id="gpanel" class="gpanel" aria-label="${t('gNpv')}"></aside>
     <footer id="player" class="player idle">
