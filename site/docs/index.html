@@ -255,6 +255,65 @@ details.q > div { padding: 0 16px 6px; }
   .pn .next { grid-column: 1; }
   h2 { font-size: 21.5px; }
 }
+
+/* ---------- graphics ---------- */
+.fig { margin: 18px 0 22px; padding: 20px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); }
+.fig svg { display: block; width: 100%; height: auto; overflow: visible; }
+.fig svg.tall { display: none; max-width: 420px; margin: 0 auto; }
+.fig .nd { fill: var(--bg); stroke: var(--line2); stroke-width: 1.4; }
+.fig .nd.acc { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; }
+.fig .tx { fill: var(--head); font-family: var(--sans); font-weight: 650; }
+.fig .sx { fill: var(--muted); font: 400 12px var(--sans); }
+.fig .tg { fill: var(--accent-text); font: 600 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.fig .lb { fill: var(--dim); font: 500 11px var(--mono); }
+.fig .ln { stroke: var(--dim); stroke-width: 1.5; fill: none; }
+.fig .ln.acc { stroke: var(--accent); }
+.fig .ln.dash { stroke-dasharray: 5 4; }
+.fig .ah { fill: var(--dim); }
+@media (max-width: 640px) { .fig svg.wide { display: none; } .fig svg.tall { display: block; } .fig { padding: 16px 12px; } }
+
+.hero { position: relative; margin: 8px 0 34px; padding-right: 13%; }
+.hero img { display: block; height: auto; border: 1px solid var(--line); background: var(--bg-soft); cursor: zoom-in; }
+.hero .hd { width: 100%; border-radius: 12px; box-shadow: var(--shadow); }
+.hero .hm { position: absolute; right: 0; bottom: -18px; width: 24%; border-radius: 18px; box-shadow: var(--shadow); border: 4px solid var(--bg); }
+
+.feats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 14px 0 24px; }
+.feats a { display: block; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; color: var(--text); transition: border-color .15s, transform .15s; }
+.feats a:hover { border-color: var(--accent); text-decoration: none; transform: translateY(-2px); }
+.feats .fimg { display: block; aspect-ratio: 16 / 10; overflow: hidden; background: var(--bg-soft); border-bottom: 1px solid var(--line); }
+.feats .fimg img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+.feats b { display: block; padding: 11px 14px 0; color: var(--head); font-size: 15px; }
+.feats a > span:last-child { display: block; padding: 2px 14px 13px; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+
+.gal { display: grid; gap: 14px; margin: 16px 0 22px; }
+.gal.two { grid-template-columns: 1fr 1fr; }
+.gal.phones { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.gal.phones.three { grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 560px; }
+.gal figure, figure.one, .themes figure { margin: 0; }
+.gal img, figure.one img, .themes img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-soft); cursor: zoom-in; }
+.gal.phones img { border-radius: 14px; }
+.gal figcaption, figure.one figcaption { font-size: 13px; color: var(--dim); margin-top: 7px; }
+figure.one { margin: 18px 0 22px; }
+.themes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0 18px; }
+.themes figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+.themes figcaption b { display: block; color: var(--head); font-size: 15px; margin-bottom: 1px; }
+.cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.zoom { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: rgba(5,8,12,.86); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .2s; cursor: zoom-out; }
+.zoom.open { opacity: 1; pointer-events: auto; }
+.zoom img { max-width: 100%; max-height: 100%; border-radius: 10px; box-shadow: 0 30px 80px rgba(0,0,0,.6); transform: scale(.97); transition: transform .2s; }
+.zoom.open img { transform: none; }
+.zoom p { position: absolute; left: 0; right: 0; bottom: 14px; margin: 0; text-align: center; color: #c9d1d9; font-size: 13.5px; }
+
+@media (max-width: 900px) { .feats { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 640px) {
+  .feats, .cards { grid-template-columns: 1fr; }
+  .gal.two, .themes { grid-template-columns: 1fr; }
+  .gal.phones { grid-template-columns: 1fr 1fr; }
+  .gal.phones.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero { padding-right: 18%; }
+  .hero .hm { width: 30%; border-width: 3px; border-radius: 12px; }
+}
 </style>
 </head>
 <body>
@@ -286,30 +345,19 @@ details.q > div { padding: 0 16px 6px; }
 
 <!-- ============================ ENGLISH ============================ -->
 
-<template data-l="en" data-p="" data-g="" data-t="Welcome">
-<p class="lead">Streyn is your own music server with apps for Android, Windows, Linux and the browser. It keeps your music at home, learns your taste and plays everywhere.</p>
-<div class="shots"><img class="shot d" src="../shots/d-home.webp" width="1440" height="900" alt="Desktop app, start page" loading="lazy"><img class="shot m" src="../shots/m-home.webp" width="540" height="1169" alt="Android app, start page" loading="lazy"></div>
-<p class="cap">Desktop app and Android app</p>
-<h2>Where do you want to start?</h2>
-<div class="cards">
-  <a href="#/start"><b><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Quick start</b><span>From zero to the first song in five steps</span></a>
-  <a href="#/install"><b><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/></svg>Install the server</b><span>Proxmox, Debian, ZimaOS, Docker, Windows</span></a>
-  <a href="#/apps"><b><svg class="i" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Get the apps</b><span>Android, Windows, Linux, browser</span></a>
-  <a href="#/away"><b><svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Listen on the go</b><span>Tailscale, no port forwarding</span></a>
-  <a href="#/share"><b><svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Share playlists</b><span>Public links, invite friends</span></a>
-  <a href="#/help"><b><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/></svg>Help</b><span>When something does not work</span></a>
-</div>
-<h2>How it works</h2>
-<ul>
-  <li><strong>Server:</strong> a small Rust program, best as a Proxmox container. It reads your music folder, streams to the apps and runs the recommendations.</li>
-  <li><strong>Apps:</strong> Android, Windows and Linux, plus the web player that the server serves itself.</li>
-  <li><strong>Your mix:</strong> learns from what you play to the end, skip and like. Nothing leaves your server.</li>
-  <li><strong>Spotify and more:</strong> optional. Names and covers come from Spotify, the sound from YouTube Music, played through your server.</li>
-</ul>
+<template data-l="en" data-p="" data-g="" data-t="Welcome"><p class="lead">Streyn is your own music app. A small server at home keeps your music and learns your taste, the apps for Android, Windows, Linux and the browser play from it, at home and on the go.</p>
+<div class="hero"><img class="hd" src="../shots/v2/d-home.webp" width="1920" height="1200" alt="Streyn on the computer" data-zoom><img class="hm" src="../shots/v2/m-home.webp" width="780" height="1688" alt="Streyn on the phone" data-zoom></div>
+<h2>How Streyn works</h2>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 242" role="img"><defs><marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="42.0" text-anchor="middle" style="font-size:14px">Your files</text><text class="sx" x="104.0" y="59.0" text-anchor="middle">MP3, FLAC, …</text><rect class="nd" x="4.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="118.0" text-anchor="middle" style="font-size:14px">Spotify</text><text class="sx" x="104.0" y="135.0" text-anchor="middle">names, covers</text><rect class="nd" x="4.0" y="166.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="194.0" text-anchor="middle" style="font-size:14px">YouTube Music</text><text class="sx" x="104.0" y="211.0" text-anchor="middle">the sound</text><rect class="nd acc" x="260.0" y="14.0" width="200.0" height="214" rx="10"/><text class="tx" x="360.0" y="110.0" text-anchor="middle" style="font-size:14px">Streyn server</text><text class="sx" x="360.0" y="127.0" text-anchor="middle">at your home</text><text class="sx" x="360.0" y="142.0" text-anchor="middle">library · mix · streaming</text><rect class="nd" x="516.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="42.0" text-anchor="middle" style="font-size:14px">Phone</text><text class="sx" x="616.0" y="59.0" text-anchor="middle">Android</text><rect class="nd" x="516.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="118.0" text-anchor="middle" style="font-size:14px">Computer</text><text class="sx" x="616.0" y="135.0" text-anchor="middle">Windows, Linux</text><rect class="nd" x="516.0" y="166.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="194.0" text-anchor="middle" style="font-size:14px">Browser</text><text class="sx" x="616.0" y="211.0" text-anchor="middle">web player</text><path class="ln" d="M204.0 45.0H232.0"/><path class="ln" d="M204.0 121.0H232.0"/><path class="ln" d="M204.0 197.0H232.0"/><path class="ln" d="M232.0 45.0V197.0"/><path class="ln" d="M232.0 121.0H258.0" marker-end="url(#ar1)"/><path class="ln" d="M460.0 121.0H488.0"/><path class="ln" d="M488.0 45.0V197.0"/><path class="ln" d="M488.0 45.0H514.0" marker-end="url(#ar1)"/><path class="ln" d="M488.0 121.0H514.0" marker-end="url(#ar1)"/><path class="ln" d="M488.0 197.0H514.0" marker-end="url(#ar1)"/><text class="lb" x="488.0" y="37.0" text-anchor="middle">streams</text></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar1t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="59.333333333333336" y="34.0" text-anchor="middle" style="font-size:13px">Your files</text><text class="sx" x="59.333333333333336" y="51.0" text-anchor="middle">MP3, FLAC, …</text><rect class="nd" x="124.66666666666667" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Spotify</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">names, covers</text><rect class="nd" x="245.33333333333334" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="300.6666666666667" y="34.0" text-anchor="middle" style="font-size:13px">YouTube Music</text><text class="sx" x="300.6666666666667" y="51.0" text-anchor="middle">the sound</text><rect class="nd acc" x="4.0" y="114" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="143.0" text-anchor="middle" style="font-size:13px">Streyn server</text><text class="sx" x="180.0" y="160.0" text-anchor="middle">at your home</text><text class="sx" x="180.0" y="175.0" text-anchor="middle">library · mix · streaming</text><rect class="nd" x="4.0" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="59.333333333333336" y="268.0" text-anchor="middle" style="font-size:13px">Phone</text><text class="sx" x="59.333333333333336" y="285.0" text-anchor="middle">Android</text><rect class="nd" x="124.66666666666667" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="180.0" y="268.0" text-anchor="middle" style="font-size:13px">Computer</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">Windows, Linux</text><rect class="nd" x="245.33333333333334" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="300.6666666666667" y="268.0" text-anchor="middle" style="font-size:13px">Browser</text><text class="sx" x="300.6666666666667" y="285.0" text-anchor="middle">web player</text><path class="ln" d="M59.333333333333336 70V92.0"/><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M300.6666666666667 70V92.0"/><path class="ln" d="M59.333333333333336 92.0H300.6666666666667"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar1t)"/><path class="ln" d="M180.0 194V216.0"/><path class="ln" d="M59.333333333333336 216.0H300.6666666666667"/><path class="ln" d="M59.333333333333336 216.0V236" marker-end="url(#ar1t)"/><path class="ln" d="M180.0 216.0V236" marker-end="url(#ar1t)"/><path class="ln" d="M300.6666666666667 216.0V236" marker-end="url(#ar1t)"/><text class="lb" x="188.0" y="211.0">streams</text></svg></figure>
+<p>Everything runs on your server: your songs, playlists, likes and the mix that learns from them. Spotify only adds names and covers, the sound of those songs is found on YouTube Music and streamed through your server.</p>
+<h2>Start here</h2>
+<div class="cards"><a href="#/start"><b><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Quick start</b><span>From zero to the first song in five steps</span></a><a href="#/install"><b><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>Install the server</b><span>Proxmox, Debian, ZimaOS, Docker, Windows</span></a><a href="#/apps"><b><svg class="i" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Get the apps</b><span>Android, Windows, Linux, browser</span></a></div>
+<h2>What you can do</h2>
+<div class="feats"><a href="#/listen"><span class="fimg"><img src="../shots/v2/d-home.webp" width="1920" height="1200" alt="" loading="lazy"></span><b>Mixes made for you</b><span>Mix for you, Streyn Mixes, Top Songs and radio</span></a><a href="#/look"><span class="fimg"><img src="../shots/v2/d-green.webp" width="1920" height="1200" alt="" loading="lazy"></span><b>Three looks</b><span>Standard, Liquid Glass and Green</span></a><a href="#/player"><span class="fimg"><img src="../shots/v2/c-shot1.webp" width="1600" height="900" alt="" loading="lazy"></span><b>Chillscreen</b><span>A cosy room that plays your song</span></a><a href="#/away"><span class="fimg"><img src="../shots/v2/m-fs.webp" width="780" height="1688" alt="" loading="lazy"></span><b>Listen anywhere</b><span>At home, on mobile data, offline</span></a><a href="#/share"><span class="fimg"><img src="../shots/v2/x-search.webp" width="1600" height="1003" alt="" loading="lazy"></span><b>Share and invite</b><span>Public links, contributors, listeners</span></a><a href="#/sources"><span class="fimg"><img src="../shots/v2/d-artist.webp" width="1920" height="1200" alt="" loading="lazy"></span><b>Spotify built in</b><span>Every song in full, through your server</span></a></div>
 </template>
 
-<template data-l="en" data-p="start" data-g="Get started" data-t="Quick start">
-<p class="lead">From zero to the first song in five steps.</p>
+<template data-l="en" data-p="start" data-g="Get started" data-t="Quick start"><p class="lead">From zero to the first song in five steps. It takes about ten minutes.</p>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="59.2" y="42.0" text-anchor="middle" style="font-size:14px">1 Server</text><text class="sx" x="59.2" y="59.0" text-anchor="middle">install it once</text><rect class="nd" x="154.4" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="209.60000000000002" y="42.0" text-anchor="middle" style="font-size:14px">2 App</text><text class="sx" x="209.60000000000002" y="59.0" text-anchor="middle">download</text><rect class="nd" x="304.8" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="360.0" y="42.0" text-anchor="middle" style="font-size:14px">3 Account</text><text class="sx" x="360.0" y="59.0" text-anchor="middle">first one is admin</text><rect class="nd" x="455.20000000000005" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="510.40000000000003" y="42.0" text-anchor="middle" style="font-size:14px">4 Assistant</text><text class="sx" x="510.40000000000003" y="59.0" text-anchor="middle">your taste</text><rect class="nd acc" x="605.6" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="660.8000000000001" y="42.0" text-anchor="middle" style="font-size:14px">5 Play</text><text class="sx" x="660.8000000000001" y="59.0" text-anchor="middle">Mix for you</text><path class="ln" d="M114.4 45.0H134.4"/><path class="ln" d="M134.4 45.0H152.4" marker-end="url(#ar2)"/><path class="ln" d="M264.8 45.0H284.8"/><path class="ln" d="M284.8 45.0H302.8" marker-end="url(#ar2)"/><path class="ln" d="M415.20000000000005 45.0H435.20000000000005"/><path class="ln" d="M435.20000000000005 45.0H453.20000000000005" marker-end="url(#ar2)"/><path class="ln" d="M565.6 45.0H585.6"/><path class="ln" d="M585.6 45.0H603.6" marker-end="url(#ar2)"/></svg><svg class="tall" viewBox="0 0 360 516" role="img"><defs><marker id="ar2t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">1 Server</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">install it once</text><rect class="nd" x="4.0" y="114" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="144.0" text-anchor="middle" style="font-size:13px">2 App</text><text class="sx" x="180.0" y="161.0" text-anchor="middle">download</text><rect class="nd" x="4.0" y="224" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="254.0" text-anchor="middle" style="font-size:13px">3 Account</text><text class="sx" x="180.0" y="271.0" text-anchor="middle">first one is admin</text><rect class="nd" x="4.0" y="334" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="364.0" text-anchor="middle" style="font-size:13px">4 Assistant</text><text class="sx" x="180.0" y="381.0" text-anchor="middle">your taste</text><rect class="nd acc" x="4.0" y="444" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="474.0" text-anchor="middle" style="font-size:13px">5 Play</text><text class="sx" x="180.0" y="491.0" text-anchor="middle">Mix for you</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar2t)"/><path class="ln" d="M180.0 180V202.0"/><path class="ln" d="M180.0 202.0V222" marker-end="url(#ar2t)"/><path class="ln" d="M180.0 290V312.0"/><path class="ln" d="M180.0 312.0V332" marker-end="url(#ar2t)"/><path class="ln" d="M180.0 400V422.0"/><path class="ln" d="M180.0 422.0V442" marker-end="url(#ar2t)"/></svg></figure>
 <ol class="steps">
   <li><strong>Install the server</strong>, easiest on Proxmox (see <a href="#/install">Install the server</a>). At the end you see an address like <code>http://192.168.1.50:8484</code>.</li>
   <li><strong>Get an app</strong> from <a href="../">musik.labtoso.de</a>, or just open the address in a browser.</li>
@@ -317,11 +365,11 @@ details.q > div { padding: 0 16px 6px; }
   <li><strong>Answer the setup assistant:</strong> language, look, the music and artists you like, and how you listen.</li>
   <li><strong>Add music</strong> to the music folder or upload it under <span class="path">Settings → Upload music</span>, then play <strong>Mix for you</strong> on the start page.</li>
 </ol>
+<figure class="one"><img class="shot " src="../shots/v2/x-welcome.webp" width="1400" height="964" alt="The setup assistant" loading="lazy" data-zoom><figcaption>The setup assistant on the first start</figcaption></figure>
 <div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Tip</span><p>Every step of the setup assistant can be skipped and changed later in Settings.</p></div></div>
 </template>
 
-<template data-l="en" data-p="install" data-g="Get started" data-t="Install the server">
-<p class="lead">One command per system. Running it again later updates the server, your data stays.</p>
+<template data-l="en" data-p="install" data-g="Get started" data-t="Install the server"><p class="lead">One command per system. Running it again later updates the server, your data stays.</p>
 <h2>Pick your system</h2>
 <div class="tabs">
   <div role="tablist"><button role="tab">Proxmox</button><button role="tab">Debian / Ubuntu</button><button role="tab">ZimaOS / CasaOS</button><button role="tab">Docker</button><button role="tab">Windows</button></div>
@@ -364,8 +412,7 @@ details.q > div { padding: 0 16px 6px; }
 <p>Open the printed address in a browser or in an app and create the first account. Next: <a href="#/apps">Get the apps</a>.</p>
 </template>
 
-<template data-l="en" data-p="apps" data-g="Get started" data-t="Get the apps">
-<p class="lead">Download from <a href="../">musik.labtoso.de</a>, enter your server address once, done.</p>
+<template data-l="en" data-p="apps" data-g="Get started" data-t="Get the apps"><p class="lead">Download from <a href="../">musik.labtoso.de</a>, enter your server address once, done.</p>
 <h2>Downloads</h2>
 <table>
   <thead><tr><th>Device</th><th>File</th><th>How</th></tr></thead>
@@ -379,21 +426,23 @@ details.q > div { padding: 0 16px 6px; }
 <pre data-lang="bash"><code>chmod +x Streyn.AppImage && ./Streyn.AppImage</code></pre>
 <h2>First start</h2>
 <p>Each app asks for the server address once, for example <code>192.168.1.50:8484</code>, then runs the setup assistant. Change the address later under <span class="path">Settings → Change server</span>.</p>
-<div class="shots"><img class="shot m2" src="../shots/m-np1.webp" width="540" height="1169" alt="Full screen player" loading="lazy"><img class="shot m2" src="../shots/m-album.webp" width="540" height="1169" alt="Album page" loading="lazy"></div>
-<p class="cap">Full screen player and album page on Android</p>
+<h2>A quick tour</h2>
+<div class="gal phones"><figure><img src="../shots/v2/m-home.webp" width="780" height="1688" alt="Home" loading="lazy" data-zoom><figcaption>Home</figcaption></figure><figure><img src="../shots/v2/m-fs.webp" width="780" height="1688" alt="Big player" loading="lazy" data-zoom><figcaption>Big player</figcaption></figure><figure><img src="../shots/v2/m-lib.webp" width="780" height="1688" alt="Library" loading="lazy" data-zoom><figcaption>Library</figcaption></figure><figure><img src="../shots/v2/m-queue.webp" width="780" height="1688" alt="Queue" loading="lazy" data-zoom><figcaption>Queue</figcaption></figure></div>
+<div class="gal two"><figure><img src="../shots/v2/d-home.webp" width="1920" height="1200" alt="Home on the computer" loading="lazy" data-zoom><figcaption>Home on the computer</figcaption></figure><figure><img src="../shots/v2/d-album.webp" width="1920" height="1200" alt="Album page" loading="lazy" data-zoom><figcaption>Album page</figcaption></figure></div>
 </template>
 
-<template data-l="en" data-p="sources" data-g="Listen" data-t="Music and Spotify">
-<p class="lead">Your own files always come first. Spotify, YouTube and others are optional, switched on under <span class="path">Settings → Sources</span>.</p>
+<template data-l="en" data-p="sources" data-g="Listen" data-t="Music and Spotify"><p class="lead">Your own files always come first. Spotify, YouTube and others are optional, switched on under <span class="path">Settings → Sources</span>.</p>
 <h2>Your own files</h2>
-<p>Put them into the music folder (scanned every 30 minutes, or right away with <strong>Rescan library</strong>) or use <span class="path">Settings → Upload music</span>. MP3, FLAC, M4A/AAC, OGG, WAV and WebM work. Title, artist, album, cover and lyrics come from the tags.</p>
-<h2>Spotify</h2>
+<p>Put them into the music folder (scanned every 30 minutes, or right away with <strong>Rescan library</strong>) or use <span class="path">Settings → Upload music</span>. MP3, FLAC, M4A/AAC, OGG, WAV and WebM work. Title, artist, album, cover and lyrics come from the tags. Your own songs can be removed with <strong>Delete from server</strong> in their menu.</p>
+<h2>How a Spotify song plays</h2>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="42.0" text-anchor="middle" style="font-size:14px">Spotify</text><text class="sx" x="104.0" y="59.0" text-anchor="middle">title, artist, cover</text><rect class="nd acc" x="260.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="360.0" y="34.0" text-anchor="middle" style="font-size:14px">Your server</text><text class="sx" x="360.0" y="51.0" text-anchor="middle">finds the official</text><text class="sx" x="360.0" y="66.0" text-anchor="middle">upload on YouTube Music</text><rect class="nd" x="516.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="42.0" text-anchor="middle" style="font-size:14px">Your app</text><text class="sx" x="616.0" y="59.0" text-anchor="middle">plays the whole song</text><path class="ln" d="M204.0 45.0H232.0"/><path class="ln" d="M232.0 45.0H258.0" marker-end="url(#ar3)"/><text class="lb" x="232.0" y="37.0" text-anchor="middle">metadata</text><path class="ln" d="M460.0 45.0H488.0"/><path class="ln" d="M488.0 45.0H514.0" marker-end="url(#ar3)"/><text class="lb" x="488.0" y="37.0" text-anchor="middle">stream</text></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar3t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Spotify</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">title, artist, cover</text><rect class="nd acc" x="4.0" y="114" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="143.0" text-anchor="middle" style="font-size:13px">Your server</text><text class="sx" x="180.0" y="160.0" text-anchor="middle">finds the official</text><text class="sx" x="180.0" y="175.0" text-anchor="middle">upload on YouTube Music</text><rect class="nd" x="4.0" y="238" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="268.0" text-anchor="middle" style="font-size:13px">Your app</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">plays the whole song</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar3t)"/><text class="lb" x="188.0" y="87.0">metadata</text><path class="ln" d="M180.0 194V216.0"/><path class="ln" d="M180.0 216.0V236" marker-end="url(#ar3t)"/><text class="lb" x="188.0" y="211.0">stream</text></svg></figure>
+<p>Every Spotify song plays in full. The server looks for the official upload and skips covers, live and remix versions. With <strong>Download to server</strong> in the menu of an imported playlist, the server keeps those songs as files, so they play without YouTube and work offline.</p>
+<h2>Connect Spotify</h2>
 <ol class="steps">
   <li>Create an app on <a href="https://developer.spotify.com/dashboard">developer.spotify.com</a> with <strong>Web API</strong> ticked.</li>
   <li>Add this redirect URI: <code>https://musik.labtoso.de/spotify.html</code></li>
   <li>Paste the client ID under <span class="path">Settings → Sources → Spotify</span> and press <strong>Connect Spotify</strong>. The connection stays saved on the server for all your apps.</li>
 </ol>
-<p>Spotify songs play in full: names, covers and descriptions come from Spotify, the sound is found on YouTube Music and streamed through your server. No YouTube key needed.</p>
 <div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Spotify limits since February 2026</span><p>The owner of the developer app needs Premium, at most 5 users, and playlist contents only for your own or collaborative playlists. Copy other playlists into your library first, or import an Exportify CSV.</p></div></div>
 <h2>Import playlists</h2>
 <p><span class="path">Library → Imported → Import</span>: paste a link or pick a file. Songs you own play from your library, the rest through the source. <strong>Save as playlist</strong> turns it into a normal playlist.</p>
@@ -407,93 +456,98 @@ details.q > div { padding: 0 16px 6px; }
   <tr><td>File</td><td>CSV (e.g. Exportify), M3U, TXT</td></tr>
   </tbody>
 </table>
+<figure class="one"><img class="shot " src="../shots/v2/d-artist.webp" width="1920" height="1200" alt="Artist page with Spotify data" loading="lazy" data-zoom><figcaption>Artist pages show everything like Spotify: popular songs, albums, singles and monthly listeners</figcaption></figure>
 </template>
 
-<template data-l="en" data-p="listen" data-g="Listen" data-t="Mix and playlists">
-<p class="lead">The more you listen, the better the mix gets.</p>
-<h2>Recommendations</h2>
-<ul>
-  <li><strong>Mix for you</strong> on the start page, plus song, playlist and artist suggestions from what you hear and follow.</li>
-  <li><strong>Streyn Mixes</strong> on the start page: Daily Mixes, a mix per genre you play most (Rock Mix, Electronic Mix …) and a mix per favourite artist. Each gets its own cover, name and description, new every day. Save one with <strong>+</strong> to keep it as a playlist.</li>
-  <li><strong>Your Top Songs</strong>: for every year a playlist of the songs you played most (up to 100), in your library and the sidebar. A play counts after 30 seconds.</li>
-  <li>Both can be switched off under <span class="path">Settings → Taste &amp; mix</span>, for all your devices at once.</li>
-  <li><strong>Start radio</strong> in a song's menu plays similar songs and keeps the queue going.</li>
-  <li><strong>Smart shuffle</strong> plays favourites more often and avoids the same artist twice in a row.</li>
-</ul>
-<p>Playing to the end counts positive, an early skip negative, a like strongly positive. Older signals fade with a half-life of 30 days.</p>
-<p><span class="path">Settings → Taste &amp; mix</span> sets how much of your mix comes from your own files and how much from streaming. Take a song out of your taste from its menu.</p>
-<h2>Library</h2>
-<ul>
-  <li><strong>Like</strong> any song with the heart, also from Spotify or YouTube. Liked songs collect in <strong>Liked songs</strong>.</li>
-  <li><strong>Follow</strong> artists on their page. They show up in Library → Artists and on the start page.</li>
-  <li><strong>Playlists:</strong> <strong>+</strong> in the sidebar or <strong>Add to playlist</strong> in a song's menu. <strong>Edit details</strong> sets picture, name and description. Drag songs and playlists to reorder, on the phone hold a moment first.</li>
-</ul>
-<h2>Menus</h2>
-<p>Right click on the computer, long press on the phone, or tap the <strong>…</strong> button. Works on songs, albums, artists and playlists.</p>
-</template>
-
-<template data-l="en" data-p="player" data-g="Listen" data-t="Player and sound">
-<p class="lead">Tap the small player (phone) or the cover (computer) to open the full screen player with lyrics, queue and visualizer.</p>
-<h2>Playback</h2>
-<p><span class="path">Settings → Playback</span>: crossfade, the same volume for all songs and streaming quality.</p>
-<h2>Chillscreen</h2>
-<p>A cosy room with a turntable that plays the cover of your song, as a full screen mode. Switch it on under <span class="path">Settings → Playback</span>, then open it with its button in the big player.</p>
-<h2>Devices</h2>
-<p><span class="path">Settings → Devices</span> shows where the music plays. Pick headphones or a Bluetooth device. Optional: pause when a device disconnects, continue when it comes back within ten minutes. You also see what plays on your other devices and can pause it or take it over with <strong>Play here</strong>.</p>
-<h2>Equalizer</h2>
-<p><span class="path">Settings → Equalizer</span>: 10 bands from 31 Hz to 16 kHz, preamp and presets (Flat, Bass boost, Treble boost, Vocal, Acoustic, Electronic, Night). Works on songs from your server.</p>
-<h2>Visualizer</h2>
-<p>Tap <strong>Visualizer</strong> in the full screen player: bars, ring or wave, in the colours of the cover. Each tap switches on.</p>
-<h2>Discord status</h2>
-<p>The desktop app can show “Listening to Streyn” with the song in your Discord status. Switch it on under <span class="path">Settings → Playback</span>.</p>
-<h2>Lyrics</h2>
-<p>From the file's tags or from LRCLIB. Synced lyrics follow along, tap a line to jump there.</p>
-<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Android permissions</span><p>Android asks once for “record audio” for the visualizer and for Bluetooth to show full device names. Nothing is recorded.</p></div></div>
-</template>
-
-<template data-l="en" data-p="look" data-g="Listen" data-t="Themes">
-<p class="lead">Change the look under <span class="path">Settings → General → Theme</span> or in the setup assistant.</p>
-<h2>Themes</h2>
+<template data-l="en" data-p="listen" data-g="Listen" data-t="Mix and playlists"><p class="lead">The more you listen, the better the mix gets. Everything is worked out on your own server.</p>
+<h2>How the mix learns</h2>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 242" role="img"><defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="42.0" text-anchor="middle" style="font-size:14px">Played to the end</text><text class="sx" x="104.0" y="59.0" text-anchor="middle">counts plus</text><rect class="nd" x="4.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="118.0" text-anchor="middle" style="font-size:14px">Skipped early</text><text class="sx" x="104.0" y="135.0" text-anchor="middle">counts minus</text><rect class="nd" x="4.0" y="166.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="194.0" text-anchor="middle" style="font-size:14px">Liked</text><text class="sx" x="104.0" y="211.0" text-anchor="middle">counts a lot</text><rect class="nd acc" x="260.0" y="14.0" width="200.0" height="214" rx="10"/><text class="tx" x="360.0" y="110.0" text-anchor="middle" style="font-size:14px">Your taste</text><text class="sx" x="360.0" y="127.0" text-anchor="middle">fades after 30 days</text><text class="sx" x="360.0" y="142.0" text-anchor="middle">so it stays fresh</text><rect class="nd" x="516.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="42.0" text-anchor="middle" style="font-size:14px">Mix for you</text><text class="sx" x="616.0" y="59.0" text-anchor="middle">on Home</text><rect class="nd" x="516.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="118.0" text-anchor="middle" style="font-size:14px">Streyn Mixes</text><text class="sx" x="616.0" y="135.0" text-anchor="middle">new every day</text><rect class="nd" x="516.0" y="166.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="194.0" text-anchor="middle" style="font-size:14px">Radio</text><text class="sx" x="616.0" y="211.0" text-anchor="middle">from any song</text><path class="ln" d="M204.0 45.0H232.0"/><path class="ln" d="M204.0 121.0H232.0"/><path class="ln" d="M204.0 197.0H232.0"/><path class="ln" d="M232.0 45.0V197.0"/><path class="ln" d="M232.0 121.0H258.0" marker-end="url(#ar4)"/><path class="ln" d="M460.0 121.0H488.0"/><path class="ln" d="M488.0 45.0V197.0"/><path class="ln" d="M488.0 45.0H514.0" marker-end="url(#ar4)"/><path class="ln" d="M488.0 121.0H514.0" marker-end="url(#ar4)"/><path class="ln" d="M488.0 197.0H514.0" marker-end="url(#ar4)"/></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar4t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="59.333333333333336" y="34.0" text-anchor="middle" style="font-size:13px">Played to the end</text><text class="sx" x="59.333333333333336" y="51.0" text-anchor="middle">counts plus</text><rect class="nd" x="124.66666666666667" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Skipped early</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">counts minus</text><rect class="nd" x="245.33333333333334" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="300.6666666666667" y="34.0" text-anchor="middle" style="font-size:13px">Liked</text><text class="sx" x="300.6666666666667" y="51.0" text-anchor="middle">counts a lot</text><rect class="nd acc" x="4.0" y="114" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="143.0" text-anchor="middle" style="font-size:13px">Your taste</text><text class="sx" x="180.0" y="160.0" text-anchor="middle">fades after 30 days</text><text class="sx" x="180.0" y="175.0" text-anchor="middle">so it stays fresh</text><rect class="nd" x="4.0" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="59.333333333333336" y="268.0" text-anchor="middle" style="font-size:13px">Mix for you</text><text class="sx" x="59.333333333333336" y="285.0" text-anchor="middle">on Home</text><rect class="nd" x="124.66666666666667" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="180.0" y="268.0" text-anchor="middle" style="font-size:13px">Streyn Mixes</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">new every day</text><rect class="nd" x="245.33333333333334" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="300.6666666666667" y="268.0" text-anchor="middle" style="font-size:13px">Radio</text><text class="sx" x="300.6666666666667" y="285.0" text-anchor="middle">from any song</text><path class="ln" d="M59.333333333333336 70V92.0"/><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M300.6666666666667 70V92.0"/><path class="ln" d="M59.333333333333336 92.0H300.6666666666667"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar4t)"/><path class="ln" d="M180.0 194V216.0"/><path class="ln" d="M59.333333333333336 216.0H300.6666666666667"/><path class="ln" d="M59.333333333333336 216.0V236" marker-end="url(#ar4t)"/><path class="ln" d="M180.0 216.0V236" marker-end="url(#ar4t)"/><path class="ln" d="M300.6666666666667 216.0V236" marker-end="url(#ar4t)"/></svg></figure>
+<h2>What you get</h2>
 <table>
-  <thead><tr><th>Theme</th><th>Looks like</th></tr></thead>
+  <thead><tr><th>On Home</th><th>What it is</th></tr></thead>
   <tbody>
-  <tr><td>Standard</td><td>Calm and dark (or light). The default.</td></tr>
-  <tr><td>Liquid Glass</td><td>Frosted glass panels, light rims, a backdrop drifting in the colours of the cover.</td></tr>
-  <tr><td>Green</td><td>Black with a green accent, round buttons, bold type. Always dark. On a PC it uses the full desktop layout below.</td></tr>
+  <tr><td>Mix for you</td><td>Your favourites and new finds, sorted by your taste</td></tr>
+  <tr><td>Streyn Mixes</td><td>Daily Mixes, a mix per genre you play most and per favourite artist, each with its own cover. Keep one with <strong>+</strong></td></tr>
+  <tr><td>Your Top Songs</td><td>A playlist per year with the songs you played most (up to 100). A play counts after 30 seconds</td></tr>
+  <tr><td>Start radio</td><td>In a song's menu: similar songs, and the queue keeps going</td></tr>
+  <tr><td>Smart shuffle</td><td>Favourites more often, never the same artist twice in a row</td></tr>
   </tbody>
 </table>
-<div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Themes +</span><p>Green and later themes appear once you switch on <strong>Themes +</strong> above the theme picker.</p></div></div>
-<h2>Green on the PC</h2>
-<p>With Green on and a window at least 900 pixels wide (desktop app or browser), Streyn switches to a three-panel layout. On phones Green keeps its phone layout.</p>
+<p><span class="path">Settings → Taste &amp; mix</span> sets how much comes from your own files and how much from streaming, and switches Streyn Mixes or Top Songs off. Take a single song out of your taste from its menu.</p>
+<h2>Library and playlists</h2>
 <ul>
-  <li><strong>Top bar:</strong> the <strong>…</strong> menu (File, Edit, View, Playback, Help), back and forward, Home, the search field with <strong>Browse</strong> on its right, What's New (bell), Friend Activity and your profile.</li>
-  <li><strong>Your Library</strong> on the left: playlists, saved albums, Liked songs, your yearly top songs and the artists you follow, with filter chips. The library icon folds it to a strip of covers, <strong>+ Create</strong> makes a playlist, imports, uploads or starts your mix.</li>
-  <li><strong>Panel on the right:</strong> the now playing view with the cover, a lyrics preview that follows the song, the artist with monthly listeners and Follow, credits and the next song. The queue button opens the queue there (with Recently played), the device button opens <strong>Connect to a device</strong>.</li>
-  <li><strong>Playing on another device:</strong> a green bar under the player shows where the music plays. Click it to pick a device.</li>
-  <li><strong>Miniplayer:</strong> the button next to the volume opens a small player with the cover. Its <strong>…</strong> has settings for the background colour and the queue.</li>
-  <li><strong>Pages:</strong> playlists and albums show a table with numbers and columns; artists get a large picture. When you scroll, a bar with a play button stays at the top.</li>
-  <li><strong>Zoom:</strong> Ctrl + plus, Ctrl + minus and Ctrl + 0, or View in the … menu.</li>
+  <li><strong>Like</strong> any song, also from Spotify or YouTube. They collect in <strong>Liked songs</strong>.</li>
+  <li><strong>Follow</strong> artists and <strong>save albums</strong> from their pages.</li>
+  <li><strong>Playlists:</strong> <strong>+</strong> on a song adds it. <strong>Edit details</strong> sets picture, name and description, the cover editor makes one from colours, a photo or a song cover.</li>
+  <li><strong>Sort:</strong> drag songs and playlists. On the phone the pencil opens an edit mode.</li>
+  <li><strong>Pin to Home</strong> from a playlist's menu puts it right after Liked songs.</li>
+  <li><strong>Preload</strong> (lightning button) puts a whole list on the server's disk so every song starts at once.</li>
 </ul>
-<p>The font in Green is Figtree, a free font close to the one Spotify uses. The other themes keep their own font.</p>
-
-<h2>More options</h2>
-<ul>
-  <li><strong>Light or dark</strong> for every theme.</li>
-  <li><strong>Accent colour:</strong> blue, green, purple, orange, pink, red, teal, or from the cover.</li>
-  <li><strong>Language:</strong> English or German, kept across updates.</li>
-  <li><strong>Columns</strong> that song lists show: cover, artist, album, source, length, year, genre, date added.</li>
-</ul>
+<p>Menus open with a right click on the computer, a long press on the phone, or the <strong>…</strong> button.</p>
 </template>
 
-<template data-l="en" data-p="away" data-g="Anywhere" data-t="On the go">
-<p class="lead">Without extra steps the apps work on your home Wi-Fi. With Tailscale they work everywhere, with no port forwarding and nothing open to the internet.</p>
+<template data-l="en" data-p="player" data-g="Listen" data-t="Player and Chillscreen"><p class="lead">Tap the small player (phone) or the song in the player bar (computer) for the big player with lyrics, queue and visualizer.</p>
+<div class="gal phones three"><figure><img src="../shots/v2/m-fs.webp" width="780" height="1688" alt="Big player" loading="lazy" data-zoom><figcaption>Big player</figcaption></figure><figure><img src="../shots/v2/m-queue.webp" width="780" height="1688" alt="Queue" loading="lazy" data-zoom><figcaption>Queue</figcaption></figure><figure><img src="../shots/v2/m-green-fs.webp" width="780" height="1688" alt="Big player in Green" loading="lazy" data-zoom><figcaption>Big player in Green</figcaption></figure></div>
+<h2>Chillscreen</h2>
+<p>A cosy room at night: a turntable plays the cover of your song, your queue hangs as polaroids on the wall, rain runs down the window and the camera glides through the room. Switch it on under <span class="path">Settings → Chillscreen</span>, then open it with its button in the big player. <strong>Transitions to the music</strong> changes the shot on the beat or on the bar.</p>
+<div class="gal two"><figure><img src="../shots/v2/c-shot1.webp" width="1600" height="900" alt="The turntable" loading="lazy" data-zoom><figcaption>The turntable</figcaption></figure><figure><img src="../shots/v2/c-room.webp" width="1280" height="720" alt="The room" loading="lazy" data-zoom><figcaption>The room</figcaption></figure><figure><img src="../shots/v2/c-shot3.webp" width="1600" height="900" alt="Record change" loading="lazy" data-zoom><figcaption>Record change</figcaption></figure><figure><img src="../shots/v2/c-chair.webp" width="1280" height="720" alt="Armchair corner" loading="lazy" data-zoom><figcaption>Armchair corner</figcaption></figure></div>
+<h2>Sound</h2>
+<table>
+  <thead><tr><th>Setting</th><th>Where</th><th>What it does</th></tr></thead>
+  <tbody>
+  <tr><td>Crossfade, volume, quality</td><td><span class="path">Settings → Playback</span></td><td>Songs blend into each other, all play equally loud, streaming quality from low to very high</td></tr>
+  <tr><td>Equalizer</td><td><span class="path">Settings → Equalizer</span></td><td>10 bands, preamp and presets. Works on songs from your server</td></tr>
+  <tr><td>Visualizer</td><td><span class="path">Settings → Visualizer</span></td><td>Bars, ring or wave in the cover's colours, also as a thin strip under the mini player</td></tr>
+  <tr><td>Lyrics</td><td>Big player</td><td>Synced lyrics follow along, tap a line to jump there</td></tr>
+  </tbody>
+</table>
+<h2>Devices</h2>
+<p><span class="path">Settings → Devices</span> shows where the music plays: phone, headphones or Bluetooth. Optional: pause when a device disconnects, continue when it comes back. You also see what plays on your other devices and can pause it or take it over with <strong>Play here</strong>.</p>
+<h2>Discord status</h2>
+<p>The desktop app can show “Listening to Streyn” with the song in your Discord status. Switch it on under <span class="path">Settings → Playback</span>.</p>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Android permissions</span><p>Android asks once for “record audio” for the visualizer and for Bluetooth to show full device names. Nothing is recorded, and if you say no, it does not ask again.</p></div></div>
+</template>
+
+<template data-l="en" data-p="look" data-g="Listen" data-t="Themes"><p class="lead">Three looks, each in light or dark. Change it under <span class="path">Settings → General → Theme</span> or in the setup assistant.</p>
+<div class="themes">
+  <figure><img class="shot " src="../shots/v2/d-home.webp" width="1920" height="1200" alt="Standard" loading="lazy" data-zoom><figcaption><b>Standard</b>Calm and clear, the default</figcaption></figure>
+  <figure><img class="shot " src="../shots/v2/d-glass.webp" width="1920" height="1200" alt="Liquid Glass" loading="lazy" data-zoom><figcaption><b>Liquid Glass</b>Clear glass that bends the light, rims that follow the pointer or the tilt of the phone</figcaption></figure>
+  <figure><img class="shot " src="../shots/v2/d-green.webp" width="1920" height="1200" alt="Green" loading="lazy" data-zoom><figcaption><b>Green</b>Black with a green accent, big titles, a round play button rising out of the covers</figcaption></figure>
+</div>
+<div class="gal phones three"><figure><img src="../shots/v2/m-home.webp" width="780" height="1688" alt="Standard" loading="lazy" data-zoom><figcaption>Standard</figcaption></figure><figure><img src="../shots/v2/m-glass.webp" width="780" height="1688" alt="Liquid Glass" loading="lazy" data-zoom><figcaption>Liquid Glass</figcaption></figure><figure><img src="../shots/v2/m-green-fs.webp" width="780" height="1688" alt="Green" loading="lazy" data-zoom><figcaption>Green</figcaption></figure></div>
+<div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Themes +</span><p>Green appears once you switch on <strong>Themes +</strong> above the theme picker.</p></div></div>
+<h2>Green on the PC</h2>
+<p>With Green on and a window at least 900 pixels wide, Streyn switches to three panels. On phones Green keeps its phone layout.</p>
+<figure class="one"><img class="shot " src="../shots/v2/d-green.webp" width="1920" height="1200" alt="Green on the PC" loading="lazy" data-zoom><figcaption>Library on the left, page in the middle, now playing on the right</figcaption></figure>
+<ul>
+  <li><strong>Top bar:</strong> the <strong>…</strong> menu (File, Edit, View, Playback, Help), back and forward, Home, search with <strong>Browse</strong>, What's New, Friend Activity and your profile.</li>
+  <li><strong>Your Library</strong> on the left with filter chips. The library icon folds it to a strip of covers, <strong>+ Create</strong> makes a playlist, imports, uploads or starts your mix.</li>
+  <li><strong>Right panel:</strong> cover, a lyrics preview that follows the song, the artist with monthly listeners, credits and the next song. The queue and <strong>Connect to a device</strong> open here too.</li>
+  <li><strong>Miniplayer:</strong> the button next to the volume opens a small player. Its <strong>…</strong> sets the background colour and the queue.</li>
+  <li><strong>Pages:</strong> playlists and albums show a song table, and a bar with a play button stays at the top while you scroll.</li>
+  <li><strong>Zoom:</strong> <kbd>Ctrl</kbd> <kbd>+</kbd>, <kbd>Ctrl</kbd> <kbd>-</kbd> and <kbd>Ctrl</kbd> <kbd>0</kbd>, or View in the … menu.</li>
+</ul>
+<p>Green uses Figtree, a free font close to Spotify's. The other themes keep their own font.</p>
+<h2>Make it yours</h2>
+<ul>
+  <li><strong>Light or dark</strong> for every theme, plus <strong>OLED mode</strong> (pure black) in dark mode.</li>
+  <li><strong>Accent colour:</strong> ready-made colours, the colour of the playing cover, or <strong>Own colour</strong> with a colour field, hex input and a pipette on Windows and in Chrome.</li>
+  <li><strong>Language:</strong> English or German, kept across updates.</li>
+  <li><strong>Columns</strong> in song lists and <strong>platform logos</strong> can be switched on or off.</li>
+</ul>
+<figure class="one"><img class="shot " src="../shots/v2/x-settings.webp" width="1400" height="1027" alt="Settings" loading="lazy" data-zoom><figcaption>Settings → General with the theme picker</figcaption></figure>
+</template>
+
+<template data-l="en" data-p="away" data-g="Anywhere" data-t="On the go"><p class="lead">At home the apps reach your server over Wi-Fi. With Tailscale they reach it from anywhere, with no port forwarding and nothing open to the internet.</p>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 166" role="img"><defs><marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="42.0" text-anchor="middle" style="font-size:14px">At home</text><text class="sx" x="104.0" y="59.0" text-anchor="middle">phone on Wi-Fi</text><rect class="nd" x="4.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="118.0" text-anchor="middle" style="font-size:14px">Away</text><text class="sx" x="104.0" y="135.0" text-anchor="middle">mobile data, other Wi-Fi</text><rect class="nd" x="260.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="360.0" y="42.0" text-anchor="middle" style="font-size:14px">Your router</text><text class="sx" x="360.0" y="59.0" text-anchor="middle">home network</text><rect class="nd" x="260.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="360.0" y="118.0" text-anchor="middle" style="font-size:14px">Tailscale</text><text class="sx" x="360.0" y="135.0" text-anchor="middle">private, encrypted</text><rect class="nd acc" x="516.0" y="14.0" width="200.0" height="138" rx="10"/><text class="tx" x="616.0" y="72.0" text-anchor="middle" style="font-size:14px">Streyn server</text><text class="sx" x="616.0" y="89.0" text-anchor="middle">same server</text><text class="sx" x="616.0" y="104.0" text-anchor="middle">same music</text><path class="ln" d="M204.0 45.0H232.0V45.0H258.0" marker-end="url(#ar5)"/><path class="ln acc dash" d="M204.0 121.0H232.0V121.0H258.0" marker-end="url(#ar5)"/><path class="ln" d="M460.0 45.0H488.0V83.0H514.0" marker-end="url(#ar5)"/><path class="ln acc dash" d="M460.0 121.0H488.0V83.0H514.0" marker-end="url(#ar5)"/></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar5t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="171.0" height="66" rx="10"/><text class="tx" x="89.5" y="34.0" text-anchor="middle" style="font-size:13px">At home</text><text class="sx" x="89.5" y="51.0" text-anchor="middle">phone on Wi-Fi</text><rect class="nd" x="185.0" y="4" width="171.0" height="66" rx="10"/><text class="tx" x="270.5" y="34.0" text-anchor="middle" style="font-size:13px">Away</text><text class="sx" x="270.5" y="51.0" text-anchor="middle">mobile data, other Wi-Fi</text><rect class="nd" x="4.0" y="114" width="171.0" height="66" rx="10"/><text class="tx" x="89.5" y="144.0" text-anchor="middle" style="font-size:13px">Your router</text><text class="sx" x="89.5" y="161.0" text-anchor="middle">home network</text><rect class="nd" x="185.0" y="114" width="171.0" height="66" rx="10"/><text class="tx" x="270.5" y="144.0" text-anchor="middle" style="font-size:13px">Tailscale</text><text class="sx" x="270.5" y="161.0" text-anchor="middle">private, encrypted</text><rect class="nd acc" x="4.0" y="224" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="253.0" text-anchor="middle" style="font-size:13px">Streyn server</text><text class="sx" x="180.0" y="270.0" text-anchor="middle">same server</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">same music</text><path class="ln" d="M89.5 70V92.0H89.5V112" marker-end="url(#ar5t)"/><path class="ln acc dash" d="M270.5 70V92.0H270.5V112" marker-end="url(#ar5t)"/><path class="ln" d="M89.5 180V202.0H180.0V222" marker-end="url(#ar5t)"/><path class="ln acc dash" d="M270.5 180V202.0H180.0V222" marker-end="url(#ar5t)"/></svg></figure>
+<p>The app tries the home address first and switches to the Tailscale address by itself when you are away.</p>
 <h2>Set it up</h2>
 <ol class="steps">
   <li>Run the installer and pick <strong>2) With Tailscale</strong>. For an existing server just run it again.</li>
   <li>Open the link it shows and sign in to Tailscale (free).</li>
   <li>If the installer asks, click <strong>Enable HTTPS</strong> on <a href="https://login.tailscale.com/admin/dns">login.tailscale.com/admin/dns</a> and press Enter.</li>
   <li>Install the Tailscale app on your phone and sign in with the same account.</li>
-  <li>Open Streyn once at home. Away from home it switches to the Tailscale address by itself.</li>
+  <li>Open Streyn once at home. From then on it works everywhere.</li>
 </ol>
 <p>The address is shown under <span class="path">Settings → On the go</span>.</p>
 <h2>Without a link</h2>
@@ -505,9 +559,8 @@ details.q > div { padding: 0 16px 6px; }
 <div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Battery saver</span><p>If Android stops Tailscale in the background, exclude it from battery optimisation.</p></div></div>
 </template>
 
-<template data-l="en" data-p="share" data-g="Anywhere" data-t="Share playlists">
-<p class="lead">Tap <strong>Share</strong> on a playlist. With public links switched on, anyone can open it at musik.labtoso.de, no app and no account needed.</p>
-<h2>Two ways to share</h2>
+<template data-l="en" data-p="share" data-g="Anywhere" data-t="Share and invite"><p class="lead">Tap <strong>Share</strong> on a playlist. With public links switched on, anyone can open it at musik.labtoso.de, no app and no account needed.</p>
+<h2>Three ways to share</h2>
 <table>
   <thead><tr><th>Share as</th><th>What the other person can do</th></tr></thead>
   <tbody>
@@ -516,31 +569,32 @@ details.q > div { padding: 0 16px 6px; }
   <tr><td>Invite as listener</td><td>Get the playlist in their library and always hear the latest version, without changing it</td></tr>
   </tbody>
 </table>
-<p>As the owner, tap a member to switch between contributor and listener, or × to remove them.</p>
+<p>As the owner, tap a member to switch between contributor and listener, or × to remove them. To give someone a normal account on your server, use <span class="path">Settings → Users → Invite link</span> (works once, for 7 days).</p>
+<h2>How a public link works</h2>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="78.0" y="42.0" text-anchor="middle" style="font-size:14px">Friend&#x27;s browser</text><text class="sx" x="78.0" y="59.0" text-anchor="middle">no app needed</text><rect class="nd" x="192.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="266.0" y="42.0" text-anchor="middle" style="font-size:14px">musik.labtoso.de/s/</text><text class="sx" x="266.0" y="59.0" text-anchor="middle">the page</text><rect class="nd" x="380.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="454.0" y="42.0" text-anchor="middle" style="font-size:14px">Tailscale Funnel</text><text class="sx" x="454.0" y="59.0" text-anchor="middle">port 8443</text><rect class="nd acc" x="568.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="642.0" y="34.0" text-anchor="middle" style="font-size:14px">Your server</text><text class="sx" x="642.0" y="51.0" text-anchor="middle">public door: listen</text><text class="sx" x="642.0" y="66.0" text-anchor="middle">and join only</text><path class="ln" d="M152.0 45.0H172.0"/><path class="ln" d="M172.0 45.0H190.0" marker-end="url(#ar6)"/><path class="ln" d="M340.0 45.0H360.0"/><path class="ln" d="M360.0 45.0H378.0" marker-end="url(#ar6)"/><path class="ln" d="M528.0 45.0H548.0"/><path class="ln" d="M548.0 45.0H566.0" marker-end="url(#ar6)"/></svg><svg class="tall" viewBox="0 0 360 420" role="img"><defs><marker id="ar6t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Friend&#x27;s browser</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">no app needed</text><rect class="nd" x="4.0" y="114" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="144.0" text-anchor="middle" style="font-size:13px">musik.labtoso.de/s/</text><text class="sx" x="180.0" y="161.0" text-anchor="middle">the page</text><rect class="nd" x="4.0" y="224" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="254.0" text-anchor="middle" style="font-size:13px">Tailscale Funnel</text><text class="sx" x="180.0" y="271.0" text-anchor="middle">port 8443</text><rect class="nd acc" x="4.0" y="334" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="363.0" text-anchor="middle" style="font-size:13px">Your server</text><text class="sx" x="180.0" y="380.0" text-anchor="middle">public door: listen</text><text class="sx" x="180.0" y="395.0" text-anchor="middle">and join only</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar6t)"/><path class="ln" d="M180.0 180V202.0"/><path class="ln" d="M180.0 202.0V222" marker-end="url(#ar6t)"/><path class="ln" d="M180.0 290V312.0"/><path class="ln" d="M180.0 312.0V332" marker-end="url(#ar6t)"/></svg></figure>
 <h2>Switch on public links</h2>
 <p>Run the Proxmox installer again and answer <code>y</code> to <strong>Switch on public links?</strong>, or:</p>
 <pre data-lang="bash"><code>PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
-<p>Links then look like <code>musik.labtoso.de/s/#…</code>. The page lives on the website, the music comes straight from your server through Tailscale Funnel. See or change the address under <span class="path">Settings → On the go → Public links</span>. Switch off with <code>PUBLIC=0</code> or by clearing that field.</p>
+<p>See or change the address under <span class="path">Settings → On the go → Public links</span>. Switch off with <code>PUBLIC=0</code> or by clearing that field.</p>
 <h3>Docker and Windows</h3>
 <p>The server listens for public links on port 8485 (this computer only). On the computer with Tailscale:</p>
 <pre data-lang="bash"><code>tailscale funnel --bg --https=8443 http://127.0.0.1:8485</code></pre>
 <p>Then set <code>PUBLIC_URL=https://&lt;name&gt;.&lt;tailnet&gt;.ts.net:8443</code> and restart the server.</p>
-<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Safe by design</span><p>Public links use a separate door (port 8443). Through it, setup, updates, user management, scans, uploads and admin sign-ins are closed. Sign-ins are limited to 20 a minute, and one invitation makes at most 25 accounts.</p></div></div>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Safe by design</span><p>Through the public door, setup, updates, user management, scans, uploads and admin sign-ins are closed. Sign-ins are limited to 20 a minute, and one invitation makes at most 25 accounts.</p></div></div>
 </template>
 
-<template data-l="en" data-p="offline" data-g="Anywhere" data-t="Offline">
-<p class="lead">Download playlists in the Android or desktop app and they play without the server.</p>
-<h2>Download a playlist</h2>
-<p>Open a playlist and tap <strong>Download</strong>. Tap again to remove it. A downloaded playlist follows changes on the server.</p>
+<template data-l="en" data-p="offline" data-g="Anywhere" data-t="Offline"><p class="lead">Download lists in the Android or desktop app and they play without the server, on a plane or in a dead zone.</p>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="34.0" text-anchor="middle" style="font-size:14px">A list on your server</text><text class="sx" x="104.0" y="51.0" text-anchor="middle">playlist, Liked songs</text><text class="sx" x="104.0" y="66.0" text-anchor="middle">imported, Spotify</text><rect class="nd acc" x="260.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="360.0" y="42.0" text-anchor="middle" style="font-size:14px">Download</text><text class="sx" x="360.0" y="59.0" text-anchor="middle">arrow next to Share</text><rect class="nd" x="516.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="42.0" text-anchor="middle" style="font-size:14px">Plays offline</text><text class="sx" x="616.0" y="59.0" text-anchor="middle">on this device</text><path class="ln" d="M204.0 45.0H232.0"/><path class="ln" d="M232.0 45.0H258.0" marker-end="url(#ar7)"/><path class="ln" d="M460.0 45.0H488.0"/><path class="ln" d="M488.0 45.0H514.0" marker-end="url(#ar7)"/></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar7t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="33.0" text-anchor="middle" style="font-size:13px">A list on your server</text><text class="sx" x="180.0" y="50.0" text-anchor="middle">playlist, Liked songs</text><text class="sx" x="180.0" y="65.0" text-anchor="middle">imported, Spotify</text><rect class="nd acc" x="4.0" y="128" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="158.0" text-anchor="middle" style="font-size:13px">Download</text><text class="sx" x="180.0" y="175.0" text-anchor="middle">arrow next to Share</text><rect class="nd" x="4.0" y="238" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="268.0" text-anchor="middle" style="font-size:13px">Plays offline</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">on this device</text><path class="ln" d="M180.0 84V106.0"/><path class="ln" d="M180.0 106.0V126" marker-end="url(#ar7t)"/><path class="ln" d="M180.0 194V216.0"/><path class="ln" d="M180.0 216.0V236" marker-end="url(#ar7t)"/></svg></figure>
+<h2>Download</h2>
+<p>Open a playlist, Liked songs, an imported or a Spotify playlist and tap the download arrow next to Share. The bar fills as songs arrive. Tap again to remove it. A downloaded list follows changes on the server.</p>
 <h2>Without a connection</h2>
 <p>When the server cannot be reached, the app starts in offline mode by itself. It looks and works as usual, a bar on top has a button to go online again. The page where you enter the server address also has <strong>Use offline</strong>.</p>
 <h2>Manage storage</h2>
 <p><span class="path">Settings → Offline</span> lists what is stored on this device, with its size, and removes it.</p>
-<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Good to know</span><p>Only songs stored as files on your server are kept. The web player in the browser has no offline mode.</p></div></div>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Good to know</span><p>Songs that only stream (Spotify, YouTube) are kept once they were downloaded to the server with <strong>Download to server</strong>. The web player in the browser has no offline mode.</p></div></div>
 </template>
 
-<template data-l="en" data-p="help" data-g="Help" data-t="FAQ">
-<p class="lead">The most common problems and how to fix them. Still stuck? <a class="discord-link" href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Come on our Discord</a>.</p>
+<template data-l="en" data-p="help" data-g="Help" data-t="FAQ"><p class="lead">The most common problems and how to fix them. Still stuck? <a class="discord-link" href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Come on our Discord</a>.</p>
 <h2>Connection</h2>
 <details class="q"><summary>The app cannot find the server</summary><div><p>Check the address including the port (<code>:8484</code>) and that the phone is on the same Wi-Fi. <code>http://ADDRESS:8484/api/info</code> in a browser must show <code>"app":"musik"</code>. In the container run <code>systemctl status streyn</code>.</p></div></details>
 <details class="q"><summary>Nothing works on the go</summary><div><p>Is Tailscale on and signed in with the same account on the phone? Exclude it from battery saving on Android. In the container run <code>tailscale status</code>.</p></div></details>
@@ -555,8 +609,9 @@ details.q > div { padding: 0 16px 6px; }
 <p><a class="discord-link" href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Come on our Discord</a>, we help you there.</p>
 </template>
 
-<template data-l="en" data-p="update" data-g="Help" data-t="Updates and backup">
-<p class="lead"><span class="path">Settings → Updates → Update now</span> updates the app first and then the server, in the right order. Only an admin can update the server.</p>
+<template data-l="en" data-p="update" data-g="Help" data-t="Updates and backup"><p class="lead">A bar at the top tells you when a new version is out. <strong>Update</strong> does the rest, in the right order. Only an admin can update the server.</p>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd acc" x="4.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="78.0" y="42.0" text-anchor="middle" style="font-size:14px">Update</text><text class="sx" x="78.0" y="59.0" text-anchor="middle">bar or Settings → Updates</text><rect class="nd" x="192.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="266.0" y="42.0" text-anchor="middle" style="font-size:14px">1 App</text><text class="sx" x="266.0" y="59.0" text-anchor="middle">updates, restarts</text><rect class="nd" x="380.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="454.0" y="42.0" text-anchor="middle" style="font-size:14px">2 Backup</text><text class="sx" x="454.0" y="59.0" text-anchor="middle">copy of the database</text><rect class="nd" x="568.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="642.0" y="42.0" text-anchor="middle" style="font-size:14px">3 Server</text><text class="sx" x="642.0" y="59.0" text-anchor="middle">updates, restarts</text><path class="ln" d="M152.0 45.0H172.0"/><path class="ln" d="M172.0 45.0H190.0" marker-end="url(#ar8)"/><path class="ln" d="M340.0 45.0H360.0"/><path class="ln" d="M360.0 45.0H378.0" marker-end="url(#ar8)"/><path class="ln" d="M528.0 45.0H548.0"/><path class="ln" d="M548.0 45.0H566.0" marker-end="url(#ar8)"/></svg><svg class="tall" viewBox="0 0 360 406" role="img"><defs><marker id="ar8t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd acc" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Update</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">bar or Settings → Updates</text><rect class="nd" x="4.0" y="114" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="144.0" text-anchor="middle" style="font-size:13px">1 App</text><text class="sx" x="180.0" y="161.0" text-anchor="middle">updates, restarts</text><rect class="nd" x="4.0" y="224" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="254.0" text-anchor="middle" style="font-size:13px">2 Backup</text><text class="sx" x="180.0" y="271.0" text-anchor="middle">copy of the database</text><rect class="nd" x="4.0" y="334" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="364.0" text-anchor="middle" style="font-size:13px">3 Server</text><text class="sx" x="180.0" y="381.0" text-anchor="middle">updates, restarts</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar8t)"/><path class="ln" d="M180.0 180V202.0"/><path class="ln" d="M180.0 202.0V222" marker-end="url(#ar8t)"/><path class="ln" d="M180.0 290V312.0"/><path class="ln" d="M180.0 312.0V332" marker-end="url(#ar8t)"/></svg></figure>
+<p>The server update shows live what it does, line by line. Before every update the database is copied to <code>/var/lib/streyn/backups</code> (the last 5 are kept).</p>
 <h2>Update by hand</h2>
 <table>
   <thead><tr><th>What</th><th>How</th></tr></thead>
@@ -567,13 +622,11 @@ details.q > div { padding: 0 16px 6px; }
   <tr><td>Apps</td><td>Install the new version from the website over the old one</td></tr>
   </tbody>
 </table>
-<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Android before 1.8.0</span><p>Uninstall Streyn once and install the new <code>Streyn.apk</code>. From then on updates install over it.</p></div></div>
 <h2>Backup</h2>
 <p>The data folder is enough: <code>/var/lib/streyn</code> or <code>data/</code>. It holds the database, covers and uploaded songs. Easiest is a Proxmox backup of the container.</p>
 </template>
 
-<template data-l="en" data-p="config" data-g="Help" data-t="Advanced settings">
-<p class="lead">Settings live in <code>/etc/streyn.env</code> (container and Debian) or in a <code>.env</code> next to the server.</p>
+<template data-l="en" data-p="config" data-g="Help" data-t="Advanced settings"><p class="lead">Settings live in <code>/etc/streyn.env</code> (container and Debian) or in a <code>.env</code> next to the server.</p>
 <h2>Variables</h2>
 <table>
   <thead><tr><th>Variable</th><th>Default</th><th>Meaning</th></tr></thead>
@@ -604,30 +657,19 @@ details.q > div { padding: 0 16px 6px; }
 
 <!-- ============================ DEUTSCH ============================ -->
 
-<template data-l="de" data-p="" data-g="" data-t="Willkommen">
-<p class="lead">Streyn ist dein eigener Musik-Server mit Apps für Android, Windows, Linux und den Browser. Deine Musik bleibt zuhause, der Server lernt deinen Geschmack und spielt überall.</p>
-<div class="shots"><img class="shot d" src="../shots/d-home.webp" width="1440" height="900" alt="Desktop-App, Startseite" loading="lazy"><img class="shot m" src="../shots/m-home.webp" width="540" height="1169" alt="Android-App, Startseite" loading="lazy"></div>
-<p class="cap">Desktop-App und Android-App</p>
-<h2>Womit willst du anfangen?</h2>
-<div class="cards">
-  <a href="#/start"><b><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Schnellstart</b><span>In fünf Schritten zum ersten Song</span></a>
-  <a href="#/install"><b><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/></svg>Server installieren</b><span>Proxmox, Debian, ZimaOS, Docker, Windows</span></a>
-  <a href="#/apps"><b><svg class="i" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Apps holen</b><span>Android, Windows, Linux, Browser</span></a>
-  <a href="#/away"><b><svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Unterwegs hören</b><span>Tailscale, ohne Portfreigabe</span></a>
-  <a href="#/share"><b><svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Playlists teilen</b><span>Öffentliche Links, Freunde einladen</span></a>
-  <a href="#/help"><b><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/></svg>Hilfe</b><span>Wenn etwas nicht klappt</span></a>
-</div>
-<h2>So funktioniert es</h2>
-<ul>
-  <li><strong>Server:</strong> ein kleines Rust-Programm, am besten als Proxmox-Container. Er liest deinen Musikordner, streamt an die Apps und macht die Empfehlungen.</li>
-  <li><strong>Apps:</strong> Android, Windows und Linux, dazu der Webplayer, den der Server selbst ausliefert.</li>
-  <li><strong>Dein Mix:</strong> lernt aus dem, was du ganz hörst, überspringst und likest. Nichts verlässt deinen Server.</li>
-  <li><strong>Spotify und mehr:</strong> optional. Namen und Cover kommen von Spotify, der Ton von YouTube Music, gespielt über deinen Server.</li>
-</ul>
+<template data-l="de" data-p="" data-g="" data-t="Willkommen"><p class="lead">Streyn ist deine eigene Musik-App. Ein kleiner Server zuhause hält deine Musik und lernt deinen Geschmack, die Apps für Android, Windows, Linux und den Browser spielen davon ab, zuhause und unterwegs.</p>
+<div class="hero"><img class="hd" src="../shots/v2/d-home.webp" width="1920" height="1200" alt="Streyn am Computer" data-zoom><img class="hm" src="../shots/v2/m-home.webp" width="780" height="1688" alt="Streyn am Handy" data-zoom></div>
+<h2>So funktioniert Streyn</h2>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 242" role="img"><defs><marker id="ar9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="42.0" text-anchor="middle" style="font-size:14px">Deine Dateien</text><text class="sx" x="104.0" y="59.0" text-anchor="middle">MP3, FLAC, …</text><rect class="nd" x="4.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="118.0" text-anchor="middle" style="font-size:14px">Spotify</text><text class="sx" x="104.0" y="135.0" text-anchor="middle">Namen, Cover</text><rect class="nd" x="4.0" y="166.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="194.0" text-anchor="middle" style="font-size:14px">YouTube Music</text><text class="sx" x="104.0" y="211.0" text-anchor="middle">der Ton</text><rect class="nd acc" x="260.0" y="14.0" width="200.0" height="214" rx="10"/><text class="tx" x="360.0" y="110.0" text-anchor="middle" style="font-size:14px">Streyn-Server</text><text class="sx" x="360.0" y="127.0" text-anchor="middle">bei dir zuhause</text><text class="sx" x="360.0" y="142.0" text-anchor="middle">Bibliothek · Mix · Streaming</text><rect class="nd" x="516.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="42.0" text-anchor="middle" style="font-size:14px">Handy</text><text class="sx" x="616.0" y="59.0" text-anchor="middle">Android</text><rect class="nd" x="516.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="118.0" text-anchor="middle" style="font-size:14px">Computer</text><text class="sx" x="616.0" y="135.0" text-anchor="middle">Windows, Linux</text><rect class="nd" x="516.0" y="166.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="194.0" text-anchor="middle" style="font-size:14px">Browser</text><text class="sx" x="616.0" y="211.0" text-anchor="middle">Webplayer</text><path class="ln" d="M204.0 45.0H232.0"/><path class="ln" d="M204.0 121.0H232.0"/><path class="ln" d="M204.0 197.0H232.0"/><path class="ln" d="M232.0 45.0V197.0"/><path class="ln" d="M232.0 121.0H258.0" marker-end="url(#ar9)"/><path class="ln" d="M460.0 121.0H488.0"/><path class="ln" d="M488.0 45.0V197.0"/><path class="ln" d="M488.0 45.0H514.0" marker-end="url(#ar9)"/><path class="ln" d="M488.0 121.0H514.0" marker-end="url(#ar9)"/><path class="ln" d="M488.0 197.0H514.0" marker-end="url(#ar9)"/><text class="lb" x="488.0" y="37.0" text-anchor="middle">streamt</text></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar9t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="59.333333333333336" y="34.0" text-anchor="middle" style="font-size:13px">Deine Dateien</text><text class="sx" x="59.333333333333336" y="51.0" text-anchor="middle">MP3, FLAC, …</text><rect class="nd" x="124.66666666666667" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Spotify</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">Namen, Cover</text><rect class="nd" x="245.33333333333334" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="300.6666666666667" y="34.0" text-anchor="middle" style="font-size:13px">YouTube Music</text><text class="sx" x="300.6666666666667" y="51.0" text-anchor="middle">der Ton</text><rect class="nd acc" x="4.0" y="114" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="143.0" text-anchor="middle" style="font-size:13px">Streyn-Server</text><text class="sx" x="180.0" y="160.0" text-anchor="middle">bei dir zuhause</text><text class="sx" x="180.0" y="175.0" text-anchor="middle">Bibliothek · Mix · Streaming</text><rect class="nd" x="4.0" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="59.333333333333336" y="268.0" text-anchor="middle" style="font-size:13px">Handy</text><text class="sx" x="59.333333333333336" y="285.0" text-anchor="middle">Android</text><rect class="nd" x="124.66666666666667" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="180.0" y="268.0" text-anchor="middle" style="font-size:13px">Computer</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">Windows, Linux</text><rect class="nd" x="245.33333333333334" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="300.6666666666667" y="268.0" text-anchor="middle" style="font-size:13px">Browser</text><text class="sx" x="300.6666666666667" y="285.0" text-anchor="middle">Webplayer</text><path class="ln" d="M59.333333333333336 70V92.0"/><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M300.6666666666667 70V92.0"/><path class="ln" d="M59.333333333333336 92.0H300.6666666666667"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar9t)"/><path class="ln" d="M180.0 194V216.0"/><path class="ln" d="M59.333333333333336 216.0H300.6666666666667"/><path class="ln" d="M59.333333333333336 216.0V236" marker-end="url(#ar9t)"/><path class="ln" d="M180.0 216.0V236" marker-end="url(#ar9t)"/><path class="ln" d="M300.6666666666667 216.0V236" marker-end="url(#ar9t)"/><text class="lb" x="188.0" y="211.0">streamt</text></svg></figure>
+<p>Alles läuft auf deinem Server: deine Songs, Playlists, Likes und der Mix, der daraus lernt. Spotify liefert nur Namen und Cover, den Ton dieser Songs findet der Server auf YouTube Music und streamt ihn an deine Apps.</p>
+<h2>Hier anfangen</h2>
+<div class="cards"><a href="#/start"><b><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Schnellstart</b><span>In fünf Schritten zum ersten Song</span></a><a href="#/install"><b><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>Server installieren</b><span>Proxmox, Debian, ZimaOS, Docker, Windows</span></a><a href="#/apps"><b><svg class="i" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Apps holen</b><span>Android, Windows, Linux, Browser</span></a></div>
+<h2>Was du damit machst</h2>
+<div class="feats"><a href="#/listen"><span class="fimg"><img src="../shots/v2/d-home.webp" width="1920" height="1200" alt="" loading="lazy"></span><b>Mixe für dich</b><span>Mix für dich, Streyn Mixes, Top-Songs und Radio</span></a><a href="#/look"><span class="fimg"><img src="../shots/v2/d-green.webp" width="1920" height="1200" alt="" loading="lazy"></span><b>Drei Looks</b><span>Standard, Liquid Glass und Green</span></a><a href="#/player"><span class="fimg"><img src="../shots/v2/c-shot1.webp" width="1600" height="900" alt="" loading="lazy"></span><b>Chillscreen</b><span>Ein gemütliches Zimmer, das deinen Song spielt</span></a><a href="#/away"><span class="fimg"><img src="../shots/v2/m-fs.webp" width="780" height="1688" alt="" loading="lazy"></span><b>Überall hören</b><span>Zuhause, mobil, offline</span></a><a href="#/share"><span class="fimg"><img src="../shots/v2/x-search.webp" width="1600" height="1003" alt="" loading="lazy"></span><b>Teilen und einladen</b><span>Öffentliche Links, Mitwirkende, Zuhörer</span></a><a href="#/sources"><span class="fimg"><img src="../shots/v2/d-artist.webp" width="1920" height="1200" alt="" loading="lazy"></span><b>Spotify eingebaut</b><span>Jeder Song ganz, über deinen Server</span></a></div>
 </template>
 
-<template data-l="de" data-p="start" data-g="Erste Schritte" data-t="Schnellstart">
-<p class="lead">In fünf Schritten zum ersten Song.</p>
+<template data-l="de" data-p="start" data-g="Erste Schritte" data-t="Schnellstart"><p class="lead">In fünf Schritten zum ersten Song. Das dauert etwa zehn Minuten.</p>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="59.2" y="42.0" text-anchor="middle" style="font-size:14px">1 Server</text><text class="sx" x="59.2" y="59.0" text-anchor="middle">einmal installieren</text><rect class="nd" x="154.4" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="209.60000000000002" y="42.0" text-anchor="middle" style="font-size:14px">2 App</text><text class="sx" x="209.60000000000002" y="59.0" text-anchor="middle">herunterladen</text><rect class="nd" x="304.8" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="360.0" y="42.0" text-anchor="middle" style="font-size:14px">3 Konto</text><text class="sx" x="360.0" y="59.0" text-anchor="middle">erstes ist Admin</text><rect class="nd" x="455.20000000000005" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="510.40000000000003" y="42.0" text-anchor="middle" style="font-size:14px">4 Assistent</text><text class="sx" x="510.40000000000003" y="59.0" text-anchor="middle">dein Geschmack</text><rect class="nd acc" x="605.6" y="14.0" width="110.4" height="62" rx="10"/><text class="tx" x="660.8000000000001" y="42.0" text-anchor="middle" style="font-size:14px">5 Abspielen</text><text class="sx" x="660.8000000000001" y="59.0" text-anchor="middle">Mix für dich</text><path class="ln" d="M114.4 45.0H134.4"/><path class="ln" d="M134.4 45.0H152.4" marker-end="url(#ar10)"/><path class="ln" d="M264.8 45.0H284.8"/><path class="ln" d="M284.8 45.0H302.8" marker-end="url(#ar10)"/><path class="ln" d="M415.20000000000005 45.0H435.20000000000005"/><path class="ln" d="M435.20000000000005 45.0H453.20000000000005" marker-end="url(#ar10)"/><path class="ln" d="M565.6 45.0H585.6"/><path class="ln" d="M585.6 45.0H603.6" marker-end="url(#ar10)"/></svg><svg class="tall" viewBox="0 0 360 516" role="img"><defs><marker id="ar10t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">1 Server</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">einmal installieren</text><rect class="nd" x="4.0" y="114" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="144.0" text-anchor="middle" style="font-size:13px">2 App</text><text class="sx" x="180.0" y="161.0" text-anchor="middle">herunterladen</text><rect class="nd" x="4.0" y="224" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="254.0" text-anchor="middle" style="font-size:13px">3 Konto</text><text class="sx" x="180.0" y="271.0" text-anchor="middle">erstes ist Admin</text><rect class="nd" x="4.0" y="334" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="364.0" text-anchor="middle" style="font-size:13px">4 Assistent</text><text class="sx" x="180.0" y="381.0" text-anchor="middle">dein Geschmack</text><rect class="nd acc" x="4.0" y="444" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="474.0" text-anchor="middle" style="font-size:13px">5 Abspielen</text><text class="sx" x="180.0" y="491.0" text-anchor="middle">Mix für dich</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar10t)"/><path class="ln" d="M180.0 180V202.0"/><path class="ln" d="M180.0 202.0V222" marker-end="url(#ar10t)"/><path class="ln" d="M180.0 290V312.0"/><path class="ln" d="M180.0 312.0V332" marker-end="url(#ar10t)"/><path class="ln" d="M180.0 400V422.0"/><path class="ln" d="M180.0 422.0V442" marker-end="url(#ar10t)"/></svg></figure>
 <ol class="steps">
   <li><strong>Server installieren</strong>, am einfachsten auf Proxmox (siehe <a href="#/install">Server installieren</a>). Am Ende steht eine Adresse wie <code>http://192.168.1.50:8484</code>.</li>
   <li><strong>App holen</strong> auf <a href="../">musik.labtoso.de</a>, oder die Adresse einfach im Browser öffnen.</li>
@@ -635,11 +677,11 @@ details.q > div { padding: 0 16px 6px; }
   <li><strong>Startassistent beantworten:</strong> Sprache, Aussehen, deine Musik und Künstler, und wie du hörst.</li>
   <li><strong>Musik reinbringen:</strong> in den Musikordner legen oder unter <span class="path">Einstellungen → Musik hochladen</span>, dann auf der Startseite <strong>Mix für dich</strong> abspielen.</li>
 </ol>
+<figure class="one"><img class="shot " src="../shots/v2/x-welcome.webp" width="1400" height="964" alt="Der Startassistent" loading="lazy" data-zoom><figcaption>Der Startassistent beim ersten Start</figcaption></figure>
 <div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Tipp</span><p>Jeden Schritt des Startassistenten kannst du überspringen und später in den Einstellungen ändern.</p></div></div>
 </template>
 
-<template data-l="de" data-p="install" data-g="Erste Schritte" data-t="Server installieren">
-<p class="lead">Ein Befehl pro System. Später noch mal ausgeführt, aktualisiert er den Server, deine Daten bleiben.</p>
+<template data-l="de" data-p="install" data-g="Erste Schritte" data-t="Server installieren"><p class="lead">Ein Befehl pro System. Später noch mal ausgeführt, aktualisiert er den Server, deine Daten bleiben.</p>
 <h2>System wählen</h2>
 <div class="tabs">
   <div role="tablist"><button role="tab">Proxmox</button><button role="tab">Debian / Ubuntu</button><button role="tab">ZimaOS / CasaOS</button><button role="tab">Docker</button><button role="tab">Windows</button></div>
@@ -682,8 +724,7 @@ details.q > div { padding: 0 16px 6px; }
 <p>Die angezeigte Adresse im Browser oder in einer App öffnen und das erste Konto anlegen. Weiter mit <a href="#/apps">Apps holen</a>.</p>
 </template>
 
-<template data-l="de" data-p="apps" data-g="Erste Schritte" data-t="Apps holen">
-<p class="lead">Auf <a href="../">musik.labtoso.de</a> laden, einmal die Server-Adresse eintragen, fertig.</p>
+<template data-l="de" data-p="apps" data-g="Erste Schritte" data-t="Apps holen"><p class="lead">Auf <a href="../">musik.labtoso.de</a> laden, einmal die Server-Adresse eintragen, fertig.</p>
 <h2>Downloads</h2>
 <table>
   <thead><tr><th>Gerät</th><th>Datei</th><th>So geht’s</th></tr></thead>
@@ -697,21 +738,23 @@ details.q > div { padding: 0 16px 6px; }
 <pre data-lang="bash"><code>chmod +x Streyn.AppImage && ./Streyn.AppImage</code></pre>
 <h2>Erster Start</h2>
 <p>Jede App fragt einmal nach der Server-Adresse, zum Beispiel <code>192.168.1.50:8484</code>, dann läuft der Startassistent. Die Adresse änderst du später unter <span class="path">Einstellungen → Server wechseln</span>.</p>
-<div class="shots"><img class="shot m2" src="../shots/m-np1.webp" width="540" height="1169" alt="Vollbild-Player" loading="lazy"><img class="shot m2" src="../shots/m-album.webp" width="540" height="1169" alt="Albumseite" loading="lazy"></div>
-<p class="cap">Vollbild-Player und Albumseite auf Android</p>
+<h2>Kurzer Rundgang</h2>
+<div class="gal phones"><figure><img src="../shots/v2/m-home.webp" width="780" height="1688" alt="Start" loading="lazy" data-zoom><figcaption>Start</figcaption></figure><figure><img src="../shots/v2/m-fs.webp" width="780" height="1688" alt="Großer Player" loading="lazy" data-zoom><figcaption>Großer Player</figcaption></figure><figure><img src="../shots/v2/m-lib.webp" width="780" height="1688" alt="Bibliothek" loading="lazy" data-zoom><figcaption>Bibliothek</figcaption></figure><figure><img src="../shots/v2/m-queue.webp" width="780" height="1688" alt="Warteschlange" loading="lazy" data-zoom><figcaption>Warteschlange</figcaption></figure></div>
+<div class="gal two"><figure><img src="../shots/v2/d-home.webp" width="1920" height="1200" alt="Start am Computer" loading="lazy" data-zoom><figcaption>Start am Computer</figcaption></figure><figure><img src="../shots/v2/d-album.webp" width="1920" height="1200" alt="Albumseite" loading="lazy" data-zoom><figcaption>Albumseite</figcaption></figure></div>
 </template>
 
-<template data-l="de" data-p="sources" data-g="Hören" data-t="Musik und Spotify">
-<p class="lead">Deine eigenen Dateien kommen immer zuerst. Spotify, YouTube und andere sind optional und werden unter <span class="path">Einstellungen → Quellen</span> eingeschaltet.</p>
+<template data-l="de" data-p="sources" data-g="Hören" data-t="Musik und Spotify"><p class="lead">Deine eigenen Dateien kommen immer zuerst. Spotify, YouTube und andere sind optional und werden unter <span class="path">Einstellungen → Quellen</span> eingeschaltet.</p>
 <h2>Eigene Dateien</h2>
-<p>In den Musikordner legen (wird alle 30 Minuten eingelesen, sofort mit <strong>Bibliothek neu einlesen</strong>) oder <span class="path">Einstellungen → Musik hochladen</span>. MP3, FLAC, M4A/AAC, OGG, WAV und WebM gehen. Titel, Künstler, Album, Cover und Songtexte kommen aus den Tags.</p>
-<h2>Spotify</h2>
+<p>In den Musikordner legen (wird alle 30 Minuten eingelesen, sofort mit <strong>Bibliothek neu einlesen</strong>) oder <span class="path">Einstellungen → Musik hochladen</span>. MP3, FLAC, M4A/AAC, OGG, WAV und WebM gehen. Titel, Künstler, Album, Cover und Songtexte kommen aus den Tags. Eigene Songs entfernst du mit <strong>Vom Server löschen</strong> im Menü.</p>
+<h2>So spielt ein Spotify-Song</h2>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="42.0" text-anchor="middle" style="font-size:14px">Spotify</text><text class="sx" x="104.0" y="59.0" text-anchor="middle">Titel, Künstler, Cover</text><rect class="nd acc" x="260.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="360.0" y="34.0" text-anchor="middle" style="font-size:14px">Dein Server</text><text class="sx" x="360.0" y="51.0" text-anchor="middle">findet den offiziellen</text><text class="sx" x="360.0" y="66.0" text-anchor="middle">Upload auf YouTube Music</text><rect class="nd" x="516.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="42.0" text-anchor="middle" style="font-size:14px">Deine App</text><text class="sx" x="616.0" y="59.0" text-anchor="middle">spielt den ganzen Song</text><path class="ln" d="M204.0 45.0H232.0"/><path class="ln" d="M232.0 45.0H258.0" marker-end="url(#ar11)"/><text class="lb" x="232.0" y="37.0" text-anchor="middle">Daten</text><path class="ln" d="M460.0 45.0H488.0"/><path class="ln" d="M488.0 45.0H514.0" marker-end="url(#ar11)"/><text class="lb" x="488.0" y="37.0" text-anchor="middle">Stream</text></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar11t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Spotify</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">Titel, Künstler, Cover</text><rect class="nd acc" x="4.0" y="114" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="143.0" text-anchor="middle" style="font-size:13px">Dein Server</text><text class="sx" x="180.0" y="160.0" text-anchor="middle">findet den offiziellen</text><text class="sx" x="180.0" y="175.0" text-anchor="middle">Upload auf YouTube Music</text><rect class="nd" x="4.0" y="238" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="268.0" text-anchor="middle" style="font-size:13px">Deine App</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">spielt den ganzen Song</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar11t)"/><text class="lb" x="188.0" y="87.0">Daten</text><path class="ln" d="M180.0 194V216.0"/><path class="ln" d="M180.0 216.0V236" marker-end="url(#ar11t)"/><text class="lb" x="188.0" y="211.0">Stream</text></svg></figure>
+<p>Jeder Spotify-Song läuft ganz. Der Server nimmt den offiziellen Upload und überspringt Cover-, Live- und Remix-Versionen. Mit <strong>Auf den Server laden</strong> im Menü einer importierten Playlist behält der Server die Songs als Dateien, dann laufen sie ohne YouTube und auch offline.</p>
+<h2>Spotify verbinden</h2>
 <ol class="steps">
   <li>Auf <a href="https://developer.spotify.com/dashboard">developer.spotify.com</a> eine App anlegen und <strong>Web API</strong> anhaken.</li>
   <li>Diese Redirect URI eintragen: <code>https://musik.labtoso.de/spotify.html</code></li>
   <li>Die Client-ID unter <span class="path">Einstellungen → Quellen → Spotify</span> einfügen und <strong>Mit Spotify verbinden</strong> drücken. Die Verbindung bleibt auf dem Server gespeichert, für alle deine Apps.</li>
 </ol>
-<p>Spotify-Songs laufen ganz: Namen, Cover und Beschreibungen kommen von Spotify, der Ton wird auf YouTube Music gefunden und über deinen Server gestreamt. Ein YouTube-Schlüssel ist nicht nötig.</p>
 <div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Spotify-Grenzen seit Februar 2026</span><p>Der Besitzer der Entwickler-App braucht Premium, höchstens 5 Nutzer, und Playlist-Inhalte gibt es nur für eigene oder gemeinsame Playlists. Andere Playlists vorher in die eigene Bibliothek kopieren oder als Exportify-CSV importieren.</p></div></div>
 <h2>Playlists importieren</h2>
 <p><span class="path">Bibliothek → Importiert → Importieren</span>: Link einfügen oder Datei wählen. Songs, die du hast, spielen aus deiner Bibliothek, der Rest über die Quelle. <strong>Als Playlist speichern</strong> macht eine normale Playlist daraus.</p>
@@ -725,93 +768,98 @@ details.q > div { padding: 0 16px 6px; }
   <tr><td>Datei</td><td>CSV (z. B. Exportify), M3U, TXT</td></tr>
   </tbody>
 </table>
+<figure class="one"><img class="shot " src="../shots/v2/d-artist.webp" width="1920" height="1200" alt="Künstlerseite mit Spotify-Daten" loading="lazy" data-zoom><figcaption>Künstlerseiten zeigen alles wie bei Spotify: beliebte Songs, Alben, Singles und monatliche Hörer</figcaption></figure>
 </template>
 
-<template data-l="de" data-p="listen" data-g="Hören" data-t="Mix und Playlists">
-<p class="lead">Je mehr du hörst, desto besser wird der Mix.</p>
-<h2>Empfehlungen</h2>
-<ul>
-  <li><strong>Mix für dich</strong> auf der Startseite, dazu Vorschläge für Songs, Playlists und Künstler aus dem, was du hörst und wem du folgst.</li>
-  <li><strong>Streyn Mixes</strong> auf der Startseite: Daily Mixes, je ein Mix für die Genres, die du am meisten hörst (Rock Mix, Electronic Mix …) und je einer für deine Lieblingskünstler. Jeder hat ein eigenes Cover, einen Namen und eine Beschreibung, jeden Tag neu. Mit <strong>+</strong> speicherst du einen als Playlist.</li>
-  <li><strong>Deine Top-Songs</strong>: für jedes Jahr eine Playlist mit den Songs, die du am meisten gehört hast (bis zu 100), in der Bibliothek und der Seitenleiste. Ein Song zählt nach 30 Sekunden.</li>
-  <li>Beides lässt sich unter <span class="path">Einstellungen → Geschmack &amp; Mix</span> ausschalten, für alle Geräte auf einmal.</li>
-  <li><strong>Radio starten</strong> im Menü eines Songs spielt Ähnliches und setzt die Warteschlange fort.</li>
-  <li><strong>Schlaues Mischen</strong> spielt Favoriten öfter und nie zweimal denselben Künstler hintereinander.</li>
-</ul>
-<p>Ganz gehört zählt positiv, früh übersprungen negativ, ein Like stark positiv. Ältere Signale verblassen mit einer Halbwertszeit von 30 Tagen.</p>
-<p>Unter <span class="path">Einstellungen → Geschmack &amp; Mix</span> legst du fest, wie viel vom Mix aus deinen Dateien und wie viel aus dem Streaming kommt. Einen Song nimmst du über sein Menü aus deinem Geschmack.</p>
-<h2>Bibliothek</h2>
-<ul>
-  <li><strong>Liken</strong> geht bei jedem Song, auch von Spotify oder YouTube. Sie landen in <strong>Lieblingssongs</strong>.</li>
-  <li>Künstlern <strong>folgst</strong> du auf ihrer Seite. Sie erscheinen in Bibliothek → Künstler und auf der Startseite.</li>
-  <li><strong>Playlists:</strong> <strong>+</strong> in der Seitenleiste oder <strong>Zu Playlist hinzufügen</strong> im Menü eines Songs. <strong>Details bearbeiten</strong> setzt Bild, Name und Beschreibung. Songs und Playlists per Ziehen sortieren, am Handy erst kurz halten.</li>
-</ul>
-<h2>Menüs</h2>
-<p>Rechtsklick am Computer, langes Drücken am Handy oder der Knopf <strong>…</strong>. Geht bei Songs, Alben, Künstlern und Playlists.</p>
-</template>
-
-<template data-l="de" data-p="player" data-g="Hören" data-t="Player und Klang">
-<p class="lead">Auf den kleinen Player (Handy) oder das Cover (Computer) tippen öffnet den Vollbild-Player mit Songtext, Warteschlange und Visualizer.</p>
-<h2>Wiedergabe</h2>
-<p><span class="path">Einstellungen → Wiedergabe</span>: Überblenden, gleiche Lautstärke für alle Songs und Streaming-Qualität.</p>
-<h2>Chillscreen</h2>
-<p>Ein gemütliches Zimmer mit Plattenspieler, auf dem das Cover deines Songs liegt, als Vollbild. Unter <span class="path">Einstellungen → Wiedergabe</span> einschalten und im großen Player über seinen Knopf öffnen.</p>
-<h2>Geräte</h2>
-<p><span class="path">Einstellungen → Geräte</span> zeigt, wo die Musik spielt. Kopfhörer oder Bluetooth-Gerät wählen. Optional: Pause beim Trennen, weiterspielen, wenn das Gerät innerhalb von zehn Minuten zurückkommt. Du siehst auch, was auf deinen anderen Geräten läuft, und kannst es anhalten oder mit <strong>Hier abspielen</strong> übernehmen.</p>
-<h2>Equalizer</h2>
-<p><span class="path">Einstellungen → Equalizer</span>: 10 Bänder von 31 Hz bis 16 kHz, Vorverstärkung und Presets (Neutral, Mehr Bass, Mehr Höhen, Stimme, Akustik, Elektronisch, Nachts leise). Wirkt auf Songs von deinem Server.</p>
-<h2>Visualizer</h2>
-<p>Im Vollbild-Player auf <strong>Visualizer</strong> tippen: Balken, Kreis oder Welle in den Farben des Covers. Jeder Tipp schaltet weiter.</p>
-<h2>Discord-Status</h2>
-<p>Die Desktop-App zeigt auf Wunsch „Hört Streyn“ mit dem Song in deinem Discord-Status. Einschalten unter <span class="path">Einstellungen → Wiedergabe</span>.</p>
-<h2>Songtexte</h2>
-<p>Aus den Tags der Datei oder von LRCLIB. Synchrone Texte laufen mit, ein Tipp auf eine Zeile springt hin.</p>
-<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Android-Berechtigungen</span><p>Android fragt einmal nach „Audio aufnehmen“ für den Visualizer und nach Bluetooth für volle Gerätenamen. Aufgenommen wird nichts.</p></div></div>
-</template>
-
-<template data-l="de" data-p="look" data-g="Hören" data-t="Designs">
-<p class="lead">Das Aussehen änderst du unter <span class="path">Einstellungen → Allgemein → Design</span> oder im Startassistenten.</p>
-<h2>Designs</h2>
+<template data-l="de" data-p="listen" data-g="Hören" data-t="Mix und Playlists"><p class="lead">Je mehr du hörst, desto besser wird der Mix. Alles wird auf deinem eigenen Server berechnet.</p>
+<h2>So lernt der Mix</h2>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 242" role="img"><defs><marker id="ar12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="42.0" text-anchor="middle" style="font-size:14px">Ganz gehört</text><text class="sx" x="104.0" y="59.0" text-anchor="middle">zählt plus</text><rect class="nd" x="4.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="118.0" text-anchor="middle" style="font-size:14px">Früh übersprungen</text><text class="sx" x="104.0" y="135.0" text-anchor="middle">zählt minus</text><rect class="nd" x="4.0" y="166.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="194.0" text-anchor="middle" style="font-size:14px">Geliked</text><text class="sx" x="104.0" y="211.0" text-anchor="middle">zählt viel</text><rect class="nd acc" x="260.0" y="14.0" width="200.0" height="214" rx="10"/><text class="tx" x="360.0" y="110.0" text-anchor="middle" style="font-size:14px">Dein Geschmack</text><text class="sx" x="360.0" y="127.0" text-anchor="middle">verblasst nach 30 Tagen</text><text class="sx" x="360.0" y="142.0" text-anchor="middle">bleibt so frisch</text><rect class="nd" x="516.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="42.0" text-anchor="middle" style="font-size:14px">Mix für dich</text><text class="sx" x="616.0" y="59.0" text-anchor="middle">auf der Startseite</text><rect class="nd" x="516.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="118.0" text-anchor="middle" style="font-size:14px">Streyn Mixes</text><text class="sx" x="616.0" y="135.0" text-anchor="middle">jeden Tag neu</text><rect class="nd" x="516.0" y="166.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="194.0" text-anchor="middle" style="font-size:14px">Radio</text><text class="sx" x="616.0" y="211.0" text-anchor="middle">ab jedem Song</text><path class="ln" d="M204.0 45.0H232.0"/><path class="ln" d="M204.0 121.0H232.0"/><path class="ln" d="M204.0 197.0H232.0"/><path class="ln" d="M232.0 45.0V197.0"/><path class="ln" d="M232.0 121.0H258.0" marker-end="url(#ar12)"/><path class="ln" d="M460.0 121.0H488.0"/><path class="ln" d="M488.0 45.0V197.0"/><path class="ln" d="M488.0 45.0H514.0" marker-end="url(#ar12)"/><path class="ln" d="M488.0 121.0H514.0" marker-end="url(#ar12)"/><path class="ln" d="M488.0 197.0H514.0" marker-end="url(#ar12)"/></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar12t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="59.333333333333336" y="34.0" text-anchor="middle" style="font-size:13px">Ganz gehört</text><text class="sx" x="59.333333333333336" y="51.0" text-anchor="middle">zählt plus</text><rect class="nd" x="124.66666666666667" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Früh übersprungen</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">zählt minus</text><rect class="nd" x="245.33333333333334" y="4" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="300.6666666666667" y="34.0" text-anchor="middle" style="font-size:13px">Geliked</text><text class="sx" x="300.6666666666667" y="51.0" text-anchor="middle">zählt viel</text><rect class="nd acc" x="4.0" y="114" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="143.0" text-anchor="middle" style="font-size:13px">Dein Geschmack</text><text class="sx" x="180.0" y="160.0" text-anchor="middle">verblasst nach 30 Tagen</text><text class="sx" x="180.0" y="175.0" text-anchor="middle">bleibt so frisch</text><rect class="nd" x="4.0" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="59.333333333333336" y="268.0" text-anchor="middle" style="font-size:13px">Mix für dich</text><text class="sx" x="59.333333333333336" y="285.0" text-anchor="middle">auf der Startseite</text><rect class="nd" x="124.66666666666667" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="180.0" y="268.0" text-anchor="middle" style="font-size:13px">Streyn Mixes</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">jeden Tag neu</text><rect class="nd" x="245.33333333333334" y="238" width="110.66666666666667" height="66" rx="10"/><text class="tx" x="300.6666666666667" y="268.0" text-anchor="middle" style="font-size:13px">Radio</text><text class="sx" x="300.6666666666667" y="285.0" text-anchor="middle">ab jedem Song</text><path class="ln" d="M59.333333333333336 70V92.0"/><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M300.6666666666667 70V92.0"/><path class="ln" d="M59.333333333333336 92.0H300.6666666666667"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar12t)"/><path class="ln" d="M180.0 194V216.0"/><path class="ln" d="M59.333333333333336 216.0H300.6666666666667"/><path class="ln" d="M59.333333333333336 216.0V236" marker-end="url(#ar12t)"/><path class="ln" d="M180.0 216.0V236" marker-end="url(#ar12t)"/><path class="ln" d="M300.6666666666667 216.0V236" marker-end="url(#ar12t)"/></svg></figure>
+<h2>Was du bekommst</h2>
 <table>
-  <thead><tr><th>Design</th><th>So sieht es aus</th></tr></thead>
+  <thead><tr><th>Auf der Startseite</th><th>Was es ist</th></tr></thead>
   <tbody>
-  <tr><td>Standard</td><td>Ruhig und dunkel (oder hell). Voreingestellt.</td></tr>
-  <tr><td>Liquid Glass</td><td>Milchglas-Flächen, helle Kanten, ein Hintergrund, der in den Farben des Covers treibt.</td></tr>
-  <tr><td>Green</td><td>Schwarz mit grünem Akzent, runde Knöpfe, kräftige Schrift. Immer dunkel. Am PC mit dem eigenen Desktop-Layout unten.</td></tr>
+  <tr><td>Mix für dich</td><td>Deine Favoriten und Neues, nach deinem Geschmack sortiert</td></tr>
+  <tr><td>Streyn Mixes</td><td>Daily Mixes, ein Mix pro Genre, das du am meisten hörst, und pro Lieblingskünstler, jeder mit eigenem Cover. Mit <strong>+</strong> behalten</td></tr>
+  <tr><td>Deine Top-Songs</td><td>Eine Playlist pro Jahr mit deinen meistgehörten Songs (bis 100). Ein Abspielen zählt nach 30 Sekunden</td></tr>
+  <tr><td>Radio starten</td><td>Im Menü eines Songs: Ähnliches, die Warteschlange läuft weiter</td></tr>
+  <tr><td>Schlaues Mischen</td><td>Favoriten öfter, nie zweimal derselbe Künstler hintereinander</td></tr>
   </tbody>
 </table>
-<div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Themes +</span><p>Green und weitere Designs erscheinen, sobald du über dem Design-Wähler <strong>Themes +</strong> einschaltest.</p></div></div>
-<h2>Green am PC</h2>
-<p>Wenn Green an ist und das Fenster mindestens 900 Pixel breit ist (Desktop-App oder Browser), zeigt Streyn drei Bereiche nebeneinander. Am Handy bleibt Green beim Handy-Layout.</p>
+<p><span class="path">Einstellungen → Geschmack &amp; Mix</span> legt fest, wie viel aus deinen Dateien und wie viel aus dem Streaming kommt, und schaltet Streyn Mixes oder Top-Songs aus. Einen einzelnen Song nimmst du über sein Menü aus deinem Geschmack.</p>
+<h2>Bibliothek und Playlists</h2>
 <ul>
-  <li><strong>Obere Leiste:</strong> das Menü <strong>…</strong> (Datei, Bearbeiten, Anzeigen, Wiedergabe, Hilfe), zurück und vor, Home, das Suchfeld mit <strong>Browse</strong> rechts, Neues (Glocke), Höraktivität und dein Profil.</li>
-  <li><strong>Bibliothek</strong> links: Playlists, gespeicherte Alben, Lieblingssongs, deine Top-Songs pro Jahr und Künstler*innen, denen du folgst, mit Filter-Chips. Das Bibliothek-Symbol klappt sie zu einer Leiste mit Covern zusammen, <strong>+ Erstellen</strong> legt eine Playlist an, importiert, lädt hoch oder startet deinen Mix.</li>
-  <li><strong>Bereich rechts:</strong> die Ansicht „Wird gerade gespielt“ mit Cover, einer Lyrics-Vorschau, die mitläuft, dem*der Künstler*in mit monatlichen Hörer*innen und Folgen, Songinfos und dem nächsten Titel. Der Warteschlangen-Knopf zeigt dort die Warteschlange (mit „Zuletzt gehört“), der Geräte-Knopf öffnet <strong>Mit einem Gerät verbinden</strong>.</li>
-  <li><strong>Wiedergabe auf einem anderen Gerät:</strong> eine grüne Leiste unter dem Player zeigt, wo die Musik läuft. Ein Klick darauf öffnet die Geräte.</li>
-  <li><strong>Miniplayer:</strong> der Knopf neben der Lautstärke öffnet einen kleinen Player mit dem Cover. Über <strong>…</strong> stellst du Hintergrundfarbe und Warteschlange ein.</li>
-  <li><strong>Seiten:</strong> Playlists und Alben zeigen eine Tabelle mit Nummern und Spalten, Künstler*innen ein großes Bild. Beim Scrollen bleibt oben eine Leiste mit Play-Knopf stehen.</li>
-  <li><strong>Zoom:</strong> Strg + Plus, Strg + Minus und Strg + 0, oder Anzeigen im Menü ….</li>
+  <li><strong>Liken</strong> geht bei jedem Song, auch von Spotify oder YouTube. Sie landen in <strong>Lieblingssongs</strong>.</li>
+  <li>Künstlern <strong>folgen</strong> und <strong>Alben speichern</strong> auf ihren Seiten.</li>
+  <li><strong>Playlists:</strong> <strong>+</strong> an einem Song fügt ihn hinzu. <strong>Details bearbeiten</strong> setzt Bild, Name und Beschreibung, der Cover-Editor baut eins aus Farben, einem Foto oder einem Song-Cover.</li>
+  <li><strong>Sortieren:</strong> Songs und Playlists ziehen. Am Handy öffnet der Stift einen Bearbeiten-Modus.</li>
+  <li><strong>An Startseite anheften</strong> im Menü einer Playlist setzt sie direkt hinter Lieblingssongs.</li>
+  <li><strong>Vorladen</strong> (Blitz-Knopf) legt eine ganze Liste auf die Platte des Servers, dann startet jeder Song sofort.</li>
 </ul>
-<p>Die Schrift in Green ist Figtree, eine freie Schrift nahe an der von Spotify. Die anderen Designs behalten ihre Schrift.</p>
-
-<h2>Weitere Optionen</h2>
-<ul>
-  <li><strong>Hell oder dunkel</strong> für jedes Design.</li>
-  <li><strong>Akzentfarbe:</strong> Blau, Grün, Lila, Orange, Pink, Rot, Türkis oder aus dem Cover.</li>
-  <li><strong>Sprache:</strong> Englisch oder Deutsch, bleibt über Updates erhalten.</li>
-  <li><strong>Spalten</strong> in Songlisten: Cover, Künstler, Album, Quelle, Länge, Jahr, Genre, hinzugefügt am.</li>
-</ul>
+<p>Menüs öffnest du mit Rechtsklick am Computer, langem Drücken am Handy oder dem Knopf <strong>…</strong>.</p>
 </template>
 
-<template data-l="de" data-p="away" data-g="Überall" data-t="Unterwegs">
-<p class="lead">Ohne Extra-Schritte gehen die Apps im WLAN zuhause. Mit Tailscale überall, ohne Portfreigabe und ohne dass etwas offen im Internet steht.</p>
+<template data-l="de" data-p="player" data-g="Hören" data-t="Player und Chillscreen"><p class="lead">Auf den kleinen Player (Handy) oder den Song in der Player-Leiste (Computer) tippen öffnet den großen Player mit Songtext, Warteschlange und Visualizer.</p>
+<div class="gal phones three"><figure><img src="../shots/v2/m-fs.webp" width="780" height="1688" alt="Großer Player" loading="lazy" data-zoom><figcaption>Großer Player</figcaption></figure><figure><img src="../shots/v2/m-queue.webp" width="780" height="1688" alt="Warteschlange" loading="lazy" data-zoom><figcaption>Warteschlange</figcaption></figure><figure><img src="../shots/v2/m-green-fs.webp" width="780" height="1688" alt="Großer Player in Green" loading="lazy" data-zoom><figcaption>Großer Player in Green</figcaption></figure></div>
+<h2>Chillscreen</h2>
+<p>Ein gemütliches Zimmer bei Nacht: Ein Plattenspieler spielt das Cover deines Songs, deine Warteschlange hängt als Polaroids an der Wand, Regen läuft übers Fenster und die Kamera gleitet durch den Raum. Unter <span class="path">Einstellungen → Chillscreen</span> einschalten und im großen Player über seinen Knopf öffnen. <strong>Übergänge zur Musik</strong> wechselt die Einstellung im Takt oder pro Takt-Gruppe.</p>
+<div class="gal two"><figure><img src="../shots/v2/c-shot1.webp" width="1600" height="900" alt="Der Plattenspieler" loading="lazy" data-zoom><figcaption>Der Plattenspieler</figcaption></figure><figure><img src="../shots/v2/c-room.webp" width="1280" height="720" alt="Das Zimmer" loading="lazy" data-zoom><figcaption>Das Zimmer</figcaption></figure><figure><img src="../shots/v2/c-shot3.webp" width="1600" height="900" alt="Plattenwechsel" loading="lazy" data-zoom><figcaption>Plattenwechsel</figcaption></figure><figure><img src="../shots/v2/c-chair.webp" width="1280" height="720" alt="Sessel-Ecke" loading="lazy" data-zoom><figcaption>Sessel-Ecke</figcaption></figure></div>
+<h2>Klang</h2>
+<table>
+  <thead><tr><th>Einstellung</th><th>Wo</th><th>Was sie macht</th></tr></thead>
+  <tbody>
+  <tr><td>Überblenden, Lautstärke, Qualität</td><td><span class="path">Einstellungen → Wiedergabe</span></td><td>Songs gehen ineinander über, alle gleich laut, Streaming-Qualität von niedrig bis sehr hoch</td></tr>
+  <tr><td>Equalizer</td><td><span class="path">Einstellungen → Equalizer</span></td><td>10 Bänder, Vorverstärkung und Presets. Wirkt auf Songs von deinem Server</td></tr>
+  <tr><td>Visualizer</td><td><span class="path">Einstellungen → Visualizer</span></td><td>Balken, Kreis oder Welle in den Farben des Covers, auch als dünner Streifen unter dem Mini-Player</td></tr>
+  <tr><td>Songtexte</td><td>Großer Player</td><td>Synchrone Texte laufen mit, Tipp auf eine Zeile springt hin</td></tr>
+  </tbody>
+</table>
+<h2>Geräte</h2>
+<p><span class="path">Einstellungen → Geräte</span> zeigt, wo die Musik spielt: Handy, Kopfhörer oder Bluetooth. Optional: Pause beim Trennen, weiterspielen, wenn das Gerät zurückkommt. Du siehst auch, was auf deinen anderen Geräten läuft, und kannst es anhalten oder mit <strong>Hier abspielen</strong> übernehmen.</p>
+<h2>Discord-Status</h2>
+<p>Die Desktop-App zeigt auf Wunsch „Hört Streyn“ mit dem Song in deinem Discord-Status. Einschalten unter <span class="path">Einstellungen → Wiedergabe</span>.</p>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Android-Berechtigungen</span><p>Android fragt einmal nach „Audio aufnehmen“ für den Visualizer und nach Bluetooth für volle Gerätenamen. Aufgenommen wird nichts, und nach einem Nein fragt die App nicht noch mal.</p></div></div>
+</template>
+
+<template data-l="de" data-p="look" data-g="Hören" data-t="Designs"><p class="lead">Drei Looks, jeder hell oder dunkel. Ändern unter <span class="path">Einstellungen → Allgemein → Design</span> oder im Startassistenten.</p>
+<div class="themes">
+  <figure><img class="shot " src="../shots/v2/d-home.webp" width="1920" height="1200" alt="Standard" loading="lazy" data-zoom><figcaption><b>Standard</b>Ruhig und klar, voreingestellt</figcaption></figure>
+  <figure><img class="shot " src="../shots/v2/d-glass.webp" width="1920" height="1200" alt="Liquid Glass" loading="lazy" data-zoom><figcaption><b>Liquid Glass</b>Klares Glas, das das Licht bricht, Kanten, die Maus oder Neigung des Handys folgen</figcaption></figure>
+  <figure><img class="shot " src="../shots/v2/d-green.webp" width="1920" height="1200" alt="Green" loading="lazy" data-zoom><figcaption><b>Green</b>Schwarz mit grünem Akzent, große Titel, ein runder Play-Knopf, der aus den Covern steigt</figcaption></figure>
+</div>
+<div class="gal phones three"><figure><img src="../shots/v2/m-home.webp" width="780" height="1688" alt="Standard" loading="lazy" data-zoom><figcaption>Standard</figcaption></figure><figure><img src="../shots/v2/m-glass.webp" width="780" height="1688" alt="Liquid Glass" loading="lazy" data-zoom><figcaption>Liquid Glass</figcaption></figure><figure><img src="../shots/v2/m-green-fs.webp" width="780" height="1688" alt="Green" loading="lazy" data-zoom><figcaption>Green</figcaption></figure></div>
+<div class="callout tip"><svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg><div><span class="t">Themes +</span><p>Green erscheint, sobald du über dem Design-Wähler <strong>Themes +</strong> einschaltest.</p></div></div>
+<h2>Green am PC</h2>
+<p>Wenn Green an ist und das Fenster mindestens 900 Pixel breit ist, zeigt Streyn drei Bereiche nebeneinander. Am Handy bleibt Green beim Handy-Layout.</p>
+<figure class="one"><img class="shot " src="../shots/v2/d-green.webp" width="1920" height="1200" alt="Green am PC" loading="lazy" data-zoom><figcaption>Bibliothek links, Seite in der Mitte, „Wird gerade gespielt“ rechts</figcaption></figure>
+<ul>
+  <li><strong>Obere Leiste:</strong> das Menü <strong>…</strong> (Datei, Bearbeiten, Anzeigen, Wiedergabe, Hilfe), zurück und vor, Home, Suche mit <strong>Browse</strong>, Neues, Höraktivität und dein Profil.</li>
+  <li><strong>Bibliothek</strong> links mit Filter-Chips. Das Bibliothek-Symbol klappt sie zu einer Leiste mit Covern zusammen, <strong>+ Erstellen</strong> legt eine Playlist an, importiert, lädt hoch oder startet deinen Mix.</li>
+  <li><strong>Bereich rechts:</strong> Cover, eine mitlaufende Lyrics-Vorschau, Künstler*in mit monatlichen Hörer*innen, Songinfos und der nächste Titel. Auch Warteschlange und <strong>Mit einem Gerät verbinden</strong> öffnen sich hier.</li>
+  <li><strong>Miniplayer:</strong> der Knopf neben der Lautstärke öffnet einen kleinen Player. Über <strong>…</strong> stellst du Hintergrundfarbe und Warteschlange ein.</li>
+  <li><strong>Seiten:</strong> Playlists und Alben zeigen eine Songtabelle, beim Scrollen bleibt oben eine Leiste mit Play-Knopf stehen.</li>
+  <li><strong>Zoom:</strong> <kbd>Strg</kbd> <kbd>+</kbd>, <kbd>Strg</kbd> <kbd>-</kbd> und <kbd>Strg</kbd> <kbd>0</kbd>, oder Anzeigen im Menü ….</li>
+</ul>
+<p>Green nutzt Figtree, eine freie Schrift nahe an der von Spotify. Die anderen Designs behalten ihre Schrift.</p>
+<h2>Mach es zu deinem</h2>
+<ul>
+  <li><strong>Hell oder dunkel</strong> für jedes Design, dazu <strong>OLED-Modus</strong> (reines Schwarz) im dunklen Modus.</li>
+  <li><strong>Akzentfarbe:</strong> fertige Farben, die Farbe des laufenden Covers oder <strong>Eigene Farbe</strong> mit Farbfeld, Hex-Eingabe und Pipette unter Windows und in Chrome.</li>
+  <li><strong>Sprache:</strong> Englisch oder Deutsch, bleibt über Updates erhalten.</li>
+  <li><strong>Spalten</strong> in Songlisten und <strong>Plattform-Logos</strong> lassen sich ein- und ausschalten.</li>
+</ul>
+<figure class="one"><img class="shot " src="../shots/v2/x-settings.webp" width="1400" height="1027" alt="Einstellungen" loading="lazy" data-zoom><figcaption>Einstellungen → Allgemein mit dem Design-Wähler</figcaption></figure>
+</template>
+
+<template data-l="de" data-p="away" data-g="Überall" data-t="Unterwegs"><p class="lead">Zuhause erreichen die Apps deinen Server über das WLAN. Mit Tailscale überall, ohne Portfreigabe und ohne dass etwas offen im Internet steht.</p>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 166" role="img"><defs><marker id="ar13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="42.0" text-anchor="middle" style="font-size:14px">Zuhause</text><text class="sx" x="104.0" y="59.0" text-anchor="middle">Handy im WLAN</text><rect class="nd" x="4.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="118.0" text-anchor="middle" style="font-size:14px">Unterwegs</text><text class="sx" x="104.0" y="135.0" text-anchor="middle">mobile Daten, anderes WLAN</text><rect class="nd" x="260.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="360.0" y="42.0" text-anchor="middle" style="font-size:14px">Dein Router</text><text class="sx" x="360.0" y="59.0" text-anchor="middle">Heimnetz</text><rect class="nd" x="260.0" y="90.0" width="200.0" height="62" rx="10"/><text class="tx" x="360.0" y="118.0" text-anchor="middle" style="font-size:14px">Tailscale</text><text class="sx" x="360.0" y="135.0" text-anchor="middle">privat, verschlüsselt</text><rect class="nd acc" x="516.0" y="14.0" width="200.0" height="138" rx="10"/><text class="tx" x="616.0" y="72.0" text-anchor="middle" style="font-size:14px">Streyn-Server</text><text class="sx" x="616.0" y="89.0" text-anchor="middle">derselbe Server</text><text class="sx" x="616.0" y="104.0" text-anchor="middle">dieselbe Musik</text><path class="ln" d="M204.0 45.0H232.0V45.0H258.0" marker-end="url(#ar13)"/><path class="ln acc dash" d="M204.0 121.0H232.0V121.0H258.0" marker-end="url(#ar13)"/><path class="ln" d="M460.0 45.0H488.0V83.0H514.0" marker-end="url(#ar13)"/><path class="ln acc dash" d="M460.0 121.0H488.0V83.0H514.0" marker-end="url(#ar13)"/></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar13t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="171.0" height="66" rx="10"/><text class="tx" x="89.5" y="34.0" text-anchor="middle" style="font-size:13px">Zuhause</text><text class="sx" x="89.5" y="51.0" text-anchor="middle">Handy im WLAN</text><rect class="nd" x="185.0" y="4" width="171.0" height="66" rx="10"/><text class="tx" x="270.5" y="34.0" text-anchor="middle" style="font-size:13px">Unterwegs</text><text class="sx" x="270.5" y="51.0" text-anchor="middle">mobile Daten, anderes WLAN</text><rect class="nd" x="4.0" y="114" width="171.0" height="66" rx="10"/><text class="tx" x="89.5" y="144.0" text-anchor="middle" style="font-size:13px">Dein Router</text><text class="sx" x="89.5" y="161.0" text-anchor="middle">Heimnetz</text><rect class="nd" x="185.0" y="114" width="171.0" height="66" rx="10"/><text class="tx" x="270.5" y="144.0" text-anchor="middle" style="font-size:13px">Tailscale</text><text class="sx" x="270.5" y="161.0" text-anchor="middle">privat, verschlüsselt</text><rect class="nd acc" x="4.0" y="224" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="253.0" text-anchor="middle" style="font-size:13px">Streyn-Server</text><text class="sx" x="180.0" y="270.0" text-anchor="middle">derselbe Server</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">dieselbe Musik</text><path class="ln" d="M89.5 70V92.0H89.5V112" marker-end="url(#ar13t)"/><path class="ln acc dash" d="M270.5 70V92.0H270.5V112" marker-end="url(#ar13t)"/><path class="ln" d="M89.5 180V202.0H180.0V222" marker-end="url(#ar13t)"/><path class="ln acc dash" d="M270.5 180V202.0H180.0V222" marker-end="url(#ar13t)"/></svg></figure>
+<p>Die App probiert zuerst die Adresse zuhause und wechselt unterwegs von selbst auf die Tailscale-Adresse.</p>
 <h2>Einrichten</h2>
 <ol class="steps">
   <li>Installer ausführen und <strong>2) With Tailscale</strong> wählen. Bei einem bestehenden Server einfach noch mal ausführen.</li>
   <li>Den angezeigten Link öffnen und bei Tailscale anmelden (kostenlos).</li>
   <li>Fragt der Installer danach, auf <a href="https://login.tailscale.com/admin/dns">login.tailscale.com/admin/dns</a> <strong>Enable HTTPS</strong> klicken und Enter drücken.</li>
   <li>Tailscale-App aufs Handy und mit demselben Konto anmelden.</li>
-  <li>Streyn einmal zuhause öffnen. Unterwegs wechselt die App von selbst auf die Tailscale-Adresse.</li>
+  <li>Streyn einmal zuhause öffnen. Ab dann geht es überall.</li>
 </ol>
 <p>Die Adresse steht unter <span class="path">Einstellungen → Unterwegs</span>.</p>
 <h2>Ohne Link</h2>
@@ -823,9 +871,8 @@ details.q > div { padding: 0 16px 6px; }
 <div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Akku-Sparmodus</span><p>Beendet Android Tailscale im Hintergrund, nimm es von der Akku-Optimierung aus.</p></div></div>
 </template>
 
-<template data-l="de" data-p="share" data-g="Überall" data-t="Playlists teilen">
-<p class="lead">In einer Playlist auf <strong>Teilen</strong> tippen. Mit öffentlichen Links öffnet sie jeder auf musik.labtoso.de, ohne App und ohne Konto.</p>
-<h2>Zwei Arten zu teilen</h2>
+<template data-l="de" data-p="share" data-g="Überall" data-t="Teilen und einladen"><p class="lead">In einer Playlist auf <strong>Teilen</strong> tippen. Mit öffentlichen Links öffnet sie jeder auf musik.labtoso.de, ohne App und ohne Konto.</p>
+<h2>Drei Arten zu teilen</h2>
 <table>
   <thead><tr><th>Teilen als</th><th>Was die andere Person kann</th></tr></thead>
   <tbody>
@@ -834,31 +881,32 @@ details.q > div { padding: 0 16px 6px; }
   <tr><td>Als Zuhörer einladen</td><td>Die Playlist in der eigenen Bibliothek haben und immer die neueste Version hören, ohne sie zu ändern</td></tr>
   </tbody>
 </table>
-<p>Als Besitzer tippst du auf ein Mitglied, um zwischen Mitwirkend und Zuhörer zu wechseln, oder auf ×, um es zu entfernen.</p>
+<p>Als Besitzer tippst du auf ein Mitglied, um zwischen Mitwirkend und Zuhörer zu wechseln, oder auf ×, um es zu entfernen. Ein normales Konto auf deinem Server gibst du jemandem mit <span class="path">Einstellungen → Nutzer → Einladungslink</span> (einmal gültig, 7 Tage).</p>
+<h2>So läuft ein öffentlicher Link</h2>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="78.0" y="42.0" text-anchor="middle" style="font-size:14px">Browser des Freundes</text><text class="sx" x="78.0" y="59.0" text-anchor="middle">keine App nötig</text><rect class="nd" x="192.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="266.0" y="42.0" text-anchor="middle" style="font-size:14px">musik.labtoso.de/s/</text><text class="sx" x="266.0" y="59.0" text-anchor="middle">die Seite</text><rect class="nd" x="380.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="454.0" y="42.0" text-anchor="middle" style="font-size:14px">Tailscale Funnel</text><text class="sx" x="454.0" y="59.0" text-anchor="middle">Port 8443</text><rect class="nd acc" x="568.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="642.0" y="34.0" text-anchor="middle" style="font-size:14px">Dein Server</text><text class="sx" x="642.0" y="51.0" text-anchor="middle">öffentliche Tür: nur</text><text class="sx" x="642.0" y="66.0" text-anchor="middle">hören und beitreten</text><path class="ln" d="M152.0 45.0H172.0"/><path class="ln" d="M172.0 45.0H190.0" marker-end="url(#ar14)"/><path class="ln" d="M340.0 45.0H360.0"/><path class="ln" d="M360.0 45.0H378.0" marker-end="url(#ar14)"/><path class="ln" d="M528.0 45.0H548.0"/><path class="ln" d="M548.0 45.0H566.0" marker-end="url(#ar14)"/></svg><svg class="tall" viewBox="0 0 360 420" role="img"><defs><marker id="ar14t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Browser des Freundes</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">keine App nötig</text><rect class="nd" x="4.0" y="114" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="144.0" text-anchor="middle" style="font-size:13px">musik.labtoso.de/s/</text><text class="sx" x="180.0" y="161.0" text-anchor="middle">die Seite</text><rect class="nd" x="4.0" y="224" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="254.0" text-anchor="middle" style="font-size:13px">Tailscale Funnel</text><text class="sx" x="180.0" y="271.0" text-anchor="middle">Port 8443</text><rect class="nd acc" x="4.0" y="334" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="363.0" text-anchor="middle" style="font-size:13px">Dein Server</text><text class="sx" x="180.0" y="380.0" text-anchor="middle">öffentliche Tür: nur</text><text class="sx" x="180.0" y="395.0" text-anchor="middle">hören und beitreten</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar14t)"/><path class="ln" d="M180.0 180V202.0"/><path class="ln" d="M180.0 202.0V222" marker-end="url(#ar14t)"/><path class="ln" d="M180.0 290V312.0"/><path class="ln" d="M180.0 312.0V332" marker-end="url(#ar14t)"/></svg></figure>
 <h2>Öffentliche Links einschalten</h2>
 <p>Den Proxmox-Installer noch mal ausführen und bei <strong>Switch on public links?</strong> mit <code>y</code> antworten, oder:</p>
 <pre data-lang="bash"><code>PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
-<p>Links sehen dann so aus: <code>musik.labtoso.de/s/#…</code>. Die Seite liegt auf der Website, die Musik kommt direkt von deinem Server über Tailscale Funnel. Die Adresse siehst und änderst du unter <span class="path">Einstellungen → Unterwegs → Öffentliche Links</span>. Ausschalten mit <code>PUBLIC=0</code> oder indem du das Feld leerst.</p>
+<p>Die Adresse siehst und änderst du unter <span class="path">Einstellungen → Unterwegs → Öffentliche Links</span>. Ausschalten mit <code>PUBLIC=0</code> oder indem du das Feld leerst.</p>
 <h3>Docker und Windows</h3>
 <p>Der Server hört für öffentliche Links auf Port 8485 (nur auf diesem Rechner). Auf dem Rechner mit Tailscale:</p>
 <pre data-lang="bash"><code>tailscale funnel --bg --https=8443 http://127.0.0.1:8485</code></pre>
 <p>Dann <code>PUBLIC_URL=https://&lt;name&gt;.&lt;tailnet&gt;.ts.net:8443</code> eintragen und den Server neu starten.</p>
-<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Sicher gebaut</span><p>Öffentliche Links nutzen eine eigene Tür (Port 8443). Darüber sind Einrichtung, Updates, Nutzerverwaltung, Scans, Uploads und Admin-Anmeldungen gesperrt. Anmeldungen sind auf 20 pro Minute begrenzt, und eine Einladung reicht für höchstens 25 Konten.</p></div></div>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Sicher gebaut</span><p>Durch die öffentliche Tür sind Einrichtung, Updates, Nutzerverwaltung, Scans, Uploads und Admin-Anmeldungen gesperrt. Anmeldungen sind auf 20 pro Minute begrenzt, und eine Einladung reicht für höchstens 25 Konten.</p></div></div>
 </template>
 
-<template data-l="de" data-p="offline" data-g="Überall" data-t="Offline">
-<p class="lead">Playlists in der Android- oder Desktop-App herunterladen, dann spielen sie auch ohne Server.</p>
-<h2>Playlist herunterladen</h2>
-<p>Playlist öffnen und auf <strong>Herunterladen</strong> tippen. Noch mal tippen entfernt sie. Eine geladene Playlist folgt Änderungen auf dem Server.</p>
+<template data-l="de" data-p="offline" data-g="Überall" data-t="Offline"><p class="lead">Listen in der Android- oder Desktop-App herunterladen, dann spielen sie ohne Server, im Flugzeug oder im Funkloch.</p>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar15" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="104.0" y="34.0" text-anchor="middle" style="font-size:14px">Eine Liste auf dem Server</text><text class="sx" x="104.0" y="51.0" text-anchor="middle">Playlist, Lieblingssongs</text><text class="sx" x="104.0" y="66.0" text-anchor="middle">importiert, Spotify</text><rect class="nd acc" x="260.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="360.0" y="42.0" text-anchor="middle" style="font-size:14px">Herunterladen</text><text class="sx" x="360.0" y="59.0" text-anchor="middle">Pfeil neben Teilen</text><rect class="nd" x="516.0" y="14.0" width="200.0" height="62" rx="10"/><text class="tx" x="616.0" y="42.0" text-anchor="middle" style="font-size:14px">Spielt offline</text><text class="sx" x="616.0" y="59.0" text-anchor="middle">auf diesem Gerät</text><path class="ln" d="M204.0 45.0H232.0"/><path class="ln" d="M232.0 45.0H258.0" marker-end="url(#ar15)"/><path class="ln" d="M460.0 45.0H488.0"/><path class="ln" d="M488.0 45.0H514.0" marker-end="url(#ar15)"/></svg><svg class="tall" viewBox="0 0 360 310" role="img"><defs><marker id="ar15t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="33.0" text-anchor="middle" style="font-size:13px">Eine Liste auf dem Server</text><text class="sx" x="180.0" y="50.0" text-anchor="middle">Playlist, Lieblingssongs</text><text class="sx" x="180.0" y="65.0" text-anchor="middle">importiert, Spotify</text><rect class="nd acc" x="4.0" y="128" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="158.0" text-anchor="middle" style="font-size:13px">Herunterladen</text><text class="sx" x="180.0" y="175.0" text-anchor="middle">Pfeil neben Teilen</text><rect class="nd" x="4.0" y="238" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="268.0" text-anchor="middle" style="font-size:13px">Spielt offline</text><text class="sx" x="180.0" y="285.0" text-anchor="middle">auf diesem Gerät</text><path class="ln" d="M180.0 84V106.0"/><path class="ln" d="M180.0 106.0V126" marker-end="url(#ar15t)"/><path class="ln" d="M180.0 194V216.0"/><path class="ln" d="M180.0 216.0V236" marker-end="url(#ar15t)"/></svg></figure>
+<h2>Herunterladen</h2>
+<p>Eine Playlist, Lieblingssongs, eine importierte oder eine Spotify-Playlist öffnen und auf den Pfeil neben Teilen tippen. Der Balken füllt sich mit jedem Song. Noch mal tippen entfernt sie. Eine geladene Liste folgt Änderungen auf dem Server.</p>
 <h2>Ohne Verbindung</h2>
 <p>Ist der Server nicht erreichbar, startet die App von selbst offline. Sie sieht aus und funktioniert wie immer, eine Leiste oben hat einen Knopf, um wieder online zu gehen. Auf der Seite für die Server-Adresse gibt es außerdem <strong>Offline nutzen</strong>.</p>
 <h2>Speicher verwalten</h2>
 <p><span class="path">Einstellungen → Offline</span> zeigt, was auf diesem Gerät liegt und wie groß es ist, und entfernt es.</p>
-<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Gut zu wissen</span><p>Gespeichert werden nur Songs, die als Datei auf deinem Server liegen. Der Webplayer im Browser hat keinen Offline-Modus.</p></div></div>
+<div class="callout info"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg><div><span class="t">Gut zu wissen</span><p>Songs, die nur streamen (Spotify, YouTube), bleiben offline, sobald sie mit <strong>Auf den Server laden</strong> auf dem Server liegen. Der Webplayer im Browser hat keinen Offline-Modus.</p></div></div>
 </template>
 
-<template data-l="de" data-p="help" data-g="Hilfe" data-t="FAQ">
-<p class="lead">Die häufigsten Probleme und wie du sie löst. Hängst du fest? <a class="discord-link" href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Komm auf unseren Discord</a>.</p>
+<template data-l="de" data-p="help" data-g="Hilfe" data-t="FAQ"><p class="lead">Die häufigsten Probleme und wie du sie löst. Hängst du fest? <a class="discord-link" href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Komm auf unseren Discord</a>.</p>
 <h2>Verbindung</h2>
 <details class="q"><summary>Die App findet den Server nicht</summary><div><p>Adresse mit Port (<code>:8484</code>) prüfen und ob das Handy im selben WLAN ist. <code>http://ADRESSE:8484/api/info</code> im Browser muss <code>"app":"musik"</code> zeigen. Im Container <code>systemctl status streyn</code> ausführen.</p></div></details>
 <details class="q"><summary>Unterwegs geht nichts</summary><div><p>Ist Tailscale auf dem Handy an und mit demselben Konto angemeldet? Auf Android von der Akku-Optimierung ausnehmen. Im Container <code>tailscale status</code> ausführen.</p></div></details>
@@ -873,8 +921,9 @@ details.q > div { padding: 0 16px 6px; }
 <p><a class="discord-link" href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Komm auf unseren Discord</a>, dort helfen wir dir.</p>
 </template>
 
-<template data-l="de" data-p="update" data-g="Hilfe" data-t="Updates und Sicherung">
-<p class="lead"><span class="path">Einstellungen → Updates → Jetzt updaten</span> aktualisiert erst die App und dann den Server, in der richtigen Reihenfolge. Den Server darf nur ein Admin updaten.</p>
+<template data-l="de" data-p="update" data-g="Hilfe" data-t="Updates und Sicherung"><p class="lead">Eine Leiste oben sagt dir, wenn eine neue Version da ist. <strong>Updaten</strong> macht den Rest, in der richtigen Reihenfolge. Den Server darf nur ein Admin updaten.</p>
+<figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img"><defs><marker id="ar16" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd acc" x="4.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="78.0" y="42.0" text-anchor="middle" style="font-size:14px">Updaten</text><text class="sx" x="78.0" y="59.0" text-anchor="middle">Leiste oder Einstellungen</text><rect class="nd" x="192.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="266.0" y="42.0" text-anchor="middle" style="font-size:14px">1 App</text><text class="sx" x="266.0" y="59.0" text-anchor="middle">aktualisiert, startet neu</text><rect class="nd" x="380.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="454.0" y="42.0" text-anchor="middle" style="font-size:14px">2 Sicherung</text><text class="sx" x="454.0" y="59.0" text-anchor="middle">Kopie der Datenbank</text><rect class="nd" x="568.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="642.0" y="42.0" text-anchor="middle" style="font-size:14px">3 Server</text><text class="sx" x="642.0" y="59.0" text-anchor="middle">aktualisiert, startet neu</text><path class="ln" d="M152.0 45.0H172.0"/><path class="ln" d="M172.0 45.0H190.0" marker-end="url(#ar16)"/><path class="ln" d="M340.0 45.0H360.0"/><path class="ln" d="M360.0 45.0H378.0" marker-end="url(#ar16)"/><path class="ln" d="M528.0 45.0H548.0"/><path class="ln" d="M548.0 45.0H566.0" marker-end="url(#ar16)"/></svg><svg class="tall" viewBox="0 0 360 406" role="img"><defs><marker id="ar16t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd acc" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Updaten</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">Leiste oder Einstellungen</text><rect class="nd" x="4.0" y="114" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="144.0" text-anchor="middle" style="font-size:13px">1 App</text><text class="sx" x="180.0" y="161.0" text-anchor="middle">aktualisiert, startet neu</text><rect class="nd" x="4.0" y="224" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="254.0" text-anchor="middle" style="font-size:13px">2 Sicherung</text><text class="sx" x="180.0" y="271.0" text-anchor="middle">Kopie der Datenbank</text><rect class="nd" x="4.0" y="334" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="364.0" text-anchor="middle" style="font-size:13px">3 Server</text><text class="sx" x="180.0" y="381.0" text-anchor="middle">aktualisiert, startet neu</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#ar16t)"/><path class="ln" d="M180.0 180V202.0"/><path class="ln" d="M180.0 202.0V222" marker-end="url(#ar16t)"/><path class="ln" d="M180.0 290V312.0"/><path class="ln" d="M180.0 312.0V332" marker-end="url(#ar16t)"/></svg></figure>
+<p>Das Server-Update zeigt live, was es macht, Zeile für Zeile. Vor jedem Update wird die Datenbank nach <code>/var/lib/streyn/backups</code> kopiert (die letzten 5 bleiben).</p>
 <h2>Von Hand updaten</h2>
 <table>
   <thead><tr><th>Was</th><th>Wie</th></tr></thead>
@@ -885,13 +934,11 @@ details.q > div { padding: 0 16px 6px; }
   <tr><td>Apps</td><td>Neue Version von der Website drüber installieren</td></tr>
   </tbody>
 </table>
-<div class="callout warn"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg><div><span class="t">Android vor 1.8.0</span><p>Streyn einmal deinstallieren und die neue <code>Streyn.apk</code> installieren. Ab dann gehen Updates direkt drüber.</p></div></div>
 <h2>Sicherung</h2>
 <p>Der Datenordner reicht: <code>/var/lib/streyn</code> bzw. <code>data/</code>. Darin liegen Datenbank, Cover und hochgeladene Songs. Am einfachsten ist ein Proxmox-Backup des Containers.</p>
 </template>
 
-<template data-l="de" data-p="config" data-g="Hilfe" data-t="Erweiterte Einstellungen">
-<p class="lead">Die Einstellungen stehen in <code>/etc/streyn.env</code> (Container und Debian) oder in einer <code>.env</code> neben dem Server.</p>
+<template data-l="de" data-p="config" data-g="Hilfe" data-t="Erweiterte Einstellungen"><p class="lead">Die Einstellungen stehen in <code>/etc/streyn.env</code> (Container und Debian) oder in einer <code>.env</code> neben dem Server.</p>
 <h2>Variablen</h2>
 <table>
   <thead><tr><th>Variable</th><th>Standard</th><th>Bedeutung</th></tr></thead>
@@ -1061,6 +1108,23 @@ details.q > div { padding: 0 16px 6px; }
   addEventListener('scroll', () => spy && spy(), { passive: true });
   addEventListener('resize', () => spy && spy());
   ['wheel', 'touchstart', 'keydown'].forEach((t) => addEventListener(t, () => { if (pinned) { pinned = null; } }, { passive: true }));
+
+
+  // pictures open large on click
+  const zoom = document.createElement('div');
+  zoom.className = 'zoom';
+  zoom.innerHTML = '<img alt=""><p></p>';
+  document.body.appendChild(zoom);
+  const closeZoom = () => zoom.classList.remove('open');
+  zoom.addEventListener('click', closeZoom);
+  addEventListener('keydown', (e) => { if (e.key === 'Escape') closeZoom(); });
+  document.addEventListener('click', (e) => {
+    const im = e.target.closest('#doc img[data-zoom], #doc .hero img');
+    if (!im) return;
+    $('img', zoom).src = im.currentSrc || im.src;
+    $('p', zoom).textContent = im.alt || '';
+    zoom.classList.add('open');
+  });
 
   // in-page anchors: scroll without leaving the page route
   document.addEventListener('click', (e) => {
