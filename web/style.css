@@ -1979,10 +1979,31 @@ html.has-wall[data-theme='green'] .settings, html.has-wall[data-theme='green'] .
 [data-theme='green'] .wall-t { border-radius: 8px; background: var(--g-tint, #1f1f1f); }
 [data-theme='green'] .wall-t i { border-radius: 4px; }
 /* Settings → Offline: the folder button sits at the right of "On this device", across from its title */
-.set-row:has(> .sr-ctl > .off-folder) { position: relative; }
-.set-row > .sr-ctl:has(> .off-folder) { position: absolute; right: 0; top: 6px; }
-.off-folder { width: 36px; height: 36px; border-radius: 10px; background: var(--surface2); color: var(--text); }
+.sr-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; }
+.set-row:has(.off-folder) > .sr-ctl:empty { display: none; }
+.off-folder { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px 0 11px; border-radius: 999px; background: var(--surface2); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; flex: none; transition: background-color 0.15s; }
+.off-folder .ic { width: 17px; height: 17px; }
 .off-folder:hover { background: color-mix(in srgb, var(--accent) 22%, var(--surface2)); }
 
 /* 1.28.1: symbols get no circle or ring behind them when hovered, pressed or clicked, in every theme; only the colour changes */
 button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
+/* 1.28.3: drag the side bars wider or narrower (PC and browser), double click for the normal width */
+.shell { position: relative; }
+.rsz { position: absolute; z-index: 30; width: 12px; cursor: col-resize; touch-action: none; }
+.rsz[hidden] { display: none; }
+.rsz::after { content: ''; position: absolute; left: 5px; top: 0; bottom: 0; width: 2px; border-radius: 2px; background: transparent; transition: background 0.15s; }
+.rsz:hover::after, .rsz.on::after { background: color-mix(in srgb, var(--text) 35%, transparent); }
+[data-theme='green'] .rsz:hover::after, [data-theme='green'] .rsz.on::after { background: #7f7f7f; }
+html.rsz-on, html.rsz-on * { cursor: col-resize !important; user-select: none !important; }
+html.rsz-on .shell { transition: none !important; }
+@media (max-width: 899px) { .rsz { display: none; } }
+/* the bar that sticks to the top of a page only exists in Green on a big screen */
+.gsticky { display: none; }
+/* nothing gets a ring or coloured frame after it was pressed or tapped, in every theme.
+   Only someone moving with the Tab key sees where the focus is (html.kbd). */
+html:not(.kbd) *:focus, html:not(.kbd) *:focus-visible { outline: none !important; }
+html:not(.kbd) .searchbar:focus-within, html:not(.kbd) .tb-search:focus-within, html:not(.kbd) .cp-hex:focus-within { box-shadow: none !important; }
+html:not(.kbd) .tb-search:focus-within { border-color: transparent !important; }
+html:not(.kbd) .field input:focus, html:not(.kbd) .field textarea:focus, html:not(.kbd) .textin:focus, html:not(.kbd) .importform input:focus { border-color: var(--line) !important; box-shadow: none !important; }
+html:not(.kbd) .cp-hex:focus-within { border-color: var(--line) !important; }
+* { -webkit-tap-highlight-color: transparent; }

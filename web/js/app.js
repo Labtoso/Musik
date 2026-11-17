@@ -3347,7 +3347,7 @@ async function offlineHtml() {
   const rows = sets.map((x) => `<div class="offrow">${icon(x.state === 'loading' ? 'refresh' : 'download')}<span><b>${esc(x.name || '…')}</b><small>${x.state === 'loading' ? t('offLoading', { n: x.done, total: x.total }) : x.state === 'ready' ? `${songCount(x.total)} · ${size(x.bytes)}` : t('offError')}</small></span><button class="btn sm" data-offrm="${esc(x.key)}">${t('offRemove')}</button></div>`).join('');
   return (
     setRow(t('offTitle'), offlineMode ? `<button class="btn primary" data-goonline>${t('goOnline')}</button>` : '', { hint: t('offHint'), keys: 'offline download herunterladen ohne internet' }) +
-    setRow(t('offSaved'), offFolderFn() ? `<button class="icon-btn off-folder" data-offfolder title="${t('offFolder')}" aria-label="${t('offFolder')}">${icon('folder')}</button>` : '', { wide: true, hint: rows ? `<div class="offlist">${rows}</div>` : t('offNone'), keys: 'offline download' })
+    setRow(t('offSaved'), '', { aside: offFolderFn() ? `<button class="off-folder" data-offfolder>${icon('folder')}<span>${t('offFolder')}</span></button>` : '', wide: true, hint: rows ? `<div class="offlist">${rows}</div>` : t('offNone'), keys: 'offline download' })
   );
 }
 async function redrawOffline() {
@@ -5636,8 +5636,8 @@ function closeSettings() {
 }
 // ---------- settings: a full page with search, categories as cards, one row per setting ----------
 /** One setting: label and hint on the left, the control on the right (or below when wide). */
-function setRow(label, control, { hint = '', keys = '', wide = false, cls = '' } = {}) {
-  return `<div class="set-row ${wide ? 'wide' : ''} ${cls}" data-k="${esc((label + ' ' + hint + ' ' + keys).toLowerCase())}"><div class="sr-text"><div class="sr-label">${label}</div>${hint ? `<div class="sr-hint">${hint}</div>` : ''}</div><div class="sr-ctl">${control}</div></div>`;
+function setRow(label, control, { hint = '', keys = '', wide = false, cls = '', aside = '' } = {}) {
+  return `<div class="set-row ${wide ? 'wide' : ''} ${cls}" data-k="${esc((label + ' ' + hint + ' ' + keys).toLowerCase())}"><div class="sr-text"><div class="sr-label">${aside ? `<span class="sr-head"><span>${label}</span>${aside}</span>` : label}</div>${hint ? `<div class="sr-hint">${hint}</div>` : ''}</div><div class="sr-ctl">${control}</div></div>`;
 }
 // ---------- devices: where the sound goes, headphones and Bluetooth ----------
 const DEV_ICON = { bluetooth: 'bluetooth', wired: 'headphones', usb: 'headphones', hdmi: 'speaker', phone: 'phone', out: 'speaker' };
@@ -6668,6 +6668,7 @@ function gSync() {
   root.classList.toggle('gdesk', on);
   gApplyZoom();
   root.classList.toggle('glib-min', on && !!prefs.gLibMin);
+  if (typeof rszApply === 'function') requestAnimationFrame(rszApply);
   const box = document.getElementById('gpanel');
   if (!box) return;
   gBind();
@@ -7183,7 +7184,7 @@ function gSticky() {
   if (!c) return;
   let bar = $('#gsticky');
   const head = gOn() ? $('#view .detail-head') : null;
-  if (!head) return bar?.classList.remove('on');
+  if (!head) return bar?.remove();
   if (!bar) {
     c.insertAdjacentHTML('afterbegin', `<div id="gsticky" class="gsticky"><button class="gs-play" data-gsplay>${icon('play')}</button><span class="gs-t"></span></div>`);
     bar = $('#gsticky');
@@ -7584,3 +7585,124 @@ boot().finally(() => {
   b.classList.add('out');
   setTimeout(() => b.remove(), 400);
 });
+
+// ---------- side bars that can be dragged wider or narrower with the mouse (PC and browser, every theme), like Spotify ----------
+const RSZ = { side: [180, 420], gside: [280, 560], gpanel: [280, 560] };
+function rszApply() {
+  const root = document.documentElement.style;
+  const set = (k, v) => (v ? root.setProperty(k, v + 'px') : root.removeProperty(k));
+  set('--side', prefs.sideW);
+  // Green: the folded library keeps its 72 px strip
+  set('--gside', prefs.gLibMin ? 0 : prefs.gSideW);
+  set('--gpw', prefs.gPanelW);
+  rszPlace();
+}
+function rszHandles() {
+  const shell = $('.shell');
+  if (!shell) return null;
+  let a = shell.querySelector(':scope > .rsz[data-rsz="side"]');
+  if (!a) {
+    for (const k of ['side', 'panel']) {
+      const h = document.createElement('div');
+      h.className = 'rsz';
+      h.dataset.rsz = k;
+      h.setAttribute('role', 'separator');
+      h.setAttribute('aria-orientation', 'vertical');
+      shell.appendChild(h);
+    }
+    a = shell.querySelector(':scope > .rsz[data-rsz="side"]');
+    rszWatch(shell);
+  }
+  return { shell, side: a, panel: shell.querySelector(':scope > .rsz[data-rsz="panel"]') };
+}
+let rszRO = null;
+function rszWatch(shell) {
+  rszRO?.disconnect();
+  if (!('ResizeObserver' in window)) return;
+  rszRO = new ResizeObserver(() => rszPlace());
+  [shell, $('.side'), $('#content'), $('#gpanel')].filter(Boolean).forEach((el) => rszRO.observe(el));
+}
+function rszPlace() {
+  const h = rszHandles();
+  if (!h) return;
+  const wide = innerWidth >= 900;
+  const s = h.shell.getBoundingClientRect();
+  const side = $('.side')?.getBoundingClientRect();
+  const main = $('#content')?.getBoundingClientRect();
+  const pan = $('#gpanel')?.getBoundingClientRect();
+  const put = (el, x, show, r) => {
+    el.hidden = !show;
+    if (!show) return;
+    el.style.left = Math.round(x - s.left - 6) + 'px';
+    el.style.top = Math.round(r.top - s.top) + 'px';
+    el.style.height = Math.round(r.height) + 'px';
+  };
+  put(h.side, side && main ? (side.right + main.left) / 2 : 0, wide && side?.width > 0 && main, side);
+  const panOpen = document.documentElement.classList.contains('gpanel-open') && pan?.width > 0;
+  put(h.panel, pan && main ? (main.right + pan.left) / 2 : 0, wide && panOpen && main, pan);
+}
+document.addEventListener('pointerdown', (e) => {
+  const h = e.target.closest?.('.rsz');
+  if (!h || e.button !== 0) return;
+  e.preventDefault();
+  const root = document.documentElement;
+  const green = root.classList.contains('gdesk');
+  const kind = h.dataset.rsz;
+  const side = $('.side')?.getBoundingClientRect();
+  const pan = $('#gpanel')?.getBoundingClientRect();
+  root.classList.add('rsz-on');
+  h.classList.add('on');
+  h.setPointerCapture?.(e.pointerId);
+  const move = (ev) => {
+    if (kind === 'side') {
+      const w = ev.clientX - side.left;
+      if (green) {
+        // narrower than the smallest size folds the library to its covers, pulling it out opens it again
+        const min = w < RSZ.gside[0] - 80;
+        if (min !== !!prefs.gLibMin) {
+          prefs.gLibMin = min;
+          gSync();
+        }
+        if (!min) prefs.gSideW = Math.round(Math.min(Math.max(w, RSZ.gside[0]), Math.min(RSZ.gside[1], innerWidth * 0.4)));
+      } else prefs.sideW = Math.round(Math.min(Math.max(w, RSZ.side[0]), RSZ.side[1]));
+    } else {
+      const w = pan.right - ev.clientX;
+      prefs.gPanelW = Math.round(Math.min(Math.max(w, RSZ.gpanel[0]), Math.min(RSZ.gpanel[1], innerWidth * 0.4)));
+    }
+    rszApply();
+  };
+  const up = () => {
+    root.classList.remove('rsz-on');
+    h.classList.remove('on');
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    removeEventListener('pointercancel', up);
+    savePrefs();
+    rszPlace();
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+  addEventListener('pointercancel', up);
+});
+// double click on the edge: back to the normal width
+document.addEventListener('dblclick', (e) => {
+  const h = e.target.closest?.('.rsz');
+  if (!h) return;
+  if (h.dataset.rsz === 'side') {
+    delete prefs.sideW;
+    delete prefs.gSideW;
+    if (prefs.gLibMin) {
+      prefs.gLibMin = false;
+      gSync();
+    }
+  } else delete prefs.gPanelW;
+  savePrefs();
+  rszApply();
+});
+addEventListener('resize', () => rszPlace());
+new MutationObserver(() => requestAnimationFrame(rszApply)).observe($('#app'), { childList: true });
+requestAnimationFrame(rszApply);
+
+// ---------- focus rings only for the keyboard: a click or tap never leaves a frame ----------
+addEventListener('keydown', (e) => { if (e.key === 'Tab') document.documentElement.classList.add('kbd'); }, true);
+addEventListener('pointerdown', () => document.documentElement.classList.remove('kbd'), true);
