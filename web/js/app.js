@@ -794,6 +794,7 @@ function sharpCover(u) {
   return u;
 }
 function coverImg(id, cls = '') {
+  if (typeof id === 'string' && genCovers.has(id)) return genCoverHtml(id, cls);
   if (!id) return `<div class="cover ${cls} ph">${icon('note')}</div>`;
   const ph = `this.parentNode.classList.add('ph');this.parentNode.innerHTML='${icon('note').replace(/"/g, '&quot;')}'`;
   const url = coverUrl(id);
@@ -1602,11 +1603,13 @@ async function forYouSections(h) {
   const rows = (r.rows || []).map((row) => ({ ...row, tracks: row.tracks.map(extTrack) }));
   // mixes like on Spotify: one Daily Mix per corner of the taste, new music each week, the songs on repeat
   const cards = [];
-  (r.mixes || []).forEach((m) => cards.push({ title: m.title, sub: (m.artists || []).join(', '), picture: m.picture, tracks: m.tracks.map(extTrack) }));
   if (r.discover?.length >= 8) cards.push({ title: t('discoverMix'), sub: t('discoverHint'), picture: r.discover[0].cover, tracks: r.discover.map(extTrack) });
   if (r.onRepeat?.length >= 5) cards.push({ title: t('onRepeat'), sub: t('onRepeatHint'), picture: r.onRepeat[0].cover, tracks: r.onRepeat.map(extTrack) });
-  if (cards.length) {
-    html += section(t('yourMixes'), `<div class="cards srow">${cards
+  // Streyn Mixes: Daily Mixes, genre and artist mixes, each with its own cover, name and description
+  const smix = streynMixList(r);
+  const tops = await loadTopSongs();
+  if (smix.length || cards.length) {
+    html += section(t('streynMixes'), `<div class="cards srow">${smix.map(mixCard).join('')}${cards
       .map((c) => {
         const id = 'fymix:' + Math.random().toString(36).slice(2, 9);
         fyLists.set(id, c.tracks);
@@ -1616,6 +1619,7 @@ async function forYouSections(h) {
       })
       .join('')}</div>`);
   }
+  if (tops.length) html += section(t('yourTopSongs'), `<div class="cards srow">${tops.map(topCard).join('')}</div>`);
   const songs = (r.discover || []).slice(0, 8).map(extTrack);
   if (songs.length) html += section(t('songsForYou'), trackList(songs));
   if (r.playlists?.length) html += section(t('playlistsForYou'), plainAlbumCards(r.playlists.map(catPlaylist), true));
@@ -1628,6 +1632,147 @@ document.addEventListener('click', (e) => {
   const list = c && fyLists.get(c.dataset.fymix);
   if (list?.length) player.playList(list, 0);
 });
+
+// ---------- Streyn Mixes and "Your Top Songs <year>" ----------
+// Made by the server from what someone plays. Each one gets a cover, a name and a description of its own,
+// like the mixes on Spotify. Both can be switched off in the settings (account settings, so on every device).
+const MIX_COLORS = ['#e8115b', '#1e3264', '#8d67ab', '#e13300', '#148a08', '#509bf5', '#b49bc8', '#ba5d07', '#0d73ec', '#27856a', '#dc148c', '#477d95'];
+const STREYN_MARK = '<svg viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M256 8a248 248 0 1 0 0 496 248 248 0 1 0 0-496Zm0 13a235 235 0 1 1 0 470 235 235 0 1 1 0-470Z"/><path fill="currentColor" transform="translate(-4 16)" d="M149 151 404 78q6-2 7 4l24 214q3 32-24 52-30 22-74 18-34-3-52-24-14-18-4-38 14-26 52-32 30-5 54 8l-16-138-151 36 18 154q4 32-24 52-30 22-74 18-34-3-52-24-14-18-4-38 14-26 52-32 30-5 54 8L142 158q-1-6 7-7Z"/></svg>';
+/** id → { label, picture, color, year } for the covers drawn here instead of loaded */
+const genCovers = new Map();
+function mixColor(id) {
+  let h = 0;
+  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return MIX_COLORS[h % MIX_COLORS.length];
+}
+function genCoverHtml(id, cls) {
+  const g = genCovers.get(id);
+  if (g.year) {
+    return `<div class="cover ${cls} gen year" style="--gc:${g.color};--gc2:${g.color2}"><div class="gen-ov"><span class="gen-mark">${STREYN_MARK}</span><small>${esc(t('topSongsShort'))}</small><b>${g.year}</b></div></div>`;
+  }
+  return `<div class="cover ${cls} gen" style="--gc:${g.color}">${g.picture ? `<img loading="lazy" alt="" src="${esc(g.picture)}" onerror="this.remove()">` : ''}<div class="gen-ov"><span class="gen-mark">${STREYN_MARK}</span><b>${esc(g.label)}</b></div></div>`;
+}
+const userName = () => conn.user?.name || '';
+const namesText = (names) => (names.length ? t('mixAndMore', { names: names.slice(0, 3).join(', ') }) : '');
+/** One mix from the server as the app shows it: name, description, cover, songs. */
+function mixInfo(m) {
+  const names = m.artists || [];
+  let title, desc, label;
+  if (m.kind === 'genre') {
+    const genre = t('g_' + m.genre);
+    title = label = t('mixGenre', { genre });
+    desc = t('mixDescGenre', { genre, names: names.slice(0, 3).join(', ') });
+  } else if (m.kind === 'artist') {
+    title = label = t('mixArtist', { name: m.artist });
+    desc = t('mixDescArtist', { name: m.artist, names: names.filter((n) => n !== m.artist).slice(0, 3).join(', ') || m.artist });
+  } else {
+    title = label = m.title;
+    desc = namesText(names);
+  }
+  const cover = 'gen:mix:' + m.id;
+  const picture = m.picture || m.tracks?.[0]?.cover || '';
+  genCovers.set(cover, { label, picture, color: mixColor(m.id) });
+  if (picture) extCovers.set(cover, picture);
+  return { slug: m.id, title, desc, cover, tracks: (m.tracks || []).map(extTrack) };
+}
+function streynMixList(r) {
+  if (!r || settings.streynMixes === false) return [];
+  // like Spotify: Daily Mixes first, then the genres, then the artists
+  return [...(r.mixes || []), ...(r.genreMixes || []), ...(r.artistMixes || [])].filter((m) => m.id && m.tracks?.length).map(mixInfo);
+}
+const mixCard = (m) => `<a class="card" href="#/mix/${encodeURIComponent(m.slug)}">${coverImg(m.cover, 'lg')}<div class="c-title">${esc(m.title)}</div><div class="c-sub">${esc(m.desc)}</div></a>`;
+
+let topLoad = null;
+/** The yearly top song lists, newest year first. Fetched again after a few minutes. */
+function loadTopSongs() {
+  if (settings.topSongs === false) return Promise.resolve([]);
+  if (!topLoad || Date.now() - topLoad.at > 5 * 60 * 1000)
+    topLoad = { at: Date.now(), p: get('/api/topsongs?tz=' + -new Date().getTimezoneOffset()).then((l) => l.map(topInfo)).catch(() => []) };
+  return topLoad.p;
+}
+function topInfo(y) {
+  const cover = 'gen:top:' + y.year;
+  // every year its own colours, always the same ones
+  const hue = (y.year * 67) % 360;
+  const color = `hsl(${hue} 85% 58%)`, color2 = `hsl(${(hue + 140) % 360} 80% 42%)`;
+  genCovers.set(cover, { year: y.year, color, color2 });
+  extCovers.set(cover, `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="${color2}"/></linearGradient></defs><rect width="10" height="10" fill="url(#g)"/></svg>`)}`);
+  return {
+    year: y.year,
+    title: t('topSongsTitle', { year: y.year }),
+    desc: t('topSongsDesc', { year: y.year }),
+    cover,
+    plays: y.plays,
+    tracks: y.tracks.map((x) => (x.track ? x.track : extTrack(x.ext))).filter(Boolean)
+  };
+}
+const topCard = (y) => `<a class="card" href="#/topsongs/${y.year}">${coverImg(y.cover, 'lg')}<div class="c-title">${esc(y.title)}</div><div class="c-sub">${esc(t('playlist'))} · ${esc(t('forUser', { name: userName() }))}</div></a>`;
+
+function genListActions(key, name) {
+  return `<button class="btn primary" data-playkey="${key}">${icon('play')}${t('playAll')}</button>` +
+    `<button class="icon-btn lg" data-shufflekey="${key}" title="${t('shuffle')}">${icon('shuffle')}</button>` +
+    `<button class="icon-btn lg" data-preload="${key}" title="${t('preload')}">${icon('bolt')}</button>` +
+    offBtn(key + ':' + location.hash, key, name) +
+    `<button class="icon-btn lg" data-savegen="${key}" title="${t('saveAsPlaylist')}">${icon('plus')}</button>`;
+}
+views.mix = async (params, id) => {
+  const r = await (fyLoad?.p || loadForYou(null));
+  const m = streynMixList(r).find((x) => x.slug === decodeURIComponent(id || ''));
+  if (!m) return `<button class="mback" data-back title="${t('back')}">${icon('back')}</button><p class="muted empty">${t(settings.streynMixes === false ? 'streynMixesOff' : 'mixGone')}</p>`;
+  state.detail = { mix: m.tracks };
+  state.genName = m.title;
+  return detailHeader({
+    coverId: m.cover,
+    kind: t('streynMix'),
+    title: m.title,
+    sub: `<span class="pl-desc">${esc(m.desc)}</span>${esc(t('forUser', { name: userName() }))} · ${songCount(m.tracks.length)} · ${fmtTime(m.tracks.reduce((s, x) => s + (x.duration || 0), 0))}`,
+    actions: genListActions('mix', m.title)
+  }) + trackList(m.tracks);
+};
+views.topsongs = async (params, id) => {
+  const y = (await loadTopSongs()).find((x) => String(x.year) === id);
+  if (!y) return `<button class="mback" data-back title="${t('back')}">${icon('back')}</button><p class="muted empty">${t(settings.topSongs === false ? 'topSongsOff' : 'topSongsNone')}</p>`;
+  state.detail = { top: y.tracks };
+  state.genName = y.title;
+  return detailHeader({
+    coverId: y.cover,
+    kind: t('playlist'),
+    title: y.title,
+    sub: `<span class="pl-desc">${esc(y.desc)}</span>${esc(t('forUser', { name: userName() }))} · ${songCount(y.tracks.length)} · ${fmtTime(y.tracks.reduce((s, x) => s + (x.duration || 0), 0))}`,
+    actions: genListActions('top', y.title)
+  }) + trackList(y.tracks, { numbers: true });
+};
+// keep a mix or a year as an own playlist (it then stays as it is, the mix itself goes on changing)
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-savegen]');
+  const list = b && state.detail?.[b.dataset.savegen];
+  if (!list?.length) return;
+  const name = state.genName || t('streynMix');
+  try {
+    // same as "Add to playlist → New playlist": own files only = a normal playlist, else a kept import
+    if (list.every((x) => !x.ext && typeof x.id === 'number')) await post('/api/playlists', { name, trackIds: list.map((x) => x.id) });
+    else {
+      const im = await post('/api/imports', { source: list.find((x) => x.ext)?.ext.source || 'files', name, items: list.map(itemOf) });
+      await post(`/api/imports/${im.id}/playlist`, {});
+    }
+    state.cache.playlists = null;
+    renderSidebarPlaylists();
+    toast(t('savedAsPlaylist', { name: state.genName || '' }));
+  } catch (err) {
+    toast(errorText(err));
+  }
+});
+// the switches in the settings
+document.addEventListener('change', (e) => {
+  const k = e.target.dataset?.aset;
+  if (!k) return;
+  saveSettings({ [k]: e.target.checked }).catch(() => {});
+  fyLoad = null;
+  topLoad = null;
+  dropHome();
+  renderSidebarPlaylists();
+});
+const asw = (k, d) => `<label class="switch"><input type="checkbox" data-aset="${k}" ${(settings[k] ?? d) ? 'checked' : ''}><span></span></label>`;
 
 // The start page is kept in memory once it has been built: coming back to it is instant until the app is closed.
 // A fresh copy is fetched quietly in the background when the kept one is older than a few minutes.
@@ -1808,6 +1953,7 @@ async function pinnedTiles() {
 const likedTile = () => `<a class="qt" href="#/likes"><div class="cover liked">${icon('heartFill')}</div><span>${t('likes')}</span></a>`;
 async function buildHome() {
   fyLoad = null;
+  topLoad = null;
   const [h, lib, fol] = await Promise.all([get('/api/home'), get('/api/library'), loadFollows(true)]);
   const recentExt = extHistory().slice(0, 12).map(histTrack);
   if (!lib.tracks) {
@@ -2508,7 +2654,7 @@ views.library = async (params) => {
     const [lists, imps] = await Promise.all([get('/api/playlists'), get('/api/imports').catch(() => [])]);
     const kept = imps.filter((im) => im.kept);
     for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
-    body = `<div class="cards libgrid" data-sortpl><a class="card" href="#/likes"><div class="cover lg liked">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>
+    body = `<div class="cards libgrid" data-sortpl><a class="card" href="#/likes"><div class="cover lg liked">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>${(await loadTopSongs()).map(topCard).join('')}
       ${byPlOrder([
         ...lists.map((p) => ['playlist:' + p.id, `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`]),
         ...kept.map((im) => ['import:' + im.id, `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`])
@@ -3781,7 +3927,7 @@ async function render() {
   state.route = name || 'home';
   // pages without their own tab (album, artist, playlist …) keep the tab they were opened from, so the blob never vanishes
   if (TABS.includes(state.route)) state.tab = state.route;
-  else if (state.route === 'likes' || state.route === 'imported' || state.route === 'playlist') state.tab = 'library';
+  else if (state.route === 'likes' || state.route === 'imported' || state.route === 'playlist' || state.route === 'topsongs') state.tab = 'library';
   const tab = state.tab || 'home';
   document.querySelectorAll('.side-nav [data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === state.route));
   fsButtons();
@@ -4446,7 +4592,9 @@ async function renderSidebarPlaylists() {
       ...lists.map((p) => ['playlist:' + p.id, () => item('playlist:' + p.id, '#/playlist/' + p.id, artKey('playlist', p.id, p.art) || p.cover_id, p.name, `${t('playlist')} · ${songCount(p.tracks)}`)]),
       ...imps.map((im) => ['import:' + im.id, () => item('import:' + im.id, '#/imported/' + im.id, artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), im.name, `${im.kept || t('src_' + im.source) === 'src_' + im.source ? t('playlist') : t('src_' + im.source)} · ${songCount(im.total)}`)])
     ];
-    box.innerHTML = byPlOrder(all, (x) => x[0]).map((x) => x[1]()).join('');
+    // the yearly top songs below, like Spotify keeps them in the library (no drag, no menu: they are made, not owned)
+    const tops = (await loadTopSongs()).map((y) => `<a href="#/topsongs/${y.year}" class="side-pl gen">${coverImg(y.cover, 'xs')}<span class="spl-t"><b>${esc(y.title)}</b><small>${t('playlist')} · ${esc(t('forUser', { name: userName() }))}</small></span></a>`);
+    box.innerHTML = byPlOrder(all, (x) => x[0]).map((x) => x[1]()).join('') + tops.join('');
     box.dataset.sortpl = '';
   } catch {
     box.innerHTML = '';
@@ -5743,6 +5891,8 @@ async function renderSettings() {
       setRow(t('discordShow'), psw('discord', false), { hint: t('discordHint'), keys: 'discord rich presence status aktivität activity' }) +
       setRow(t('discordId'), `<input class="textin" id="discordid" value="${esc(prefs.discordId || '')}" placeholder="123456789012345678" inputmode="numeric" autocomplete="off" spellcheck="false">`, { hint: t('discordIdHint'), keys: 'discord application id client' })) : '') +
     setCard('taste', 'mix', t('taste'),
+      setRow(t('streynMixes'), asw('streynMixes', true), { hint: t('streynMixesHint'), keys: 'streyn mix mixes daily genre künstler artist cover generieren generate' }) +
+      setRow(t('topSongsSet'), asw('topSongs', true), { hint: t('topSongsSetHint'), keys: 'top songs jahr year wrapped rückblick playlist generieren generate' }) +
       setRow(t('mixStream'), `<div class="mixlbl"><small>${t('mixOwn')}</small>${prng('mixStream', 0, 1, 0.05, 0.3, PREF_FMT.mixStream)}<small>${t('mixStreaming')}</small></div>`, { hint: t('mixStreamHint'), keys: 'mix geschmack taste lokal local streaming spotify anteil', wide: true }) +
       setRow(t('tasteExcludedList'), '', { hint: t('tasteExcludedHint'), keys: 'geschmack taste ausschließen exclude profil profile', wide: true }) +
       `<div id="tastelist" class="tastelist">${tasteListHtml()}</div>`) +

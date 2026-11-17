@@ -4,6 +4,7 @@ mod db;
 mod ext;
 mod invite;
 mod library;
+mod mixes;
 mod offline;
 mod presence;
 mod recommend;

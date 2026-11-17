@@ -51,6 +51,23 @@ const GENRES: [(&str, u32); 20] = [
     ("country", 84), ("blues", 153), ("film", 173), ("asia", 16), ("africa", 2), ("kids", 95),
 ];
 
+/// A genre tag of a file ("Hip-Hop/Rap", "Alternative Rock" …) → catalog genre id.
+pub fn genre_of_tag(tag: &str) -> Option<u32> {
+    let t = tag.to_lowercase();
+    const WORDS: [(&str, &str); 26] = [
+        ("metal", "metal"), ("hip hop", "rap"), ("hip-hop", "rap"), ("hiphop", "rap"), ("rap", "rap"), ("trap", "rap"),
+        ("r&b", "rnb"), ("rnb", "rnb"), ("soul", "soul"), ("jazz", "jazz"), ("classical", "classic"), ("klassik", "classic"),
+        ("latin", "latin"), ("reggae", "reggae"), ("folk", "folk"), ("country", "country"), ("blues", "blues"),
+        ("soundtrack", "film"), ("indie", "alt"), ("alternative", "alt"), ("punk", "rock"), ("rock", "rock"),
+        ("techno", "electro"), ("house", "dance"), ("electro", "electro"), ("pop", "pop"),
+    ];
+    let key = WORDS.iter().find(|(w, _)| t.contains(w)).map(|x| x.1).or_else(|| (t.contains("dance") || t.contains("edm")).then_some("dance"))?;
+    GENRES.iter().find(|(k, _)| *k == key).map(|x| x.1)
+}
+fn genre_key(id: u32) -> &'static str {
+    GENRES.iter().find(|x| x.1 == id).map(|x| x.0).unwrap_or("")
+}
+
 // ---------- songs ----------
 
 /// The first named artist: "A, B & C feat. D" → "a".
@@ -217,6 +234,8 @@ pub struct Taste {
     pub genres: Vec<u32>,
     /// on repeat: most played lately
     pub repeat: Vec<(String, f64)>,
+    /// genre id → how much of it plays from the own files (genre tags), for the genre mixes
+    pub lib_genres: HashMap<u32, f64>,
 }
 
 impl Taste {
@@ -314,6 +333,20 @@ pub fn taste(db: &Connection, st_rec: Option<&crate::recommend::Recommender>, us
         for g in v["genres"].as_array().cloned().unwrap_or_default() {
             if let Some(id) = GENRES.iter().find(|(k, _)| Some(*k) == g.as_str()).map(|x| x.1) {
                 t.genres.push(id);
+            }
+        }
+    }
+    // genre tags of the own files played this last year
+    if let Ok(mut s) = db.prepare(
+        "SELECT lower(t.genre), COUNT(*) FROM plays p JOIN tracks t ON t.id = p.track_id WHERE p.user_id = ? AND p.ts > ? AND p.kind != 'skip' AND t.genre != '' GROUP BY 1",
+    ) {
+        let rows: Vec<(String, i64)> = s
+            .query_map(params![user_id, now - 365 * DAY], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map(|it| it.filter_map(Result::ok).collect())
+            .unwrap_or_default();
+        for (tag, n) in rows {
+            if let Some(g) = genre_of_tag(&tag) {
+                *t.lib_genres.entry(g).or_insert(0.0) += n as f64;
             }
         }
     }
@@ -502,7 +535,122 @@ fn day_seed(user: i64, now: i64, days: i64) -> u64 {
     (user as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ ((now / (days * DAY)) as u64)
 }
 
-pub fn for_you(cat: &dyn Catalog, t: &Taste, extra: &[String], user: i64, now: i64) -> Value {
+/// Who is in a mix: the first artists, each once, the given one first.
+fn mix_artists(songs: &[Song], first: Option<&str>) -> Vec<String> {
+    let mut who: Vec<String> = first.map(|f| vec![f.to_string()]).unwrap_or_default();
+    for s in songs {
+        let n = s.v["artist"].as_str().unwrap_or("").split([',', '&']).next().unwrap_or("").trim().to_string();
+        if !n.is_empty() && !who.iter().any(|w| main_artist(w) == main_artist(&n)) {
+            who.push(n);
+        }
+    }
+    who.truncate(4);
+    who
+}
+
+/// Streyn Mixes by genre ("Rock Mix"): the genres someone plays most, from the artists they like
+/// (the catalog's artists of each genre), the genre tags of the own files and the setup assistant.
+/// Each mix: own favourites of that genre plus the best songs of its artists. New every day.
+pub fn genre_mixes(cat: &dyn Catalog, t: &Taste, user: i64, now: i64) -> Vec<Value> {
+    let lists: Vec<Vec<ArtistRef>> = parallel(GENRES.iter().map(|(_, g)| Box::new(move || cat.genre_artists(*g)) as Box<dyn FnOnce() -> _ + Send>).collect());
+    let lib_max = t.lib_genres.values().fold(1.0f64, |m, v| m.max(*v));
+    let mut scored: Vec<(u32, f64, &Vec<ArtistRef>)> = GENRES
+        .iter()
+        .zip(lists.iter())
+        .map(|((_, g), l)| {
+            let mut v: f64 = l.iter().map(|a| t.artist_score(&main_artist(&a.name)).max(0.0)).sum();
+            v += 1.5 * t.lib_genres.get(g).copied().unwrap_or(0.0) / lib_max;
+            if t.genres.contains(g) {
+                v += 0.8;
+            }
+            (*g, v, l)
+        })
+        .filter(|x| x.1 >= 0.5 && !x.2.is_empty())
+        .collect();
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+    let mut out = Vec::new();
+    let mut rng = StdRng::seed_from_u64(day_seed(user, now, 1) ^ 0x6e);
+    for (g, _, list) in scored.into_iter().take(4) {
+        if out.len() >= 3 {
+            break;
+        }
+        let names: HashSet<String> = list.iter().map(|a| main_artist(&a.name)).collect();
+        // the genre's artists this person likes most, else the genre's best known ones
+        let mut mine: Vec<&ArtistRef> = list.iter().filter(|a| t.artist_score(&main_artist(&a.name)) > 0.0).collect();
+        mine.sort_by(|a, b| t.artist_score(&main_artist(&b.name)).partial_cmp(&t.artist_score(&main_artist(&a.name))).unwrap_or(std::cmp::Ordering::Equal));
+        let mut seeds: Vec<&ArtistRef> = mine.into_iter().take(3).collect();
+        for a in list.iter() {
+            if seeds.len() >= 4 {
+                break;
+            }
+            if !seeds.iter().any(|s| s.id == a.id) {
+                seeds.push(a);
+            }
+        }
+        let tops: Vec<Vec<Song>> = parallel(seeds.iter().map(|a| Box::new(move || cat.top(&a.id)) as Box<dyn FnOnce() -> _ + Send>).collect());
+        let radio = seeds.first().map(|a| cat.radio(&a.id)).unwrap_or_default();
+        let mut pool: HashMap<String, Cand> = HashMap::new();
+        let own: Vec<Song> = t
+            .known
+            .iter()
+            .filter(|(k, _)| t.songs.get(*k).copied().unwrap_or(0.0) > 0.5)
+            .filter_map(|(_, v)| Song::from(as_catalog(v), 0.0))
+            .filter(|s| names.contains(&s.artist))
+            .collect();
+        add_cands(&mut pool, t, own, 1.0, now, &mut rng);
+        for l in tops {
+            add_cands(&mut pool, t, l.into_iter().take(8).collect(), 0.8, now, &mut rng);
+        }
+        add_cands(&mut pool, t, radio, 0.6, now, &mut rng);
+        let mut mt = HashSet::new();
+        let songs = spread(pool.into_values().collect(), 30, 2, &mut mt);
+        if songs.len() < 10 {
+            continue;
+        }
+        let key = genre_key(g);
+        out.push(json!({
+            "id": format!("genre-{key}"), "kind": "genre", "genre": key,
+            "artists": mix_artists(&songs, seeds.first().map(|a| a.name.as_str())),
+            "picture": seeds.first().map(|a| a.v["picture"].clone()).unwrap_or(Value::Null),
+            "tracks": songs.into_iter().map(|s| s.v).collect::<Vec<_>>(),
+        }));
+    }
+    out
+}
+
+/// Streyn Mixes around one artist ("Linkin Park Mix"): their best songs and the songs around them.
+fn artist_mixes(t: &Taste, infos: &[ArtistLike], user: i64, now: i64) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut rng = StdRng::seed_from_u64(day_seed(user, now, 1) ^ 0xa7);
+    for inf in infos.iter().take(3) {
+        let mut pool: HashMap<String, Cand> = HashMap::new();
+        add_cands(&mut pool, t, inf.top.clone(), 1.2, now, &mut rng);
+        add_cands(&mut pool, t, inf.radio.clone(), 0.8, now, &mut rng);
+        let mut mt = HashSet::new();
+        let songs = spread(pool.into_values().collect(), 30, 3, &mut mt);
+        if songs.len() < 10 {
+            continue;
+        }
+        out.push(json!({
+            "id": format!("artist-{}", main_artist(&inf.a.name).replace(' ', "-")), "kind": "artist", "artist": inf.a.name,
+            "artists": mix_artists(&songs, Some(&inf.a.name)),
+            "picture": inf.a.v["picture"],
+            "tracks": songs.into_iter().map(|s| s.v).collect::<Vec<_>>(),
+        }));
+    }
+    out
+}
+
+/// What the mixes need to know about one favourite artist.
+pub struct ArtistLike {
+    a: ArtistRef,
+    related: Vec<ArtistRef>,
+    top: Vec<Song>,
+    radio: Vec<Song>,
+}
+
+/// `streyn` = make the Streyn Mixes (they can be switched off in the settings).
+pub fn for_you(cat: &dyn Catalog, t: &Taste, extra: &[String], user: i64, now: i64, streyn: bool) -> Value {
     let mut names: Vec<String> = t.top_artists(6);
     for e in extra {
         if names.len() < 6 && !names.iter().any(|n| main_artist(n) == main_artist(e)) {
@@ -525,15 +673,10 @@ pub fn for_you(cat: &dyn Catalog, t: &Taste, extra: &[String], user: i64, now: i
         names.truncate(5);
     }
     if names.is_empty() {
-        return json!({ "rows": [], "artists": [], "playlists": [], "mixes": [], "discover": [], "onRepeat": on_repeat(t) });
+        return json!({ "rows": [], "artists": [], "playlists": [], "mixes": [], "genreMixes": [], "artistMixes": [], "discover": [], "onRepeat": on_repeat(t) });
     }
     // per artist: who they are, similar artists, best songs and the radio
-    struct Info {
-        a: ArtistRef,
-        related: Vec<ArtistRef>,
-        top: Vec<Song>,
-        radio: Vec<Song>,
-    }
+    type Info = ArtistLike;
     let infos: Vec<Option<Info>> = parallel(
         names
             .iter()
@@ -607,11 +750,19 @@ pub fn for_you(cat: &dyn Catalog, t: &Taste, extra: &[String], user: i64, now: i
         who.insert(0, inf.a.name.clone());
         who.truncate(4);
         mixes.push(json!({
+            "id": format!("daily-{}", mixes.len() + 1),
+            "kind": "daily",
+            "n": mixes.len() + 1,
             "title": format!("Daily Mix {}", mixes.len() + 1),
             "artists": who,
             "picture": inf.a.v["picture"],
             "tracks": songs.into_iter().map(|s| s.v).collect::<Vec<_>>(),
         }));
+    }
+
+    let (genre_mixes, artist_mixes) = if streyn { (genre_mixes(cat, t, user, now), artist_mixes(t, &infos, user, now)) } else { (vec![], vec![]) };
+    if !streyn {
+        mixes.clear();
     }
 
     // Discover: songs of artists not heard yet, new every week
@@ -659,7 +810,8 @@ pub fn for_you(cat: &dyn Catalog, t: &Taste, extra: &[String], user: i64, now: i
     }
     playlists.truncate(12);
     json!({
-        "mixes": mixes, "discover": discover, "onRepeat": on_repeat(t), "rows": rows,
+        "mixes": mixes, "genreMixes": genre_mixes, "artistMixes": artist_mixes,
+        "discover": discover, "onRepeat": on_repeat(t), "rows": rows,
         "artists": artists, "playlists": playlists, "cold": cold,
     })
 }
@@ -694,7 +846,7 @@ pub fn routes() -> Router<St> {
 }
 
 /// The song in the shape the catalog gives it (source, ext_id, title, artist, …).
-fn as_catalog(v: &Value) -> Value {
+pub fn as_catalog(v: &Value) -> Value {
     let ext = &v["ext"];
     json!({
         "source": v["source"].as_str().or(ext["source"].as_str()).unwrap_or(""),
@@ -759,7 +911,16 @@ async fn foryou_route(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<Ha
         taste(&db, Some(&st.rec), u.id, now)
     };
     let uid = u.id;
-    let out = tokio::task::spawn_blocking(move || for_you(&Deezer, &t, &extra, uid, now))
+    // the Streyn Mixes can be switched off in the settings (account setting "streynMixes")
+    let streyn = {
+        let db = st.db.lock().unwrap();
+        db.query_row("SELECT data FROM user_settings WHERE user_id = ?", [uid], |r| r.get::<_, String>(0))
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .map(|v| v["streynMixes"].as_bool() != Some(false))
+            .unwrap_or(true)
+    };
+    let out = tokio::task::spawn_blocking(move || for_you(&Deezer, &t, &extra, uid, now, streyn))
         .await
         .map_err(|_| ApiError::new(500, "internal"))?;
     Ok(Json(out))
@@ -888,7 +1049,7 @@ mod tests {
         }
         d.execute("INSERT INTO follows (user_id, kind, ref, name, created) VALUES (1,'deezer','1','Jazzman',0)", []).unwrap();
         let t = taste(&d, None, 1, NOW);
-        let v = for_you(&Fake, &t, &[], 1, NOW);
+        let v = for_you(&Fake, &t, &[], 1, NOW, true);
         let mixes = v["mixes"].as_array().unwrap();
         assert_eq!(mixes.len(), 2, "pop + jazz: {}", serde_json::to_string(&v["mixes"]).unwrap());
         for m in mixes {
@@ -903,14 +1064,29 @@ mod tests {
         let rep = v["onRepeat"].as_array().unwrap();
         assert_eq!(rep.len(), 4);
         // same day = same mixes
-        let again = for_you(&Fake, &t, &[], 1, NOW + 1000);
+        let again = for_you(&Fake, &t, &[], 1, NOW + 1000, true);
         assert_eq!(again["mixes"], v["mixes"]);
+        // Streyn Mixes: a jazz mix (Jazzman is followed), one mix per favourite artist
+        let g = v["genreMixes"].as_array().unwrap();
+        assert_eq!(g.len(), 1, "{g:?}");
+        assert_eq!(g[0]["id"], "genre-jazz");
+        assert!(g[0]["tracks"].as_array().unwrap().iter().all(|x| corner(x["artist"].as_str().unwrap()) == corner("jazzman")));
+        assert_eq!(g[0]["artists"][0], "Jazzman");
+        let a = v["artistMixes"].as_array().unwrap();
+        assert!(a.iter().any(|m| m["artist"] == "Popstar" && m["id"] == "artist-popstar"), "{a:?}");
+        // switched off in the settings: no mixes at all
+        let off = for_you(&Fake, &t, &[], 1, NOW, false);
+        assert!(off["mixes"].as_array().unwrap().is_empty() && off["genreMixes"].as_array().unwrap().is_empty() && off["artistMixes"].as_array().unwrap().is_empty());
+        assert!(!off["discover"].as_array().unwrap().is_empty());
+        assert_eq!(genre_of_tag("Alternative Rock"), Some(85));
+        assert_eq!(genre_of_tag("Hip-Hop/Rap"), Some(116));
+        assert_eq!(genre_of_tag("Heavy Metal"), Some(464));
 
         // nobody heard anything yet: the genres from the setup assistant
         let d2 = db();
         d2.execute("INSERT INTO user_settings (user_id, data) VALUES (1, '{\"genres\":[\"jazz\"]}')", []).unwrap();
         let t2 = taste(&d2, None, 1, NOW);
-        let v2 = for_you(&Fake, &t2, &[], 1, NOW);
+        let v2 = for_you(&Fake, &t2, &[], 1, NOW, true);
         assert_eq!(v2["cold"], true);
         assert!(!v2["mixes"].as_array().unwrap().is_empty());
         assert_eq!(corner(v2["mixes"][0]["tracks"][0]["artist"].as_str().unwrap()), corner("jazzman"));

@@ -1476,6 +1476,7 @@ pub fn router(st: St) -> Router {
         .route("/home", get(home))
         .merge(crate::ext::routes())
         .merge(crate::taste::routes())
+        .merge(crate::mixes::routes())
         .merge(crate::offline::routes())
         .merge(crate::presence::routes())
         .merge(crate::update::routes())
