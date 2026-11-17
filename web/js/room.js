@@ -77,7 +77,8 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
   // pixel ratio adapts while running (see frame): starts sensible for the device, drops when frames get slow
   const touch = matchMedia('(pointer: coarse)').matches;
-  const maxDpr = Math.min(devicePixelRatio || 1, touch ? 1.5 : 2);
+  // sharp on phones too: up to 2x on high-density screens, never below 1.25x there (or 1x on plain screens)
+  const maxDpr = Math.min(devicePixelRatio || 1, 2), minDpr = Math.min(maxDpr, (devicePixelRatio || 1) >= 2 ? 1.25 : 1);
   let dpr = maxDpr;
   renderer.setPixelRatio(dpr);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1300,7 +1301,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const _sz = new THREE.Vector2();
   function targets() {
     renderer.getDrawingBufferSize(_sz);
-    if (!rtA) { const o = { type: THREE.HalfFloatType, samples: touch ? 0 : 4 }; rtA = new THREE.WebGLRenderTarget(_sz.x, _sz.y, o); rtB = new THREE.WebGLRenderTarget(_sz.x, _sz.y, o); }
+    if (!rtA) { const o = { type: THREE.HalfFloatType, samples: 4 }; rtA = new THREE.WebGLRenderTarget(_sz.x, _sz.y, o); rtB = new THREE.WebGLRenderTarget(_sz.x, _sz.y, o); }
     else if (rtA.width !== _sz.x || rtA.height !== _sz.y) { rtA.setSize(_sz.x, _sz.y); rtB.setSize(_sz.x, _sz.y); }
     compMat.uniforms.res.value.copy(_sz);
   }
@@ -1381,15 +1382,18 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     drawDisplay(bpm >= 60 && bpm <= 200 ? String(bpm) : spinNow > 0.05 ? '33' : '--', bpm >= 60 && bpm <= 200 ? 'BPM' : 'RPM');
     dotFrame(t, eS, real, Math.min(1, spinNow * 1.2));
   }
-  let lastFrame = 0, slow = 0, quick = 0, shadowTick = 0;
+  let lastFrame = 0, ft = 16.7, paceHold = performance.now() + 3500, shadowTick = 0;
   function pace(now) {
     const d = now - lastFrame;
     if (lastFrame && d < 1000 / 62) return false; // high refresh screens: 60 fps is plenty and halves the work
     if (lastFrame && d < 250) {
-      // ~1 s of slow frames → lower resolution; ~4 s of quick frames → back up
-      if (d > 24) { slow++; quick = 0; } else if (d < 17.5) { quick++; slow = Math.max(0, slow - 1); }
-      if (slow > 45 && dpr > 0.7) { dpr = Math.max(0.7, dpr * 0.82); renderer.setPixelRatio(dpr); resize(); slow = 0; }
-      else if (quick > 240 && dpr < maxDpr) { dpr = Math.min(maxDpr, dpr + 0.15); renderer.setPixelRatio(dpr); resize(); quick = 0; }
+      // average frame time; the first seconds (loading, compiling) and single hiccups do not count.
+      // Steadily slow → a bit less resolution (never below minDpr); smooth again → back up to full sharpness.
+      ft += (d - ft) * 0.03;
+      if (now > paceHold) {
+        if (ft > 27 && dpr > minDpr) { dpr = Math.max(minDpr, dpr - 0.15); renderer.setPixelRatio(dpr); resize(); paceHold = now + 2500; ft = 16.7; }
+        else if (ft < 18.5 && dpr < maxDpr) { dpr = Math.min(maxDpr, dpr + 0.15); renderer.setPixelRatio(dpr); resize(); paceHold = now + 2500; }
+      }
     }
     lastFrame = now;
     return true;
