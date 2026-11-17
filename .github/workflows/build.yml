@@ -273,6 +273,10 @@ jobs:
             NOTES="$(mktemp)"
             { echo "## What changed"; git log --no-merges --format='- %s' ${PREV:+$PREV..}HEAD | grep -v '^- Download page' | head -n 40; } > "$NOTES"
           fi
+          # explain the two files that only exist so the next build can reuse them
+          FULL="$(mktemp)"; cat "$NOTES" > "$FULL"
+          printf '\n---\n<sub>`streyn-desktop-*` are the unchanged Windows app files that every installer reuses (kept here for the build). To install, download **Streyn.exe**.</sub>\n' >> "$FULL"
+          NOTES="$FULL"
           gh release create "v$V" out/* --target "$GITHUB_SHA" --title "Streyn $V" --notes-file "$NOTES" --latest
           # earlier releases that went out without a description get theirs from the notes files
           for f in .github/releases/v*.md; do
