@@ -7,6 +7,7 @@ import { Visualizer, MiniViz, VIZ_MODES, MINI_MODES, vizTune } from './viz.js';
 import { t, setLang, getLang } from './i18n.js';
 import { icon } from './icons.js';
 import { colorFromUrl } from './dyncolor.js';
+import { lensSettle, morphIn, morphOut } from './liquid.js';
 
 const RELEASES = 'https://github.com/Labtoso/Musik/releases/latest';
 const GUIDE = 'https://github.com/Labtoso/Musik/blob/main/docs/tailscale.md';
@@ -57,12 +58,17 @@ if (window.MusikAndroid) {
 if (prefs.sink) audioOut.id = prefs.sink;
 function applyPrefs() {
   setLang(prefs.lang);
-  document.documentElement.dataset.accent = accentNow();
+  document.documentElement.dataset.accent = isHex(accentNow()) ? 'custom' : accentNow();
   document.documentElement.dataset.theme = curTheme();
   // Green is dark only
   const light = prefs.mode === 'light' && curTheme() !== 'green';
   document.documentElement.dataset.mode = light ? 'light' : 'dark';
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f5f5f7' : '#111214');
+  // OLED: a setting of dark mode, not a theme of its own. Every theme turns pure black
+  const oled = !!prefs.oled && !light;
+  if (oled) document.documentElement.dataset.oled = '1';
+  else delete document.documentElement.dataset.oled;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f5f5f7' : oled ? '#000000' : '#111214');
+  customAccent();
   window.MusikAndroid?.setMode?.(light ? 'light' : 'dark');
   window.MusikAndroid?.setAccent?.(accentNow());
 }
@@ -113,6 +119,203 @@ const themeList = () => (prefs.themesPlus ? THEMES_ALL : THEMES_ALL.filter((k) =
 const curTheme = () => (themeList().includes(prefs.theme) ? prefs.theme : 'default');
 // Green keeps its own accent (green unless changed there), the other themes share prefs.accent
 const accentNow = () => (curTheme() === 'green' ? prefs.greenAccent || 'green' : prefs.accent);
+// ---------- own accent colour: any colour, from the picker or typed as hex ----------
+const isHex = (v) => /^#[0-9a-f]{6}$/i.test(v || '');
+function hexToRgb(h) {
+  const n = parseInt(h.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+const rgbToHex = (r, g, b) => '#' + [r, g, b].map((x) => Math.round(Math.max(0, Math.min(255, x))).toString(16).padStart(2, '0')).join('');
+function rgbToHsv([r, g, b]) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [((h * 60) + 360) % 360, mx ? d / mx : 0, mx];
+}
+function hsvToHex(h, s, v) {
+  const f = (n) => {
+    const k = (n + h / 60) % 6;
+    return v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
+  };
+  return rgbToHex(f(5) * 255, f(3) * 255, f(1) * 255);
+}
+const lum = (hex) => {
+  const c = hexToRgb(hex).map((x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+/** Typed hex: "#abc", "abc", "aabbcc" and "#AABBCC" all work. */
+function parseHex(v) {
+  v = String(v || '').trim().replace(/^#/, '');
+  if (/^[0-9a-f]{3}$/i.test(v)) v = v.split('').map((c) => c + c).join('');
+  return /^[0-9a-f]{6}$/i.test(v) ? '#' + v.toLowerCase() : null;
+}
+/** The accent set for an own colour: stays readable on the background (darker in light mode, lighter on black) and gets dark or white text. */
+function accentSet(hex, light) {
+  let [h, s, v] = rgbToHsv(hexToRgb(hex));
+  let a = hex;
+  const bg = light ? '#f5f5f7' : '#111214';
+  for (let i = 0; i < 24 && contrast(a, bg) < 2.6; i++) {
+    if (light) v = Math.max(0, v - 0.04);
+    else { v = Math.min(1, v + 0.04); s = Math.max(0, s - 0.02); }
+    a = hsvToHex(h, s, v);
+  }
+  const ink = contrast(a, '#ffffff') >= contrast(a, '#0b0c10') ? '#ffffff' : hsvToHex(h, Math.min(1, s * 0.8), 0.09);
+  return { accent: a, accent2: hsvToHex((h + 28) % 360, Math.min(1, s * 1.05), Math.min(1, v * 0.97)), ink };
+}
+/** Puts an own colour on the page (or takes it off again when a named colour is picked). */
+function customAccent() {
+  const a = accentNow(), r = document.documentElement;
+  if (!isHex(a)) return ['--accent', '--accent-ink', '--accent2'].forEach((k) => r.style.removeProperty(k));
+  const c = accentSet(a, r.dataset.mode === 'light');
+  r.style.setProperty('--accent', c.accent);
+  r.style.setProperty('--accent2', c.accent2);
+  r.style.setProperty('--accent-ink', c.ink);
+}
+/** Picks an accent (a name, "cover" or a hex colour); `keep` false while dragging so only the end of the drag is stored. */
+function setAccentPref(v, keep = true) {
+  if (curTheme() === 'green') prefs.greenAccent = v;
+  else prefs.accent = v;
+  if (isHex(v)) prefs.customAccent = v;
+  if (keep) {
+    if (isHex(v)) prefs.recentAccents = [v, ...(prefs.recentAccents || []).filter((x) => x !== v)].slice(0, 8);
+    savePrefs();
+  }
+  applyPrefs();
+  if (typeof player !== 'undefined' && player) applyDyn(player.current, true);
+  syncAccentUi();
+}
+function syncAccentUi() {
+  const a = accentNow();
+  document.querySelectorAll('.swatch[data-accent]').forEach((s) => s.classList.toggle('on', s.dataset.accent === a));
+  document.querySelectorAll('.swatch.custom').forEach((s) => {
+    s.classList.toggle('on', isHex(a));
+    s.style.setProperty('--c', isHex(a) ? a : prefs.customAccent || '');
+    s.classList.toggle('has', isHex(a) || isHex(prefs.customAccent));
+  });
+  document.querySelectorAll('.cpick').forEach((p) => cpickSync(p, isHex(a) ? a : null));
+}
+const ACCENT_IDEAS = ['#ff2d55', '#ff9f0a', '#ffd60a', '#30d158', '#64d2ff', '#0a84ff', '#5e5ce6', '#bf5af2', '#ac8e68', '#e8e8ed'];
+/** The swatches plus the "own colour" swatch and its picker: a field for saturation and brightness, a hue strip, hex input and recent colours. */
+function accentPicker(list) {
+  const a = accentNow();
+  const own = isHex(a) ? a : prefs.customAccent || '';
+  const recent = (prefs.recentAccents || []).filter(isHex);
+  return `<div class="accentpick"><div class="swatches">${list.map((x) => `<button class="swatch ${x} ${a === x ? 'on' : ''}" data-accent="${x}" title="${t(x)}" aria-label="${t(x)}"></button>`).join('')}<button class="swatch custom ${isHex(a) ? 'on' : ''} ${own ? 'has' : ''}" data-cpick style="--c:${own}" title="${t('customColor')}" aria-label="${t('customColor')}" aria-expanded="false">${icon('plus')}</button></div>
+  <div class="cpick" hidden><div class="cp-in">
+    <div class="cp-sv" data-cpdrag="sv" role="slider" aria-label="${t('cpShade')}" tabindex="0"><i class="cp-thumb"></i></div>
+    <div class="cp-hue" data-cpdrag="hue" role="slider" aria-label="${t('cpHue')}" tabindex="0"><i class="cp-thumb"></i></div>
+    <div class="cp-row"><span class="cp-prev"></span><label class="cp-hex"><span>#</span><input data-cphex maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Hex"></label>${'EyeDropper' in window ? `<button type="button" class="icon-btn cp-eye" data-cpeye title="${t('cpEye')}" aria-label="${t('cpEye')}">${icon('pipette')}</button>` : ''}</div>
+    <div class="cp-list"><small>${t(recent.length ? 'cpRecent' : 'cpIdeas')}</small><div>${(recent.length ? recent : ACCENT_IDEAS).map((c) => `<button type="button" class="cp-chip" data-cphexset="${c}" style="--c:${c}" title="${c}" aria-label="${c}"></button>`).join('')}</div></div>
+  </div></div></div>`;
+}
+function cpickSync(p, hex) {
+  if (!hex) return;
+  const st = p._hsv && hsvToHex(...p._hsv) === hex ? p._hsv : rgbToHsv(hexToRgb(hex));
+  // grey has no hue: keep the hue the picker had, so the strip does not jump to red
+  if (p._hsv && (st[1] === 0 || st[2] === 0)) st[0] = p._hsv[0];
+  p._hsv = st;
+  const [h, sv, v] = st;
+  p.style.setProperty('--h', h.toFixed(1));
+  p.style.setProperty('--cur', hex);
+  p.querySelector('.cp-sv .cp-thumb').style.cssText = `left:${(sv * 100).toFixed(2)}%;top:${((1 - v) * 100).toFixed(2)}%`;
+  p.querySelector('.cp-hue .cp-thumb').style.left = ((h / 360) * 100).toFixed(2) + '%';
+  const inp = p.querySelector('[data-cphex]');
+  if (document.activeElement !== inp) inp.value = hex.slice(1).toUpperCase();
+  inp.classList.remove('bad');
+}
+function cpickOpen(p, open) {
+  p.hidden = false;
+  if (open && isHex(accentNow())) cpickSync(p, accentNow());
+  p.closest('.accentpick')?.querySelector('[data-cpick]')?.setAttribute('aria-expanded', String(open));
+  p.classList.toggle('open', open);
+  if (!open) setTimeout(() => !p.classList.contains('open') && (p.hidden = true), 420);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cpick]');
+  if (b) {
+    const p = b.closest('.accentpick').querySelector('.cpick');
+    const a = accentNow();
+    if (!isHex(a)) {
+      // first time: start from the colour the app shows right now, so nothing jumps
+      const now = prefs.customAccent || parseHex(getComputedStyle(document.documentElement).getPropertyValue('--accent')) || '#4c8dff';
+      setAccentPref(now);
+      return cpickOpen(p, true);
+    }
+    return cpickOpen(p, !p.classList.contains('open'));
+  }
+  const c = e.target.closest('[data-cphexset]');
+  if (c) return setAccentPref(c.dataset.cphexset);
+  if (e.target.closest('[data-cpeye]')) {
+    new window.EyeDropper().open().then((r) => { const h = parseHex(r.sRGBHex); if (h) setAccentPref(h); }).catch(() => {});
+  }
+});
+// dragging in the field or on the hue strip: the whole app takes the colour live, it is stored when let go
+document.addEventListener('pointerdown', (e) => {
+  const area = e.target.closest('[data-cpdrag]');
+  if (!area) return;
+  e.preventDefault();
+  const p = area.closest('.cpick');
+  const kind = area.dataset.cpdrag;
+  let raf = 0, last = null;
+  const at = (ev) => {
+    const r = area.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)), y = Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height));
+    const [h, s, v] = p._hsv || [220, 0.7, 1];
+    p._hsv = kind === 'sv' ? [h, x, 1 - y] : [x * 359.9, s, v];
+    last = hsvToHex(...p._hsv);
+    cpickSync(p, last);
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; setAccentPref(last, false); });
+  };
+  area.classList.add('drag');
+  try { area.setPointerCapture(e.pointerId); } catch {}
+  at(e);
+  const mv = (ev) => ev.pointerId === e.pointerId && at(ev);
+  const up = (ev) => {
+    if (ev.pointerId !== e.pointerId) return;
+    area.classList.remove('drag');
+    area.removeEventListener('pointermove', mv);
+    area.removeEventListener('pointerup', up);
+    area.removeEventListener('pointercancel', up);
+    cancelAnimationFrame(raf);
+    if (last) setAccentPref(last);
+  };
+  area.addEventListener('pointermove', mv);
+  area.addEventListener('pointerup', up);
+  area.addEventListener('pointercancel', up);
+});
+// arrow keys on the field and the strip
+document.addEventListener('keydown', (e) => {
+  const area = e.target.closest?.('[data-cpdrag]');
+  if (!area || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+  e.preventDefault();
+  const p = area.closest('.cpick');
+  let [h, s, v] = p._hsv || [220, 0.7, 1];
+  const st = e.shiftKey ? 0.1 : 0.02;
+  if (area.dataset.cpdrag === 'hue') h = (h + (e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 1) * st * 360 + 360) % 360;
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') s = Math.max(0, Math.min(1, s + (e.key === 'ArrowLeft' ? -st : st)));
+  else v = Math.max(0, Math.min(1, v + (e.key === 'ArrowDown' ? -st : st)));
+  p._hsv = [h, s, v];
+  setAccentPref(hsvToHex(h, s, v));
+});
+// typing a hex colour: applied as soon as it is complete, marked red while it is not
+document.addEventListener('input', (e) => {
+  if (!e.target.matches?.('[data-cphex]')) return;
+  const h = parseHex(e.target.value);
+  e.target.classList.toggle('bad', !h && e.target.value.replace('#', '').length >= 3);
+  if (h && e.target.value.replace('#', '').length !== 3) setAccentPref(h);
+});
+document.addEventListener('change', (e) => {
+  if (!e.target.matches?.('[data-cphex]')) return;
+  const h = parseHex(e.target.value);
+  if (h) setAccentPref(h);
+  e.target.value = (isHex(accentNow()) ? accentNow() : prefs.customAccent || '').slice(1).toUpperCase();
+  e.target.classList.remove('bad');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.matches?.('[data-cphex]')) e.target.blur();
+});
 function themePicker() {
   const cur = curTheme();
   return `<div class="themesplus"><div><b>${t('themesPlus')}</b><small>${t('themesPlusHint')}</small></div>${sw('themesplus', !!prefs.themesPlus)}</div><div class="themes">${themeList().map(
@@ -138,11 +341,12 @@ document.addEventListener('click', (e) => {
   savePrefs();
   applyPrefs();
   if (typeof player !== 'undefined' && player) applyDyn(player.current, true);
-  document.querySelectorAll('.swatch').forEach((s) => s.classList.toggle('on', s.dataset.accent === accentNow()));
+  syncAccentUi();
   document.querySelectorAll('.themeopt').forEach((x) => x.classList.toggle('on', x.dataset.themePick === prefs.theme));
   requestAnimationFrame(() => {
     navBlob.place(false);
     glassPanes.scan();
+    if (prefs.theme === 'glass') glassPanes.materialize();
   });
 });
 
@@ -152,7 +356,8 @@ const LENS_OK = /Chrome\//.test(navigator.userAgent);
 document.documentElement.classList.toggle('lg-lens', LENS_OK);
 /** Builds (or rebuilds) the SVG filter `id` for a pane of w x h with corner radius r: a displacement map that pushes
  *  what lies under the rim towards the middle, the way thick glass does, optionally split by colour. */
-function lensFilter(id, w, h, r, bezel, scale, split = 0) {
+function lensFilter(id, w, h, r, bezel, scale, split = 0, mag = 1) {
+  const k = mag > 1 ? 1 - 1 / mag : 0; // the middle of a lens that is thicker than its rim magnifies what lies under it
   const W = Math.max(2, Math.round(w)), H = Math.max(2, Math.round(h));
   r = Math.min(r, W / 2, H / 2);
   const cv = document.createElement('canvas');
@@ -180,8 +385,9 @@ function lensFilter(id, w, h, r, bezel, scale, split = 0) {
         m = Math.min(1, m * 1.15);
       }
       const i = (py * W + px) * 4;
-      d8[i] = 128 - nx * m * 127;
-      d8[i + 1] = 128 - ny * m * 127;
+      const zx = k ? (cx * k) / scale : 0, zy = k ? (cy * k) / scale : 0;
+      d8[i] = Math.max(0, Math.min(255, 128 - nx * m * 127 - zx * 255));
+      d8[i + 1] = Math.max(0, Math.min(255, 128 - ny * m * 127 - zy * 255));
       d8[i + 2] = 128;
       d8[i + 3] = 255;
     }
@@ -218,6 +424,7 @@ const glassPanes = (() => {
   // [selector, key, frost blur]: bars stay almost clear so the bend at the rim is plainly visible, big sheets frost more for reading
   const PANES = [['.bottomnav', 'nav', 1.5], ['.player', 'player', 1.5], ['.toast', 'toast', 2], ['.menu', 'menu', 7], ['.side', 'side', 5], ['.modal', 'modal', 12], ['.profile', 'profile', 14], ['.devsheet', 'devsheet', 12]];
   const sizes = new Map();
+  const seen = new WeakSet();
   let ro = null;
   const fit = (el, key, frost) => {
     if (document.documentElement.dataset.theme !== 'glass' || !LENS_OK) return void (el.style.backdropFilter = '');
@@ -231,11 +438,16 @@ const glassPanes = (() => {
       lensFilter('lg-' + key, w, h, parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, bezel, bezel * 2.4, 0.05);
     }
     el.style.backdropFilter = `url(#lg-${key}) blur(${frost}px) saturate(1.8) brightness(1.06)`;
+    // a pane that just appeared materialises: its rim bends the light strongly at first and settles into clear glass
+    if (!seen.has(el)) {
+      seen.add(el);
+      if (['modal', 'devsheet', 'profile', 'toast'].includes(key)) lensSettle('lg-' + key, 3, 640);
+    }
   };
   const scan = () => {
     ro ||= new ResizeObserver(scan);
     for (const [sel, key, frost] of PANES) {
-      const el = document.querySelector(sel);
+      const el = document.querySelector(sel === '.menu' ? '.menu:not(.lg-ghost)' : sel);
       if (!el) continue;
       ro.observe(el);
       fit(el, key, frost);
@@ -244,7 +456,9 @@ const glassPanes = (() => {
   new MutationObserver((list) => {
     if (list.some((m) => [...m.addedNodes].some((n) => ['menu', 'shell', 'modal-wrap', 'profile-wrap', 'sheet-wrap'].some((c) => n.classList?.contains(c))))) requestAnimationFrame(scan);
   }).observe(document.body, { childList: true, subtree: true });
-  return { scan };
+  /** Switching to Liquid Glass: every bar materialises at once. */
+  const materialize = () => requestAnimationFrame(() => ['nav', 'player', 'side', 'lens'].forEach((k) => lensSettle('lg-' + k, 3.4, 760)));
+  return { scan, materialize };
 })();
 // the light on the glass rims turns with the pointer (PC) or with the tilt of the phone, like real glass catching a lamp
 (() => {
@@ -291,6 +505,8 @@ const navBlob = (() => {
     const h = blob.offsetHeight;
     if (!w || !h || !LENS_OK) return document.documentElement.classList.remove('lg-refract');
     lensFilter('lg-lens', w, h, h / 2, h * 0.3, h * 0.42, 0.03);
+    // held and dragged, the drop becomes a thicker lens that magnifies the icons under it, like the original
+    lensFilter('lg-lens-drag', w, h, h / 2, h * 0.3, h * 0.42, 0.02, 1.12);
     document.documentElement.classList.add('lg-refract');
   };
   const place = (animate = true) => {
@@ -386,6 +602,7 @@ function applyDyn(tr, force = false) {
   const clear = () => {
     root.classList.remove('dyn');
     [...ACCENT_VARS, '--dyn-bg'].forEach((k) => root.style.removeProperty(k));
+    customAccent();
   };
   const id = (prefs.dynamic || wantAccent || green) && tr ? tr.id : null;
   if (id === dynFor && !force) return;
@@ -400,7 +617,7 @@ function applyDyn(tr, force = false) {
       root.style.setProperty('--accent', p.accent);
       root.style.setProperty('--accent2', p.accent2);
       root.style.setProperty('--accent-ink', p.ink);
-    } else ACCENT_VARS.forEach((k) => root.style.removeProperty(k));
+    } else customAccent();
     if (prefs.dynamic || green) {
       root.style.setProperty('--dyn-bg', p.bg);
       root.classList.toggle('dyn', !!prefs.dynamic);
@@ -452,7 +669,7 @@ const paintBars = (() => {
   };
   const later = () => { if (!raf) raf = requestAnimationFrame(now); };
   document.addEventListener('scroll', later, { capture: true, passive: true });
-  new MutationObserver(later).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-mode'] });
+  new MutationObserver(later).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-mode', 'data-oled'] });
   return later;
 })();
 
@@ -670,6 +887,8 @@ function menu(anchor, items) {
   if (y + mh > innerHeight - 8) y = Math.max(8, (atPoint ? anchor.clientY : r.top) - mh - 4);
   m.style.left = Math.max(8, x) + 'px';
   m.style.top = y + 'px';
+  m._from = anchor;
+  morphIn(m, anchor);
   setTimeout(() => addEventListener('mousedown', outside), 0);
   function outside(e) {
     if (m.contains(e.target)) return;
@@ -679,10 +898,12 @@ function menu(anchor, items) {
   m._outside = outside;
 }
 function closeMenu() {
-  const m = $('.menu');
+  const m = $('.menu:not(.lg-ghost)');
   if (m) {
     removeEventListener('mousedown', m._outside);
-    m.remove();
+    // Liquid Glass: the menu melts back into its button, the rest of the app already sees it closed
+    m.classList.add('lg-ghost');
+    morphOut(m, m._from instanceof Element && m._from.isConnected ? m._from : null).then(() => m.remove());
   }
 }
 
@@ -2877,7 +3098,8 @@ views.welcome = async (params) => {
     return wizFrame(i, `<h1>${t('wizLookTitle')}</h1><p class="muted lead">${t('wizLookText')}</p>
       ${wizQ(t('themeAsk'), themePicker(), t('themeHint'))}
       ${wizQ(t('mode'), `<div class="seg">${['dark', 'light'].map((m) => `<button data-mode-pick="${m}" class="${(prefs.mode === 'light' ? 'light' : 'dark') === m ? 'on' : ''}">${icon(m === 'light' ? 'sun' : 'moon')}${t('mode_' + m)}</button>`).join('')}</div>`)}
-      ${wizQ(t('wizAccentAsk'), `<div class="swatches">${ACCENTS.map((a) => `<button class="swatch ${a} ${accentNow() === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, t('accentHint'))}
+      <div class="oledrow">${wizQ(t('oled'), `<label class="wiz-sw">${sw('oledsw', !!prefs.oled)}<span>${t('oledHint')}</span></label>`)}</div>
+      ${wizQ(t('wizAccentAsk'), accentPicker(ACCENTS), t('accentHint'))}
       ${wizQ(t('dynColor'), `<label class="wiz-sw">${sw('dyncolor', prefs.dynamic)}<span>${t('wizDynAsk')}</span></label>`)}`);
   }
   if (step === 'genres') {
@@ -4088,7 +4310,7 @@ addEventListener('popstate', () => {
 // Android back button
 window.musikBack = () => {
   if ($('.modal-wrap')) return $('.modal-wrap').remove(), true;
-  if ($('.menu')) return closeMenu(), true;
+  if ($('.menu:not(.lg-ghost)')) return closeMenu(), true;
   if ($('#settings').classList.contains('open')) return closeSettings(), true;
   if ($('#fs').classList.contains('open')) return openFs(false), true;
   if (location.hash && location.hash !== '#/home') return history.back(), true;
@@ -4230,7 +4452,7 @@ function savePlOrder(box) {
       d.el.classList.remove('pl-armed');
       start();
     }
-    if (document.querySelector('.menu')) closeMenu();
+    if (document.querySelector('.menu:not(.lg-ghost)')) closeMenu();
     e.preventDefault();
     moveTo(e.clientX, e.clientY);
   });
@@ -4961,8 +5183,8 @@ function closeSettings() {
 }
 // ---------- settings: a full page with search, categories as cards, one row per setting ----------
 /** One setting: label and hint on the left, the control on the right (or below when wide). */
-function setRow(label, control, { hint = '', keys = '', wide = false } = {}) {
-  return `<div class="set-row ${wide ? 'wide' : ''}" data-k="${esc((label + ' ' + hint + ' ' + keys).toLowerCase())}"><div class="sr-text"><div class="sr-label">${label}</div>${hint ? `<div class="sr-hint">${hint}</div>` : ''}</div><div class="sr-ctl">${control}</div></div>`;
+function setRow(label, control, { hint = '', keys = '', wide = false, cls = '' } = {}) {
+  return `<div class="set-row ${wide ? 'wide' : ''} ${cls}" data-k="${esc((label + ' ' + hint + ' ' + keys).toLowerCase())}"><div class="sr-text"><div class="sr-label">${label}</div>${hint ? `<div class="sr-hint">${hint}</div>` : ''}</div><div class="sr-ctl">${control}</div></div>`;
 }
 // ---------- devices: where the sound goes, headphones and Bluetooth ----------
 const DEV_ICON = { bluetooth: 'bluetooth', wired: 'headphones', usb: 'headphones', hdmi: 'speaker', phone: 'phone', out: 'speaker' };
@@ -5336,7 +5558,8 @@ async function renderSettings() {
       setRow(t('language'), `<div class="seg">${['de', 'en'].map((l) => `<button data-lang="${l}" class="${getLang() === l ? 'on' : ''}">${l === 'de' ? 'Deutsch' : 'English'}</button>`).join('')}</div>`, { keys: 'deutsch english sprache language' }) +
       setRow(t('theme'), themePicker(), { hint: t('themeHint'), keys: 'theme design liquid glass glas aussehen look', wide: true }) +
       setRow(t('mode'), `<div class="seg">${['dark', 'light'].map((m) => `<button data-mode-pick="${m}" class="${(prefs.mode === 'light' ? 'light' : 'dark') === m ? 'on' : ''}">${icon(m === 'light' ? 'sun' : 'moon')}${t('mode_' + m)}</button>`).join('')}</div>`, { hint: t('modeHint'), keys: 'hell dunkel light dark mode darkmode lightmode' }) +
-      setRow(t('accent'), `<div class="swatches">${accents.map((a) => `<button class="swatch ${a} ${accentNow() === a ? 'on' : ''}" data-accent="${a}" title="${t(a)}" aria-label="${t(a)}"></button>`).join('')}</div>`, { hint: t('accentHint'), keys: 'farbe color theme cover akzent accent' }) +
+      setRow(t('oled'), sw('oledsw', !!prefs.oled), { hint: t('oledHint'), keys: 'oled amoled schwarz black pure dark dunkel akku battery', cls: 'oledrow' }) +
+      setRow(t('accent'), accentPicker(accents), { hint: t('accentHint'), keys: 'farbe color theme cover akzent accent hex eigene custom farbwähler picker', wide: true }) +
       setRow(t('dynColor'), sw('dyncolor', prefs.dynamic), { hint: t('dynColorHint'), keys: t('look') }) +
       setRow(t('logosShow'), psw('logos', true), { hint: t('logosShowHint'), keys: 'logo logos plattform platform spotify youtube quelle source' }) +
       setRow(t('searchIn'), `<div class="seg">${SMODES.map((m) => `<button data-smode="${m}" class="${searchMode() === m ? 'on' : ''}">${t('smode_' + m)}</button>`).join('')}</div>`, { hint: t('searchInHint'), keys: 'search suche spotify youtube everything' }) +
@@ -5610,7 +5833,7 @@ async function renderUsers() {
   } catch {}
 }
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-updcheck],[data-updserver],[data-updapp],[data-updall],[data-lang],[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-invite],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
+  const el = e.target.closest('[data-updcheck],[data-updserver],[data-updapp],[data-updall],[data-lang],.swatch[data-accent],[data-scan],[data-logout],[data-chserver],[data-chpw],[data-adduser],[data-invite],[data-deluser],[data-settings],#scrim,[data-closesettings],[data-copyremote]');
   if (!el) return;
   if (el.dataset.copyremote) {
     copyText(el.dataset.copyremote).then((ok) => (ok ? toast(t('copied')) : dialog({ title: t('onTheGo'), fields: [{ name: 'url', label: t('remoteAddr'), value: el.dataset.copyremote }], ok: 'OK' })));
@@ -5629,12 +5852,8 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (el.dataset.accent) {
-    if (curTheme() === 'green') prefs.greenAccent = el.dataset.accent;
-    else prefs.accent = el.dataset.accent;
-    savePrefs();
-    applyPrefs();
-    applyDyn(player?.current, true);
-    document.querySelectorAll('.swatch').forEach((s) => s.classList.toggle('on', s.dataset.accent === accentNow()));
+    setAccentPref(el.dataset.accent);
+    document.querySelectorAll('.cpick.open').forEach((p) => cpickOpen(p, false));
     return;
   }
   try {
@@ -5710,6 +5929,12 @@ document.addEventListener('click', async (e) => {
   }
 });
 document.addEventListener('change', (e) => {
+  if (e.target.id === 'oledsw') {
+    prefs.oled = e.target.checked;
+    savePrefs();
+    applyPrefs();
+    document.querySelectorAll('#oledsw').forEach((x) => (x.checked = prefs.oled));
+  }
   if (e.target.id === 'dyncolor') {
     prefs.dynamic = e.target.checked;
     savePrefs();

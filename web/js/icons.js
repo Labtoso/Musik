@@ -28,6 +28,7 @@ const P = {
   library: '<path d="M5 4.5v15M9.5 4.5v15"/><path d="m14 5 4.5 14.3"/>',
   queue: '<path d="M4 6.5h12M4 11.5h12M4 16.5h7"/><path d="M15 15v4.5l4-2.25z" fill="currentColor" stroke="none"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  pipette: '<path d="m14.5 6.5 3 3"/><path d="M16.8 3.7a2.1 2.1 0 0 1 3 3l-2.3 2.3-3-3z"/><path d="M14.5 6.5 5.6 15.4a2 2 0 0 0-.55 1L4.5 19.5l3.1-.55a2 2 0 0 0 1-.55l8.9-8.9"/>',
   plusCircle: '<circle cx="12" cy="12" r="8.6" stroke-width="1.6"/><path d="M12 8.2v7.6M8.2 12h7.6" stroke-width="1.6"/>',
   more: '<circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
   volume: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',

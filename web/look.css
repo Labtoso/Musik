@@ -1,0 +1,172 @@
+/* ==========================================================================
+   1.22.0
+   1. Liquid Glass like Apple's original: glass that swells and lights up from the finger, a lens that
+      magnifies while dragged, menus that grow out of their button, panes that materialise, a tab bar
+      that shrinks while scrolling, switches and sliders that turn into glass while held.
+   2. Own accent colour: picker with a saturation/brightness field, hue strip, hex input, recent colours.
+   3. OLED mode: a setting of dark mode that turns every theme pure black.
+   Loaded after style.css and green.css.
+   ========================================================================== */
+
+/* ---------- 1. Liquid Glass ---------- */
+/* pressed: the control swells (scale set from liquid.js) quickly, then springs back with a wobble when let go */
+[data-theme='glass'] .lg-p { transition: scale 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.25), translate 0.14s ease-out, background-color 0.2s, color 0.2s, box-shadow 0.2s !important; }
+[data-theme='glass'] .lg-rel { transition: scale 0.75s var(--lg-spring), translate 0.75s var(--lg-spring), background-color 0.2s, color 0.2s, box-shadow 0.2s !important; }
+/* the old "push in" of each control is replaced by the swell */
+[data-theme='glass'] :is(.btn, .icon-btn, .chip, .tab, .playpause, .seg button, .swatch, .card, .qt, .themeopt, .srccard, .menu button, .side-nav a, .fs-dev):active { transform: none; }
+/* light that wells up inside the glass from where the finger is and spreads */
+lg-glow { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: 3; mix-blend-mode: plus-lighter; transition: opacity 0.5s ease; }
+lg-glow.out { opacity: 0; }
+lg-dot {
+  position: absolute; border-radius: 50%; translate: -50% -50%;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.12) 46%, rgba(255, 255, 255, 0) 100%);
+  animation: lg-well 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes lg-well { from { scale: 0.12; opacity: 0; } 25% { opacity: 1; } to { scale: 1; opacity: 1; } }
+[data-mode='light'] lg-glow { mix-blend-mode: normal; }
+[data-mode='light'] lg-dot { background: radial-gradient(closest-side, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.3) 46%, rgba(255, 255, 255, 0) 100%); }
+/* a pressed glass control also catches more light on its rim */
+[data-theme='glass'] :is(.btn, .chip, .tab, .seg button).lg-p { box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.75), inset 0 -1px 0.5px rgba(255, 255, 255, 0.25), 0 8px 22px -8px rgba(0, 0, 0, 0.55); }
+[data-theme='glass'] .btn.primary.lg-p { box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.8), 0 12px 28px -8px color-mix(in srgb, var(--accent) 85%, transparent); }
+
+/* the tab bar drop: held and dragged it lifts off as a thicker lens that magnifies the icons under it */
+@media (max-width: 899px) {
+  [data-theme='glass'].lg-refract .bottomnav.dragging .navblob { backdrop-filter: url(#lg-lens-drag) saturate(1.25) brightness(1.14); }
+  [data-theme='glass'] .bottomnav.dragging .navblob::after { opacity: 1; }
+}
+
+/* materialise: a sheet comes into being by bending the light (lens strength animated from liquid.js), sharpening as it settles */
+@keyframes lg-mat {
+  from { opacity: 0; transform: scale(0.88); filter: blur(10px) brightness(1.45) saturate(1.5); }
+  35% { opacity: 1; }
+  to { opacity: 1; transform: none; filter: none; }
+}
+[data-theme='glass'] .modal, [data-theme='glass'] .devsheet { animation: lg-mat 0.62s var(--lg-spring) both; }
+[data-theme='glass'] .menu.lg-morph { animation: none; }
+[data-theme='glass'] .menu.lg-ghost { pointer-events: none; }
+[data-theme='glass'] .toast.show { animation: lg-toast 0.6s var(--lg-spring) both; }
+@keyframes lg-toast { from { scale: 0.6 0.4; filter: blur(6px) brightness(1.5); } to { scale: 1; filter: none; } }
+
+/* switches: the knob turns into a clear glass drop while held and slides over the track */
+[data-theme='glass'] :is(.switch span, input[type='checkbox'])::after { transition: transform 0.5s var(--lg-spring), width 0.45s var(--lg-spring), left 0.45s var(--lg-spring), background 0.25s, box-shadow 0.25s; }
+[data-theme='glass'] .switch:active span::after, [data-theme='glass'] input[type='checkbox']:active::after {
+  width: 30px; background: rgba(255, 255, 255, 0.16); transform: translateX(-3px) scale(1.3);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.95), inset 0 -1px 0.5px rgba(255, 255, 255, 0.4), inset 0 0 7px rgba(255, 255, 255, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+[data-theme='glass'] .switch:active input:checked + span::after, [data-theme='glass'] input[type='checkbox']:checked:active::after { transform: translateX(11px) scale(1.3); }
+
+/* sliders: the thumb becomes a glass pill while dragged and the track grows a little, like the media sliders */
+[data-theme='glass'] input[type='range']::-webkit-slider-thumb { transition: opacity 0.15s, width 0.4s var(--lg-spring), height 0.4s var(--lg-spring), margin-top 0.4s var(--lg-spring), background 0.2s, box-shadow 0.2s; }
+[data-theme='glass'] input[type='range']::-webkit-slider-runnable-track { transition: height 0.3s var(--lg-spring); }
+[data-theme='glass'] input[type='range']:active::-webkit-slider-runnable-track { height: 6px; }
+[data-theme='glass'] input[type='range']:active::-webkit-slider-thumb {
+  opacity: 1; width: 34px; height: 22px; margin-top: -8px; border-radius: 999px; background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.95), inset 0 -1px 0.5px rgba(255, 255, 255, 0.4), inset 0 0 8px rgba(255, 255, 255, 0.35), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* phone: scrolling down shrinks the tab bar to the open tab, the mini player moves down beside it; scrolling up brings it back */
+@media (max-width: 899px) {
+  [data-theme='glass'] .bottomnav { justify-self: start; width: calc(100% - 28px); transition: width 0.6s var(--lg-spring), padding 0.4s; }
+  [data-theme='glass'] .bottomnav a { transition: flex-grow 0.5s var(--lg-spring), opacity 0.25s, color 0.22s; }
+  [data-theme='glass'] .player { transition: margin 0.6s var(--lg-spring); }
+  [data-theme='glass'].lg-min .bottomnav { width: 70px; }
+  [data-theme='glass'].lg-min .bottomnav a:not(.on) { flex-grow: 0; flex-basis: 0; opacity: 0; overflow: hidden; pointer-events: none; }
+  [data-theme='glass'].lg-min .bottomnav a.on { background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.04)); box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.45); color: var(--accent); }
+  [data-theme='glass'].lg-min .bottomnav a span { opacity: 0; font-size: 0; }
+  [data-theme='glass'].lg-min .navblob { opacity: 0; transition: opacity 0.15s; }
+  [data-theme='glass'].lg-min .player { margin-bottom: calc(8px + var(--safe-b)); margin-left: calc(14px + 70px + 8px); }
+}
+
+/* ---------- 2. own accent colour ---------- */
+.accentpick { display: grid; gap: 10px; width: 100%; }
+.accentpick .swatches { justify-content: flex-start; }
+.swatch.custom { display: grid; place-items: center; color: #fff; background: conic-gradient(from 200deg, #ff5d5d, #ff9a3d, #f5d547, #3dbb7a, #2ec5c0, #4c8dff, #9b7bff, #ff6fb1, #ff5d5d); }
+.swatch.custom .ic { width: 16px; height: 16px; stroke-width: 2.6; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.55)); }
+.swatch.custom.has { background: radial-gradient(circle, var(--c) 0 56%, transparent 58%), conic-gradient(from 200deg, #ff5d5d, #ff9a3d, #f5d547, #3dbb7a, #2ec5c0, #4c8dff, #9b7bff, #ff6fb1, #ff5d5d); }
+.swatch.custom.has .ic { opacity: 0; }
+.cpick { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.42s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s; }
+.cpick.open { grid-template-rows: 1fr; opacity: 1; }
+.cpick[hidden] { display: none; }
+.cp-in { min-height: 0; overflow: hidden; display: grid; gap: 12px; padding: 4px 2px 8px; max-width: 520px; }
+@media (min-width: 560px) {
+  .cp-in { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: auto auto 1fr; column-gap: 16px; }
+  .cp-sv { grid-row: 1 / 4; }
+}
+.cp-sv {
+  position: relative; height: 172px; border-radius: 14px; touch-action: none; cursor: crosshair; outline: none;
+  background: linear-gradient(to top, #000, rgba(0, 0, 0, 0)), linear-gradient(to right, #fff, hsl(calc(var(--h, 220) * 1deg) 100% 50%));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.cp-hue { position: relative; height: 18px; margin: 4px 0; border-radius: 999px; touch-action: none; cursor: pointer; outline: none; background: linear-gradient(to right, #f00, #ff0 16.7%, #0f0 33.3%, #0ff 50%, #00f 66.7%, #f0f 83.3%, #f00); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.cp-thumb {
+  position: absolute; width: 22px; height: 22px; border-radius: 50%; translate: -50% -50%; pointer-events: none; background: var(--cur);
+  border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 3px 10px rgba(0, 0, 0, 0.45); transition: scale 0.3s cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+.cp-hue .cp-thumb { top: 50%; width: 24px; height: 24px; background: hsl(calc(var(--h, 220) * 1deg) 100% 50%); }
+.drag .cp-thumb, [data-cpdrag]:focus-visible .cp-thumb { scale: 1.22; }
+.cp-row { display: flex; align-items: center; gap: 10px; }
+.cp-prev { flex: none; width: 42px; height: 42px; border-radius: 12px; background: var(--cur); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 6px 16px -8px var(--cur); transition: background 0.15s; }
+.cp-hex {
+  display: flex; align-items: center; gap: 2px; height: 42px; padding: 0 12px; flex: 1; min-width: 0; max-width: 180px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line); font: 600 15px/1 ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.06em; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cp-hex span { color: var(--muted); }
+.cp-hex input { flex: 1; min-width: 0; border: 0; background: none; outline: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: uppercase; color: var(--text); }
+.cp-hex:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
+.cp-hex input.bad { color: var(--danger); }
+.cp-list small { display: block; margin: 2px 0 7px; font-size: 12px; color: var(--muted); }
+.cp-list > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.cp-chip { width: 28px; height: 28px; border-radius: 9px; background: var(--c); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14); transition: transform 0.2s cubic-bezier(0.3, 1.5, 0.5, 1); }
+.cp-chip:hover { transform: scale(1.12); }
+[data-mode='light'] .cp-sv, [data-mode='light'] .cp-chip, [data-mode='light'] .cp-prev { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1); }
+[data-mode='light'] .cp-hex { background: #fff; }
+/* in Liquid Glass the picker's parts are glass too */
+[data-theme='glass'] .cp-sv { border-radius: 20px; }
+[data-theme='glass'] .cp-hex { border-radius: 999px; background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.12); box-shadow: var(--lg-rim); }
+[data-theme='glass'] .cp-prev, [data-theme='glass'] .cp-chip { border-radius: 999px; }
+[data-theme='glass'] .cp-thumb { border-color: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.18), 0 4px 14px rgba(0, 0, 0, 0.45); }
+[data-theme='glass'][data-mode='light'] .cp-hex { background: rgba(255, 255, 255, 0.7); border-color: rgba(20, 22, 40, 0.12); }
+[data-theme='green'] .cp-sv, [data-theme='green'] .cp-hex, [data-theme='green'] .cp-prev { border-radius: 6px; }
+[data-theme='green'] .cp-chip { border-radius: 4px; }
+
+/* ---------- 3. OLED mode: pure black, dark mode only ---------- */
+[data-mode='light'] .oledrow { display: none; }
+:root[data-oled] { --bg: #000; --bg2: #000; --surface: #0d0d0f; --surface2: #18191c; --line: #1c1d21; }
+html[data-oled], [data-oled] body { background: #000; }
+[data-oled] .side { border-right-color: #141416; }
+[data-oled] .player { background: #000; border-top-color: #141416; }
+[data-oled].dyn .player { background: linear-gradient(90deg, color-mix(in srgb, var(--dyn-bg) 30%, #000), #000 60%); }
+[data-oled].dyn #content { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 22%, #000) 0, #000 340px); }
+[data-oled] .settings, [data-oled] .profile, [data-oled] .menu, [data-oled] .modal { background: #0a0a0b; }
+[data-oled] .fs { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg, #222) 45%, #000) 0, #000 60%); }
+@media (max-width: 899px) {
+  [data-oled] .player { background: #0d0d0f; }
+  [data-oled].dyn .player { background: color-mix(in srgb, var(--dyn-bg) 45%, #000); }
+  [data-oled] .bottomnav { background: #000; border-color: #1a1a1d; }
+  [data-oled] .navblob { background: #1a1b1e; }
+}
+/* Liquid Glass on black: no drifting light behind the glass, the glass itself stays */
+:root[data-theme='glass'][data-oled] { --bg: #000; --bg2: rgba(255, 255, 255, 0.035); --surface: rgba(255, 255, 255, 0.06); --surface2: rgba(255, 255, 255, 0.11); }
+html[data-theme='glass'][data-oled] { background: #000; }
+[data-theme='glass'][data-oled] body { background: transparent; }
+[data-theme='glass'][data-oled] body::before { display: none; }
+[data-theme='glass'][data-oled] .settings { background: rgba(0, 0, 0, 0.78); }
+[data-theme='glass'][data-oled] .player, [data-theme='glass'][data-oled] .side { background: linear-gradient(180deg, rgba(20, 20, 24, 0.42), rgba(8, 8, 10, 0.55)); border-top-color: transparent; }
+[data-theme='glass'][data-oled].dyn .player { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 16%, rgba(20, 20, 24, 0.4)), rgba(8, 8, 10, 0.55)); }
+[data-theme='glass'][data-oled] #content, [data-theme='glass'][data-oled].dyn #content { background: transparent; }
+[data-theme='glass'][data-oled] .menu, [data-theme='glass'][data-oled] .modal { background: linear-gradient(180deg, rgba(24, 24, 28, 0.62), rgba(10, 10, 12, 0.72)); }
+[data-theme='glass'][data-oled] .fs { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg, var(--accent)) 50%, #000) 0%, color-mix(in srgb, var(--dyn-bg, var(--accent)) 14%, #000) 50%, #000 100%); }
+@media (max-width: 899px) {
+  [data-theme='glass'][data-oled] .bottomnav { background: linear-gradient(180deg, rgba(20, 20, 24, 0.4), rgba(8, 8, 10, 0.55)); border-color: transparent; }
+  [data-theme='glass'][data-oled] .navblob { background: linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.045)); }
+}
+/* Green on black: the panels lose their grey, thin lines keep the parts apart */
+:root[data-theme='green'][data-oled] { --g-base: #000; --g-highlight: #161616; --g-elevated: #161616; --g-elevated-hi: #222; --surface: #161616; --surface2: #222; }
+@media (min-width: 900px) {
+  [data-theme='green'][data-oled] #content, [data-theme='green'][data-oled] .side-nav, [data-theme='green'][data-oled] .side-pls { box-shadow: inset 0 0 0 1px #1a1a1a; }
+  [data-theme='green'][data-oled] .side-head { box-shadow: inset 0 1px 0 #1a1a1a, inset 1px 0 0 #1a1a1a, inset -1px 0 0 #1a1a1a; }
+}
+[data-theme='green'][data-oled] .player { background: #000; }
+
+/* light Liquid Glass: the bar with "Next" in the start assistant fades into the light page, not into black */
+[data-theme='glass'][data-mode='light'] .wiz-nav { background: linear-gradient(180deg, rgba(238, 240, 246, 0), rgba(238, 240, 246, 0.9) 40%); }
