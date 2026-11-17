@@ -1523,21 +1523,33 @@ async fn sp_listeners(Auth(_, _): Auth, Path(id): Path<String>) -> R {
     }
     let cache = SP_LISTENERS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
     if let Some((at, v)) = cache.lock().unwrap().get(&id).cloned() {
-        if at.elapsed() < std::time::Duration::from_secs(12 * 3600) {
+        // a number is kept 12 hours, a miss only 10 minutes, so a short hiccup does not hide it for half a day
+        let keep = if v.is_some() { 12 * 3600 } else { 600 };
+        if at.elapsed() < std::time::Duration::from_secs(keep) {
             return Ok(Json(json!({ "listeners": v })));
         }
     }
     let id2 = id.clone();
     let v = tokio::task::spawn_blocking(move || {
-        let html = ureq::get(&format!("https://open.spotify.com/artist/{id2}"))
-            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36")
-            .set("Accept-Language", "en-US,en;q=0.9")
-            .timeout(std::time::Duration::from_secs(12))
-            .call()
-            .ok()?
-            .into_string()
-            .ok()?;
-        parse_listeners(&html)
+        // Spotify answers link previews (Discord, Facebook) with a page that carries "… monthly listeners";
+        // the browser page and the embed are tried as well, the first page with the number wins
+        let tries: [(&str, &str); 4] = [
+            ("https://open.spotify.com/artist/{id}", "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)"),
+            ("https://open.spotify.com/artist/{id}", "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"),
+            ("https://open.spotify.com/artist/{id}", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"),
+            ("https://open.spotify.com/embed/artist/{id}", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"),
+        ];
+        tries.iter().find_map(|(url, ua)| {
+            let html = ureq::get(&url.replace("{id}", &id2))
+                .set("User-Agent", ua)
+                .set("Accept-Language", "en-US,en;q=0.9")
+                .timeout(std::time::Duration::from_secs(8))
+                .call()
+                .ok()?
+                .into_string()
+                .ok()?;
+            parse_listeners(&html)
+        })
     })
     .await
     .unwrap_or(None);
@@ -1556,7 +1568,15 @@ pub(crate) fn parse_listeners(html: &str) -> Option<u64> {
             return Some(v);
         }
     }
-    let i = html.find(" monthly listeners")?;
+    for key in ["\"monthly_listeners\":", "\"monthlyListeners\" :"] {
+        if let Some(i) = html.find(key) {
+            let n: String = html[i + key.len()..].trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(v) = n.parse() {
+                return Some(v);
+            }
+        }
+    }
+    let i = html.find(" monthly listeners").or_else(|| html.find(" monthly listener"))?;
     let head = &html[..i];
     let start = head.rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == ',')).map(|p| p + 1).unwrap_or(0);
     let tok = head[start..].replace(',', "");

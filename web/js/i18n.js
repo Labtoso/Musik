@@ -227,6 +227,26 @@ const en = {
   editPlaylist: 'Edit playlist', editPlaylistHint: 'Drag a song by its handle to move it, minus to remove it.', bio: 'Bio', bioHint: 'A few words about you', addBio: 'Add bio', miniViz: 'Visualizer in the mini player', mviz_off: 'Off', mviz_bars: 'Bars', mviz_wave: 'Wave', mviz_glow: 'Glow', miniVizHint: 'Runs as a thin strip along the bottom edge of the bar.', vizColor: 'Colour', vcol_accent: 'Accent colour', vcol_rainbow: 'Rainbow', vcol_flow: 'Gradient', vizSpeed: 'Rainbow speed', vizSens: 'Sensitivity', vizSensHint: 'How strongly the visualizer reacts to the music.', vizBass: 'Bass', vizMid: 'Mids', vizHigh: 'Highs',
 };
 
+// 1.22.0
+Object.assign(de, {
+  done: 'Fertig', zoom: 'Zoom', saveAlbum: 'Speichern', albumSaved: '„{name}“ ist in deiner Bibliothek', albumInLibrary: 'Gespeichert',
+  pinHome: 'An Startseite anheften', unpinHome: 'Von Startseite lösen', pinnedHome: 'Auf der Startseite angeheftet', unpinnedHome: 'Von der Startseite gelöst',
+  devNameRow: 'Name dieses Geräts', devNameHint: 'So heißt dieses Gerät in der Geräteauswahl und auf deinen anderen Geräten. Leer lassen für den automatischen Namen.', devNameSaved: 'Dieses Gerät heißt jetzt „{name}“',
+  wizMiniVizAsk: 'Visualizer im Mini-Player',
+  ce_bg: 'Hintergrund', ce_img: 'Bild', ce_text: 'Text', ce_fx: 'Effekte', ce_colors: 'Farben', ce_gradients: 'Verläufe', ce_move: 'Bild mit dem Finger oder der Maus verschieben, mit zwei Fingern oder dem Mausrad zoomen.',
+  ce_top: 'Oben', ce_center: 'Mitte', ce_bottom: 'Unten', ce_size: 'Größe', ce_shadow: 'Schatten',
+  ce_fx_none: 'Keiner', ce_fx_duotone: 'Duoton', ce_fx_bw: 'Schwarzweiß', ce_fx_grain: 'Körnung', ce_fx_vignette: 'Vignette', ce_fx_blur: 'Weich', ce_fx_glow: 'Licht'
+});
+Object.assign(en, {
+  done: 'Done', zoom: 'Zoom', saveAlbum: 'Save', albumSaved: '“{name}” is in your library', albumInLibrary: 'Saved',
+  pinHome: 'Pin to Home', unpinHome: 'Unpin from Home', pinnedHome: 'Pinned to Home', unpinnedHome: 'Unpinned from Home',
+  devNameRow: 'Name of this device', devNameHint: 'This is what this device is called in the device picker and on your other devices. Leave empty for the automatic name.', devNameSaved: 'This device is now called “{name}”',
+  wizMiniVizAsk: 'Visualizer in the mini player',
+  ce_bg: 'Background', ce_img: 'Image', ce_text: 'Text', ce_fx: 'Effects', ce_colors: 'Colours', ce_gradients: 'Gradients', ce_move: 'Move the picture with your finger or the mouse, zoom with two fingers or the mouse wheel.',
+  ce_top: 'Top', ce_center: 'Middle', ce_bottom: 'Bottom', ce_size: 'Size', ce_shadow: 'Shadow',
+  ce_fx_none: 'None', ce_fx_duotone: 'Duotone', ce_fx_bw: 'Black & white', ce_fx_grain: 'Grain', ce_fx_vignette: 'Vignette', ce_fx_blur: 'Soft', ce_fx_glow: 'Light'
+});
+
 const dicts = { de, en };
 let lang = 'de';
 

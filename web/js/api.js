@@ -31,11 +31,14 @@ export function normalizeServer(input) {
 }
 
 /** True when this page is served by a Streyn server itself (browser use). */
+/** The answer of /api/info from the check below, so the start does not ask twice. */
+export let sameInfo = null;
 export async function detectSameOrigin() {
   if (!/^https?:$/.test(location.protocol) || location.hostname === 'appassets.androidplatform.net') return null;
   try {
     const r = await fetch(location.origin + '/api/info', { cache: 'no-store' });
     const j = await r.json();
+    if (j.app === 'musik') sameInfo = j;
     return j.app === 'musik' ? location.origin : null;
   } catch {
     return null;

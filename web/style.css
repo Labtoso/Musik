@@ -1634,8 +1634,11 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 .eqi i:nth-child(4) { animation-duration: 0.8s; animation-delay: -0.15s; }
 html.is-playing .eqi i { animation-play-state: running; }
 @keyframes eqi { 0% { transform: scaleY(0.25); } 35% { transform: scaleY(1); } 65% { transform: scaleY(0.45); } 100% { transform: scaleY(0.85); } }
-.row.current:hover .eqi { display: none; }
-.row.current:hover .lead > .cover { filter: none; }
+/* only with a real mouse: on a phone the last tapped row keeps :hover, which hid the equalizer on the cover */
+@media (hover: hover) and (pointer: fine) {
+  .row.current:hover .eqi { display: none; }
+  .row.current:hover .lead > .cover { filter: none; }
+}
 @media (prefers-reduced-motion: reduce) { .eqi i { animation: none; transform: scaleY(0.6); } }
 /* queue: one compact line per song, like Spotify (cover, title and artist, like, length, menu) */
 .queue-view .tracks[data-queue] .row { grid-template-columns: 40px minmax(0, 1fr) 36px 48px 32px; gap: 10px; padding: 4px 8px; min-height: 52px; }
@@ -1799,4 +1802,62 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
   :root:not([data-theme='green']) .np .cover.md { width: 48px; height: 48px; }
   [data-theme='glass'] .player { margin-bottom: calc(86px + var(--safe-b)); }
   [data-theme='glass'] #view { padding-bottom: calc(192px + var(--safe-b) + 24px); }
+}
+
+/* ---------- 1.22.0 ---------- */
+/* mini player like Spotify: on another device the artist sits next to the song after a dot, the device below */
+#np-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#np-title .np-inl { display: none; color: var(--muted); font-weight: 500; }
+#mini.devaway #np-title .np-inl { display: inline; }
+#mini.devaway #np-artist { display: none; }
+/* "Now playing" sits in the middle of the screen, whatever the buttons beside it */
+.fs-top { position: relative; }
+.fs-top > .muted { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; pointer-events: none; }
+/* queue and lyrics sheet: a grip on top, small it does not scroll, pulled up it fills the screen */
+.fs-queue { padding-top: 26px; transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1), top 0.3s cubic-bezier(0.2, 0.9, 0.2, 1), bottom 0.3s cubic-bezier(0.2, 0.9, 0.2, 1), left 0.3s, right 0.3s, border-radius 0.3s, visibility 0s 0.22s; }
+.fs-queue.open { transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1), top 0.3s cubic-bezier(0.2, 0.9, 0.2, 1), bottom 0.3s cubic-bezier(0.2, 0.9, 0.2, 1), left 0.3s, right 0.3s, border-radius 0.3s; }
+.fs-queue::before { content: ''; position: sticky; top: -18px; display: block; width: 40px; height: 5px; margin: -16px auto 11px; border-radius: 3px; background: color-mix(in srgb, var(--text) 35%, transparent); cursor: grab; z-index: 2; }
+.fs-queue.open:not(.full) { overflow: hidden; touch-action: none; }
+.fs-queue.full { top: var(--safe-t) !important; bottom: 0 !important; left: 0 !important; right: 0 !important; border-radius: 22px 22px 0 0; overflow-y: auto; touch-action: pan-y; z-index: 12; }
+.fs-lyrics.full .lyrics p { font-size: 26px; }
+/* local artist page: the listeners from Spotify follow the song count, hidden while there is no number */
+.dh-lst:has([data-listeners]:empty) { display: none; }
+/* cover editor like Spotify's "Create cover": preview on top, tabs below, one panel per tab */
+.modal.ce { width: min(480px, calc(100vw - 24px)); padding: 0; overflow: hidden; display: flex; flex-direction: column; max-height: calc(100dvh - 24px); }
+.ce-top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 10px 12px; }
+.ce-top h2 { margin: 0; text-align: center; font-size: 16px; }
+.ce-stage { padding: 4px 18px 14px; }
+.ce-stage canvas { width: 100%; aspect-ratio: 1; display: block; border-radius: 6px; box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.8); touch-action: none; cursor: grab; }
+.ce-stage canvas:active { cursor: grabbing; }
+.ce-tabs { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ce-tabs button { display: grid; justify-items: center; gap: 3px; padding: 9px 4px 8px; color: var(--muted); font-size: 11.5px; font-weight: 700; background: none; border-radius: 0; position: relative; }
+.ce-tabs button .ic { width: 22px; height: 22px; }
+.ce-tabs button.on { color: var(--text); }
+.ce-tabs button.on::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
+.ce-panel { padding: 12px 16px 18px; overflow-y: auto; min-height: 150px; }
+.ce-sec + .ce-sec { margin-top: 12px; }
+.ce-sec > small { display: block; color: var(--muted); font-weight: 700; margin-bottom: 7px; }
+.ce-sw { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+.ce-dot { width: 32px; height: 32px; border-radius: 50%; padding: 0; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); }
+.ce-dot.on { outline: 2px solid var(--text); outline-offset: 2px; }
+.ce-thumbs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.ce-up, .ce-th { flex: none; width: 72px; height: 72px; border-radius: 6px; padding: 0; overflow: hidden; background: var(--surface2); display: grid; place-items: center; align-content: center; gap: 4px; color: var(--muted); font-size: 10.5px; font-weight: 700; }
+.ce-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ce-th.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ce-zoom { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ce-zoom > small { margin: 0; }
+.ce-zoom input[type='range'] { flex: 1; min-width: 120px; }
+.ce-fonts { display: flex; gap: 8px; flex-wrap: wrap; }
+.ce-font { width: 52px; height: 44px; border-radius: 10px; background: var(--surface2); font-size: 20px; padding: 0; color: var(--muted); }
+.ce-font.on { color: var(--text); box-shadow: inset 0 0 0 2px var(--accent); }
+.ce-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.ce-row .seg button .ic { width: 18px; height: 18px; }
+.ce-fx { display: flex; flex-wrap: wrap; gap: 8px; }
+.ce-chip { padding: 7px 13px; border-radius: 999px; background: var(--surface2); color: var(--muted); font-weight: 700; font-size: 13px; }
+.ce-chip.on { background: var(--text); color: var(--bg); }
+@media (max-width: 520px) {
+  .modal-wrap:has(.modal.ce) { padding: 0; align-items: stretch; }
+  .modal.ce { width: 100%; max-height: none; height: 100%; border-radius: 0; }
+  .ce-stage { padding: 4px 34px 12px; }
+  .ce-panel { flex: 1; }
 }

@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
     private val main = Handler(Looper.getMainLooper())
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private val prefs by lazy { getSharedPreferences("musik", MODE_PRIVATE) }
+    private lateinit var statusStrip: android.view.View
 
     private val pickFiles = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         fileCallback?.onReceiveValue(uris.toTypedArray())
@@ -83,12 +84,19 @@ class MainActivity : ComponentActivity() {
         // a WebView ignores its own padding, so the frame around it keeps the page clear of the
         // status bar, the navigation bar and the keyboard
         val frame = android.widget.FrameLayout(this)
-        frame.setBackgroundColor(Color.parseColor("#111214"))
         frame.addView(web, android.widget.FrameLayout.LayoutParams(-1, -1))
-        setContentView(frame)
-        ViewCompat.setOnApplyWindowInsetsListener(frame) { v, insets ->
+        // the strip behind the status bar takes the colour of the top of the page (set from the page)
+        val root = android.widget.FrameLayout(this)
+        root.setBackgroundColor(Color.parseColor("#111214"))
+        statusStrip = android.view.View(this)
+        statusStrip.setBackgroundColor(Color.parseColor("#111214"))
+        root.addView(frame, android.widget.FrameLayout.LayoutParams(-1, -1))
+        root.addView(statusStrip, android.widget.FrameLayout.LayoutParams(-1, 0, android.view.Gravity.TOP))
+        setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            frame.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            statusStrip.layoutParams = (statusStrip.layoutParams as android.widget.FrameLayout.LayoutParams).apply { height = bars.top }
             WindowInsetsCompat.CONSUMED
         }
 
@@ -109,7 +117,8 @@ class MainActivity : ComponentActivity() {
                 if (url.startsWith("file:///android_asset/") || url.startsWith(LOCAL) || (server != null && url.startsWith(server)) || (remote != null && url.startsWith(remote))) return false
                 // Spotify sign-in runs inside the app and comes back to the server address
                 val host = request.url.host ?: ""
-                if (host == "spotify.com" || host.endsWith(".spotify.com")) return false
+                // but a song, album or artist page of Spotify opens in the Spotify app, so this page (and the player) stays
+                if ((host == "spotify.com" || host.endsWith(".spotify.com")) && host != "open.spotify.com") return false
                 if (!request.isForMainFrame) return false
                 runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
                 return true
@@ -175,15 +184,29 @@ class MainActivity : ComponentActivity() {
     private fun openBest() {
         val now = System.currentTimeMillis()
         if (now - lastOpen < 8000) return showConnect("offline")
+        val first = lastOpen == 0L
         lastOpen = now
         val server = prefs.getString("server", null) ?: return showConnect("")
         val remote = prefs.getString("remote", null)
+        // fast start: open the address that worked last time right away; only if it fails, look again
+        val last = prefs.getString("lastTarget", null)
+        if (first && last != null && (last == server || last == remote)) {
+            lastOpen = now - 8000 // a failure right after this may look again at once
+            return web.loadUrl("$last/")
+        }
+        if (web.url.isNullOrEmpty() || web.url == "about:blank") web.loadUrl("file:///android_asset/loading.html")
         thread {
-            val target = when {
-                check(server, 3000) == "ok" -> server
-                remote != null && check(remote) == "ok" -> remote
-                else -> null
+            // home and on-the-go address are asked at the same time, the first good answer wins
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+            val done = java.util.concurrent.ExecutorCompletionService<String?>(pool)
+            val tries = listOfNotNull(server, remote).distinct()
+            tries.forEach { o -> done.submit { if (check(o, if (o == server) 3000 else 6000) == "ok") o else null } }
+            var target: String? = null
+            repeat(tries.size) {
+                if (target == null) target = runCatching { done.take().get() }.getOrNull()
             }
+            pool.shutdownNow()
+            target?.let { prefs.edit().putString("lastTarget", it).apply() }
             when {
                 target != null -> main.post { web.loadUrl("$target/") }
                 // no server: the playlists kept on this phone, like Spotify's offline mode
@@ -597,6 +620,15 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun getLang(): String = prefs.getString("langChosen", "") ?: ""
         @JavascriptInterface fun setLang(lang: String) {
             if (lang == "de" || lang == "en") prefs.edit().putString("langChosen", lang).apply()
+        }
+        /** Colour of the top of the page behind the status bar; dark icons on a light colour. */
+        @JavascriptInterface fun setBars(color: String) = main.post {
+            val c = runCatching { Color.parseColor(color) }.getOrNull() ?: return@post
+            statusStrip.setBackgroundColor(c)
+            @Suppress("DEPRECATION")
+            window.statusBarColor = c
+            val lum = (0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = lum > 0.6
         }
         @JavascriptInterface fun setAccent(name: String) {
             prefs.edit().putString("accent", name).apply()

@@ -1309,7 +1309,15 @@ async fn home(State(st): State<St>, Auth(u, _): Auth) -> R {
 }
 
 // ---------- static web app ----------
-async fn web(State(st): State<St>, method: Method, uri: axum::http::Uri) -> Response {
+/// Packed copies of the web app's text files, by content tag, so a start of the app moves a fraction of the bytes.
+static WEB_GZ: std::sync::OnceLock<std::sync::Mutex<HashMap<String, std::sync::Arc<Vec<u8>>>>> = std::sync::OnceLock::new();
+fn gzip(data: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(6));
+    let _ = e.write_all(data);
+    e.finish().unwrap_or_default()
+}
+async fn web(State(st): State<St>, method: Method, req_headers: HeaderMap, uri: axum::http::Uri) -> Response {
     let rel = uri.path().trim_start_matches('/');
     let rel = if rel.is_empty() {
         "index.html"
@@ -1358,6 +1366,39 @@ async fn web(State(st): State<St>, method: Method, uri: axum::http::Uri) -> Resp
     };
     headers.insert(header::CONTENT_TYPE, ct.parse().unwrap());
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    // a content tag: the app asks "still the same?" and gets an empty answer when nothing changed
+    let tag = {
+        use sha2::Digest;
+        let h = sha2::Sha256::digest(&data);
+        format!("\"{}\"", h[..10].iter().map(|b| format!("{b:02x}")).collect::<String>())
+    };
+    headers.insert(header::ETAG, tag.parse().unwrap());
+    headers.insert(header::VARY, HeaderValue::from_static("Accept-Encoding"));
+    if req_headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()).is_some_and(|v| v.split(',').any(|x| x.trim() == tag)) {
+        return (axum::http::StatusCode::NOT_MODIFIED, headers).into_response();
+    }
+    let packable = mime.type_() == "text" || matches!(mime.subtype().as_str(), "javascript" | "json" | "svg" | "xml" | "manifest+json");
+    let wants_gz = req_headers.get(header::ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).is_some_and(|v| v.contains("gzip"));
+    let data: Vec<u8> = if packable && wants_gz && data.len() > 1024 {
+        let cache = WEB_GZ.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+        let hit = cache.lock().unwrap().get(&tag).cloned();
+        let gz = match hit {
+            Some(g) => g,
+            None => {
+                let g = std::sync::Arc::new(gzip(&data));
+                let mut c = cache.lock().unwrap();
+                if c.len() > 200 {
+                    c.clear();
+                }
+                c.insert(tag.clone(), g.clone());
+                g
+            }
+        };
+        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        gz.as_ref().clone()
+    } else {
+        data
+    };
     if method == Method::HEAD {
         headers.insert(header::CONTENT_LENGTH, data.len().into());
         return (headers, Body::empty()).into_response();

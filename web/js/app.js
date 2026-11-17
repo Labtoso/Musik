@@ -1,4 +1,4 @@
-import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
+import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, sameInfo, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
 import { LOGOS } from './logos.js';
 import { Player, EQ_FREQS, warmSongs, preloadSongs } from './player.js';
 import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong, DISCORD_URL, openExternal as openExt } from './sources.js';
@@ -408,9 +408,53 @@ function applyDyn(tr, force = false) {
       root.style.removeProperty('--dyn-bg');
       root.classList.remove('dyn');
     }
+    paintBars?.();
   });
 }
 applyPrefs();
+
+/* Android: the strip behind the status bar takes the colour of what is at the top of the page right now
+   (big player, a tinted album or artist header, or the plain background), nothing moves. */
+const paintBars = (() => {
+  if (!window.MusikAndroid?.setBars) return () => {};
+  const probe = document.createElement('i');
+  probe.style.cssText = 'position:fixed;width:0;height:0;visibility:hidden;pointer-events:none';
+  const hex = (css) => {
+    if (!probe.isConnected) document.body.appendChild(probe);
+    probe.style.backgroundColor = '';
+    probe.style.backgroundColor = css;
+    const v = getComputedStyle(probe).backgroundColor;
+    const m = v.match(/[\d.]+/g);
+    if (!m) return null;
+    let [r, g, b] = m.map(Number);
+    if (/color\(srgb/.test(v)) [r, g, b] = [r, g, b].map((x) => x * 255);
+    return '#' + [r, g, b].map((x) => Math.round(x).toString(16).padStart(2, '0')).join('');
+  };
+  let last = '', raf = 0;
+  const now = () => {
+    raf = 0;
+    const root = getComputedStyle(document.documentElement);
+    const bg = root.getPropertyValue('--bg').trim() || '#111214';
+    let c = bg;
+    const fs = document.getElementById('fs');
+    if (fs?.classList.contains('open')) {
+      const full = document.querySelector('.fs-queue.full');
+      if (full) c = getComputedStyle(full).backgroundColor !== 'rgba(0, 0, 0, 0)' ? getComputedStyle(full).backgroundColor : bg;
+      else if (document.documentElement.classList.contains('dyn') || curTheme() === 'green') c = root.getPropertyValue('--dyn-bg').trim() || bg;
+    } else {
+      const head = document.querySelector('#view .detail-head.tinted');
+      const sc = document.getElementById('content')?.scrollTop || 0;
+      const tint = head && getComputedStyle(head).getPropertyValue('--tint').trim();
+      if (tint && head.getBoundingClientRect().top > -200) c = `color-mix(in srgb, ${tint} ${Math.max(0, 100 - sc / 3).toFixed(0)}%, ${bg})`;
+    }
+    const h = hex(c) || hex(bg);
+    if (h && h !== last) { last = h; window.MusikAndroid.setBars(h); }
+  };
+  const later = () => { if (!raf) raf = requestAnimationFrame(now); };
+  document.addEventListener('scroll', later, { capture: true, passive: true });
+  new MutationObserver(later).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-mode'] });
+  return later;
+})();
 
 let player = null;
 let viz = null;
@@ -713,7 +757,7 @@ function trackMenu(anchor, tr, ctx = {}) {
     },
     !tr.ext && { label: t('startRadio'), icon: 'radio', run: () => startRadio(tr) },
     !tr.ext && { label: t('share'), icon: 'share', run: () => shareThing('track', tr.id, tr.title) },
-    tr.ext?.url && { label: t('openOn', { src: t('src_' + tr.ext.source) }), icon: 'link', run: () => window.open(tr.ext.url, '_blank', 'noopener') },
+    tr.ext?.url && { label: t('openOn', { src: t('src_' + tr.ext.source) }), icon: 'link', run: () => openExt(tr.ext.url) },
     '-',
     ...artistRefs(tr).slice(0, 4).map((a, i, l) => ({ label: l.length > 1 ? `${t('goArtist')}: ${a.name}` : t('goArtist'), icon: 'user', run: () => go(a.href) })),
     tr.album && !tr.ext && {
@@ -1223,7 +1267,7 @@ function tintAll(root = document) {
   root.querySelectorAll('[data-tint]').forEach((el) => {
     const url = el.dataset.tint;
     el.removeAttribute('data-tint');
-    colorFromUrl(url).then((c) => { if (c) { el.style.setProperty('--tint', c.bg); el.style.setProperty('--tint2', c.accent); el.classList.add('tinted'); } });
+    colorFromUrl(url).then((c) => { if (c) { el.style.setProperty('--tint', c.bg); el.style.setProperty('--tint2', c.accent); el.classList.add('tinted'); paintBars(); } });
   });
 }
 
@@ -1504,6 +1548,34 @@ function laterSection(make) {
     .catch(() => {});
   return `<div id="${id}"></div>`;
 }
+/** Playlists pinned to the start page from their … menu: they come right after the liked songs, newest pin first. */
+async function toggleHomePin(ref) {
+  const pins = (settings.homePins || []).filter((r) => r !== ref);
+  const on = pins.length === (settings.homePins || []).length;
+  if (on) pins.unshift(ref);
+  await saveSettings({ homePins: pins.slice(0, 8) }).catch(() => {});
+  homeKept = null;
+  toast(t(on ? 'pinnedHome' : 'unpinnedHome'));
+  if (state.route === 'home') render();
+}
+async function pinnedTiles() {
+  const pins = settings.homePins || [];
+  if (!pins.length) return '';
+  const [lists, imps] = await Promise.all([get('/api/playlists').catch(() => []), get('/api/imports').catch(() => [])]);
+  return pins
+    .map((ref) => {
+      const [kind, id] = ref.split(':');
+      if (kind === 'playlist') {
+        const p = lists.find((x) => String(x.id) === id);
+        return p && `<a class="qt pinned" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id)}<span>${esc(p.name)}</span></a>`;
+      }
+      const im = imps.find((x) => String(x.id) === id);
+      if (im?.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
+      return im && `<a class="qt pinned" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id))}<span>${esc(im.name)}</span></a>`;
+    })
+    .filter(Boolean)
+    .join('');
+}
 // always first on the start page, like Spotify: the liked songs
 const likedTile = () => `<a class="qt" href="#/likes"><div class="cover liked">${icon('heartFill')}</div><span>${t('likes')}</span></a>`;
 async function buildHome() {
@@ -1513,7 +1585,7 @@ async function buildHome() {
   if (!lib.tracks) {
     // no own files yet: suggestions from Spotify / YouTube listening instead of an empty page
     let html = pageHead(greeting(), homeReloadBtn());
-    html += `<div class="quick">${likedTile()}</div>`;
+    html += `<div class="quick">${likedTile()}${await pinnedTiles()}</div>`;
     const mixPart = await catalogMixSection(null);
     html += mixPart;
     if (recentExt.length) html += section(t('recent'), trackCards(recentExt, 'recentext'));
@@ -1537,8 +1609,10 @@ async function buildHome() {
     quick.push(x);
   }
   let html = pageHead(greeting(), homeReloadBtn());
-  html += `<div class="quick">${likedTile()}<button class="qt" data-playmix><div class="cover accent">${icon('mix')}</div><span>${t('mixForYou')}</span></button>${quick
-    .slice(0, 6)
+  const pinHtml = await pinnedTiles();
+  const nPins = (pinHtml.match(/class="qt pinned"/g) || []).length;
+  html += `<div class="quick">${likedTile()}${pinHtml}<button class="qt" data-playmix><div class="cover accent">${icon('mix')}</div><span>${t('mixForYou')}</span></button>${quick
+    .slice(0, Math.max(0, 6 - nPins))
     .map((a) => `<a class="qt" href="${albumHref(a.album, a.artist)}">${coverImg(a.cover_id)}<span>${esc(a.album)}</span></a>`)
     .join('')}</div>`;
   if (ownMix) html += `<div class="hero">
@@ -2015,9 +2089,11 @@ function showListeners(spId, name) {
       if (!id) return;
       if (!listenersCache.has(id)) listenersCache.set(id, get('/api/catalog/sp-listeners/' + id).then((r) => r.listeners).catch(() => null));
       const n = await listenersCache.get(id);
+      if (!n) listenersCache.delete(id); // ask again next time instead of keeping a miss
       const el = document.querySelector('[data-listeners]');
       if (!n || !el) return;
-      const fmt = new Intl.NumberFormat(getLang() === 'de' ? 'de-DE' : 'en-US', { notation: n >= 10000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(n);
+      // the full number, like Spotify shows it ("522,698 monthly listeners")
+      const fmt = new Intl.NumberFormat(getLang() === 'de' ? 'de-DE' : 'en-US').format(n);
       el.textContent = t('monthlyListeners', { n: fmt });
     } catch {}
   };
@@ -2042,14 +2118,24 @@ views.cartist = async (params) => {
     related: relatedCards(r.related).map((c, i) => ({ ...c, href: `#/cartist?id=${encodeURIComponent(r.related[i].id)}` }))
   }, params);
 };
+/** Save an album of an artist into the library, like on Spotify; once saved it leads to the saved copy. */
+async function albumSaveBtn(url) {
+  const imps = await get('/api/imports').catch(() => []);
+  const have = imps.find((im) => im.url === url);
+  return have
+    ? `<a class="btn saved" href="#/imported/${have.id}" title="${t('inLibrary')}">${icon('check')}${t('albumInLibrary')}</a>`
+    : `<button class="btn" data-spsave>${icon('plusCircle')}${t('saveAlbum')}</button>`;
+}
 views.calbum = async (params) => {
   const r = await get('/api/fetch/deezer?type=album&id=' + encodeURIComponent(params.get('id') || ''));
   const tracks = (r.items || []).map(extTrack);
   const cid = 'dzalbum:' + params.get('id');
   if (r.cover) extCovers.set(cid, r.cover);
   state.detail = { calbum: tracks };
-  let html = detailHeader({ coverId: cid, kind: t('album'), title: r.name, sub: `${esc(tracks[0]?.artist || '')} · ${songCount(tracks.length)}`, actions: tracks.length ? listActions('calbum') : '' });
-  html += section(t('tracks'), trackList(tracks, { numbers: true }));
+  const url = 'https://www.deezer.com/album/' + params.get('id');
+  state.spPending = { source: 'deezer', name: r.name, cover: r.cover || '', items: r.items || [], url, album: true, meta: { kind: 'album', artist: tracks[0]?.artist || '' } };
+  let html = detailHeader({ coverId: cid, kind: t('album'), title: r.name, sub: `${esc(tracks[0]?.artist || '')} · ${songCount(tracks.length)}`, actions: tracks.length ? listActions('calbum') + (await albumSaveBtn(url)) : '' });
+  html += section(t('tracks'), trackList(tracks));
   return html;
 };
 views.cplaylist = async (params) => {
@@ -2090,10 +2176,12 @@ views.spalbum = async (params) => {
   const cid = 'spalbum:' + id;
   if (r.cover) extCovers.set(cid, r.cover);
   state.detail = { spalbum: tracks };
+  const url = 'https://open.spotify.com/album/' + id;
+  state.spPending = { source: 'spotify', name: r.name, cover: r.cover || '', items: r.items || [], url, album: true, meta: { kind: 'album', artist: r.artist || '' } };
   const total = tracks.reduce((n, x) => n + (x.duration || 0), 0);
   const who = r.artistId ? `<a href="#/spartist?id=${r.artistId}"><b>${esc(r.artist)}</b></a>` : `<b>${esc(r.artist)}</b>`;
-  let html = detailHeader({ coverId: cid, kind: t('album'), title: r.name, sub: `${srcBadge('spotify')} ${who}${r.year ? ' · ' + r.year : ''} · ${songCount(tracks.length)}, ${fmtLong(total)}`, actions: tracks.length ? listActions('spalbum') : '' });
-  html += trackList(tracks, { numbers: true });
+  let html = detailHeader({ coverId: cid, kind: t('album'), title: r.name, sub: `${srcBadge('spotify')} ${who}${r.year ? ' · ' + r.year : ''} · ${songCount(tracks.length)}, ${fmtLong(total)}`, actions: tracks.length ? listActions('spalbum') + offBtn('spa_' + id, 'spalbum', r.name || '') + (await albumSaveBtn(url)) : '' });
+  html += trackList(tracks);
   if (r.label) html += `<p class="muted small credits">${esc(r.label)}</p>`;
   return html;
 };
@@ -2123,6 +2211,11 @@ document.addEventListener('click', async (e) => {
     const res = await saveImport({ source: r.source || 'spotify', name: r.name, url: r.url, cover: r.cover || '', meta: r.meta || {}, items: r.items });
     importStatus(null);
     renderSidebarPlaylists();
+    // a saved album stays open, its button turns into "Saved"
+    if (r.album) {
+      toast(t('albumSaved', { name: r.name }));
+      return render();
+    }
     toast(t('importDone', { name: r.name }));
     go('#/imported/' + res.id);
   } catch (err) {
@@ -2276,7 +2369,7 @@ views.album = async (params) => {
       title: r.album || t('unknownAlbum'),
       sub: `<a href="#/artist?name=${encodeURIComponent(r.artist)}">${esc(r.artist)}</a>${year ? ' · ' + year : ''} · ${songCount(r.tracks.length)} · ${fmtTime(total)}`,
       actions: listActions('album') + shareBtn('album', { album: r.album, artist: r.artist }, r.album)
-    }) + trackList(r.tracks, { numbers: true, album: false })
+    }) + trackList(r.tracks, { album: false })
   );
 };
 
@@ -2287,6 +2380,7 @@ views.artist = async (params) => {
   r.tracks = uniqSongs(r.tracks);
   await loadFollows();
   state.detail = { artist: r.tracks };
+  if (enabled('spotify')) showListeners('', name);
   const albums = [];
   const seen = new Set();
   for (const x of r.tracks) {
@@ -2303,7 +2397,7 @@ views.artist = async (params) => {
       round: true,
       kind: t('artist'),
       title: r.name,
-      sub: songCount(r.tracks.length),
+      sub: `${songCount(r.tracks.length)}<span class="dh-lst"> · <span data-listeners></span></span>`,
       actions: listActions('artist') + `<button class="btn" data-radioartist>${icon('radio')}${t('startRadio')}</button>` + followBtn('local', r.name, r.name, r.tracks[0]?.id || '')
     }),
     tracks: r.top,
@@ -2807,6 +2901,7 @@ views.welcome = async (params) => {
       ${wizQ(t('autoplayShort'), `<label class="wiz-sw">${sw('autoplay', prefs.autoplay)}<span>${t('wizAutoplayAsk')}</span></label>`)}
       ${wizQ(t('wizSearchAsk'), `<div class="seg wiz-wrap">${SMODES.map((m) => `<button data-smode="${m}" class="${searchMode() === m ? 'on' : ''}">${t('smode_' + m)}</button>`).join('')}</div>`, t('searchInHint'))}
       ${wizQ(t('wizVizAsk'), `<div class="seg wiz-wrap">${VIZ_MODES.map((m) => `<button data-wviz="${m}" class="${(prefs.viz || 'off') === m ? 'on' : ''}">${t('viz_' + m)}</button>`).join('')}</div>`)}
+      ${wizQ(t('wizMiniVizAsk'), `<div class="seg wiz-wrap">${MINI_MODES.map((m) => `<button data-wminiviz="${m}" class="${(prefs.miniViz || 'off') === m ? 'on' : ''}">${t('mviz_' + m)}</button>`).join('')}</div>`, t('miniVizHint'))}
       ${wizQ(t('wizEqAsk'), `<div class="seg wiz-wrap">${['flat', 'bass', 'treble', 'vocal', 'night'].map((k) => `<button data-weq="${k}" class="${eq === k ? 'on' : ''}">${t('eq_' + k)}</button>`).join('')}</div>`, t('eqHint'))}`);
   }
   const any = Object.entries(settings.sources || {}).some(([k, v]) => v && k !== 'local');
@@ -2874,6 +2969,14 @@ document.addEventListener('click', async (e) => {
     const c = $('.wiz-count');
     if (c) c.textContent = t('wizArtistPicked', { n });
     document.querySelectorAll('.wiz-nav .stack [data-wizgo]').forEach((b) => b.classList.contains('primary') || b.toggleAttribute('hidden', n > 0));
+    return;
+  }
+  const mv = e.target.closest('[data-wminiviz]');
+  if (mv) {
+    prefs.miniViz = mv.dataset.wminiviz;
+    savePrefs();
+    miniVizSync();
+    mv.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === mv));
     return;
   }
   const v = e.target.closest('[data-wviz]');
@@ -3178,8 +3281,9 @@ views.lyrics = async () => {
 };
 function toggleFsLyrics() {
   const l = $('#fs-lyrics');
-  $('#fs-queue').classList.remove('open');
+  $('#fs-queue').classList.remove('open', 'full');
   l.classList.toggle('open');
+  if (!l.classList.contains('open')) l.classList.remove('full');
   if (l.classList.contains('open')) renderLyrics(l.querySelector('.lyrbody'));
   fsButtons();
 }
@@ -3412,6 +3516,7 @@ async function render() {
     paintPlayButtons();
     main.scrollTop = 0;
     $('#content').scrollTop = 0;
+    paintBars();
     if (state.route === 'search') {
       const q = $('#q');
       if (q) {
@@ -3471,7 +3576,8 @@ function renderPlayer() {
       big.innerHTML = coverImg(tr.id, 'huge');
       viz?.attach(big);
     }
-    $('#np-title').textContent = tr.title;
+    // like Spotify: once the sound plays on another device the artist moves up next to the song, after a dot
+    $('#np-title').innerHTML = `<span class="np-t">${esc(tr.title)}</span><span class="np-inl"> • ${esc(artistName(tr))}</span>`;
     $('#np-artist').innerHTML = artistLinks(tr);
     $('#fs-title').textContent = tr.title;
     $('#fs-artist').innerHTML = artistLinks(tr);
@@ -3672,7 +3778,7 @@ function miniVizSync() {
   const box = $('#player');
   if (!box) return;
   miniViz.attach(box);
-  const mode = prefs.miniViz || 'bars'; // a thin strip along the bottom edge of the bar
+  const mode = prefs.miniViz || 'off'; // off until chosen (setup or settings); then a thin strip along the bottom edge of the bar
   miniViz.setMode(mode);
   const run = mode !== 'off' && player.playing && !document.hidden && !$('#fs').classList.contains('open');
   if (run) {
@@ -3740,9 +3846,10 @@ function openFs(open) {
   $('#fs').classList.toggle('open', open);
   if (open) fitFsCover();
   vizSync();
-  if (!open) $('#fs-queue').classList.remove('open');
-  if (!open) $('#fs-lyrics').classList.remove('open');
+  if (!open) $('#fs-queue').classList.remove('open', 'full');
+  if (!open) $('#fs-lyrics').classList.remove('open', 'full');
   fsButtons();
+  paintBars();
   placeStage();
   setTimeout(placeStage, 350);
   if (open) history.pushState({ fs: 1 }, '');
@@ -3918,11 +4025,62 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && chill) c
 })();
 function toggleFsQueue() {
   const q = $('#fs-queue');
-  $('#fs-lyrics').classList.remove('open');
+  $('#fs-lyrics').classList.remove('open', 'full');
   q.classList.toggle('open');
+  if (!q.classList.contains('open')) q.classList.remove('full');
   if (q.classList.contains('open')) q.innerHTML = queueHtml();
   fsButtons();
 }
+/* Queue and lyrics are a sheet like on Spotify: a grip on top, pulled up it fills the screen, pulled down it gets small again.
+   Small, the sheet does not scroll; trying to scroll it makes it big, and big it scrolls. */
+(() => {
+  const sheet = (el) => el?.closest?.('#fs-queue, #fs-lyrics');
+  const setFull = (el, on) => {
+    if (el.classList.contains('full') === on) return;
+    el.classList.toggle('full', on);
+    if (!on) el.scrollTop = 0;
+    setTimeout(paintBars, 320);
+    navigator.vibrate?.(8);
+  };
+  const close = (el) => {
+    el.classList.remove('open', 'full');
+    fsButtons();
+  };
+  let t = null;
+  document.addEventListener('touchstart', (e) => {
+    const el = sheet(e.target);
+    if (!el || !el.classList.contains('open')) return (t = null);
+    const r = el.getBoundingClientRect();
+    t = { el, y: e.touches[0].clientY, grip: e.touches[0].clientY - r.top < 34, top: el.scrollTop <= 0, done: false };
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!t || t.done) return;
+    const dy = e.touches[0].clientY - t.y;
+    const full = t.el.classList.contains('full');
+    if (!full) {
+      if (e.cancelable) e.preventDefault();
+      if (dy < -24) { setFull(t.el, true); t.done = true; } else if (dy > 70) { close(t.el); t.done = true; }
+    } else if ((t.grip || t.top) && dy > 60) {
+      if (e.cancelable) e.preventDefault();
+      setFull(t.el, false); t.done = true;
+    }
+  }, { passive: false });
+  document.addEventListener('touchend', () => (t = null), { passive: true });
+  // mouse: the wheel on a small sheet makes it big, the grip switches between small and big
+  document.addEventListener('wheel', (e) => {
+    const el = sheet(e.target);
+    if (!el || !el.classList.contains('open')) return;
+    if (!el.classList.contains('full')) {
+      e.preventDefault();
+      if (e.deltaY > 0) setFull(el, true);
+    } else if (e.deltaY < -30 && el.scrollTop <= 0) setFull(el, false);
+  }, { passive: false });
+  document.addEventListener('click', (e) => {
+    const el = sheet(e.target);
+    if (!el || !el.classList.contains('open') || e.target.closest('button, a, input, .row, .lyrics p')) return;
+    if (e.clientY - el.getBoundingClientRect().top < 34) setFull(el, !el.classList.contains('full'));
+  });
+})();
 addEventListener('popstate', () => {
   if ($('#fs').classList.contains('open')) openFs(false);
 });
@@ -4194,61 +4352,240 @@ function cropImage(file) {
   });
 }
 /** Second way to a cover: make one from a colour and a symbol or a few letters. Resolves with a JPEG blob or null. */
-function makeCover(name = '') {
+/** "Create cover" like Spotify: a square preview, below it tabs for background, image, text and effects.
+ *  A photo can be moved with the finger or mouse and zoomed; the text is the playlist name in one of several styles. */
+function makeCover(name = '', covers = []) {
   return new Promise((res) => {
-    const GRADS = [['#7a5cff', '#2ec5c0'], ['#ff6fb1', '#ff9a3d'], ['#4c8dff', '#9b7bff'], ['#1ed760', '#0b6b3a'], ['#ff5d5d', '#7a1f4f'], ['#f5d547', '#ff7a3d'], ['#20232b', '#5b6072'], ['#0fa3b1', '#1b2a6b']];
-    const SYMS = ['abc', 'note', 'heartFill', 'mix', 'radio', 'viz', 'queue', 'lyrics'];
-    const initials = (name.trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('') || '♪').toUpperCase();
-    let g = 0, sym = 'abc';
+    const S = 640;
+    const SOLIDS = ['#1db954', '#e91429', '#ff6437', '#f59b23', '#ffc862', '#27856a', '#1e3264', '#8d67ab', '#e8115b', '#509bf5', '#477d95', '#f4f4f4', '#121212'];
+    const GRADS = [['#7a5cff', '#2ec5c0'], ['#ff6fb1', '#ff9a3d'], ['#4c8dff', '#9b7bff'], ['#1ed760', '#0b6b3a'], ['#ff5d5d', '#7a1f4f'], ['#f5d547', '#ff7a3d'], ['#20232b', '#5b6072'], ['#0fa3b1', '#1b2a6b'], ['#e0c3fc', '#8ec5fc'], ['#f093fb', '#f5576c']];
+    const FONTS = [
+      ['bold', '900', 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', 1],
+      ['serif', '700', 'Georgia, "Times New Roman", serif', 1],
+      ['mono', '700', 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', 0.82],
+      ['narrow', '800', '"Arial Narrow", "Roboto Condensed", "Helvetica Neue", sans-serif', 1.1],
+      ['script', '700', '"Brush Script MT", "Segoe Script", "Snell Roundhand", cursive', 1.15],
+      ['light', '300', 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', 1]
+    ];
+    const FX = ['none', 'duotone', 'bw', 'grain', 'vignette', 'blur', 'glow'];
+    const st = { bg: { kind: 'grad', i: 0 }, img: null, imgSrc: '', zoom: 1, ox: 0, oy: 0, text: name.trim(), font: 0, size: 1, color: '#ffffff', pos: 'bottom', align: 'left', fx: 'none', shadow: true };
+    let tab = 'bg';
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
-    wrap.innerHTML = `<div class="modal crop"><div class="modal-head"><h2>${t('makeCover')}</h2><button class="icon-btn" data-x>${icon('close')}</button></div>
-      <div class="crop-box"><canvas width="640" height="640"></canvas></div>
-      <div class="mk-row">${GRADS.map((c, i) => `<button type="button" class="mk-col ${i === 0 ? 'on' : ''}" data-g="${i}" style="background:linear-gradient(135deg,${c[0]},${c[1]})"></button>`).join('')}</div>
-      <div class="mk-row">${SYMS.map((k) => `<button type="button" class="mk-sym ${k === 'abc' ? 'on' : ''}" data-sym="${k}">${k === 'abc' ? `<b>${esc(initials)}</b>` : icon(k)}</button>`).join('')}</div>
-      <div class="modal-actions"><button class="btn" data-x>${t('cancel')}</button><button class="btn primary" data-ok>${t('save')}</button></div></div>`;
+    wrap.innerHTML = `<div class="modal ce"><div class="ce-top"><button class="btn ghost" data-x>${t('cancel')}</button><h2>${t('makeCover')}</h2><button class="btn primary" data-ok>${t('done')}</button></div>
+      <div class="ce-stage"><canvas width="${S}" height="${S}"></canvas></div>
+      <div class="ce-tabs" role="tablist">${['bg', 'img', 'text', 'fx'].map((k) => `<button type="button" data-tab="${k}" class="${k === tab ? 'on' : ''}">${icon({ bg: 'palette', img: 'image', text: 'abc', fx: 'sparkle' }[k])}<span>${t('ce_' + k)}</span></button>`).join('')}</div>
+      <div class="ce-panel"></div></div>`;
     document.body.appendChild(wrap);
     const cv = wrap.querySelector('canvas');
     const ctx = cv.getContext('2d');
-    const draw = () => {
-      const gr = ctx.createLinearGradient(0, 0, 640, 640);
-      gr.addColorStop(0, GRADS[g][0]);
-      gr.addColorStop(1, GRADS[g][1]);
-      ctx.fillStyle = gr;
-      ctx.fillRect(0, 0, 640, 640);
-      const sh = ctx.createRadialGradient(180, 140, 0, 180, 140, 520);
-      sh.addColorStop(0, 'rgba(255,255,255,.28)');
-      sh.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = sh;
-      ctx.fillRect(0, 0, 640, 640);
-      ctx.fillStyle = 'rgba(255,255,255,.96)';
-      if (sym === 'abc') {
-        ctx.font = `800 ${initials.length > 1 ? 250 : 320}px system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(initials, 320, 338);
-      } else {
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${wrap.querySelector(`[data-sym="${sym}"] svg`).innerHTML}</svg>`;
-        const im = new Image();
-        im.onload = () => ctx.drawImage(im, 170, 170, 300, 300);
-        im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    const panel = wrap.querySelector('.ce-panel');
+    const loadImg = (src) => new Promise((ok) => { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => ok(im); im.onerror = () => ok(null); im.src = src; });
+    const background = () => {
+      if (st.bg.kind === 'solid') { ctx.fillStyle = SOLIDS[st.bg.i]; ctx.fillRect(0, 0, S, S); return; }
+      const g = ctx.createLinearGradient(0, 0, S, S);
+      g.addColorStop(0, GRADS[st.bg.i][0]);
+      g.addColorStop(1, GRADS[st.bg.i][1]);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, S, S);
+    };
+    const photo = () => {
+      const im = st.img;
+      if (!im) return;
+      const base = Math.max(S / im.width, S / im.height) * st.zoom;
+      const w = im.width * base, h = im.height * base;
+      // never a gap at the edge: the picture is kept covering the whole square
+      st.ox = Math.min(0, Math.max(S - w, st.ox));
+      st.oy = Math.min(0, Math.max(S - h, st.oy));
+      ctx.save();
+      if (st.fx === 'blur') ctx.filter = 'blur(10px)';
+      ctx.drawImage(im, st.ox, st.oy, w, h);
+      ctx.restore();
+    };
+    const effects = () => {
+      if (st.fx === 'bw' || st.fx === 'duotone') {
+        const d = ctx.getImageData(0, 0, S, S), p = d.data;
+        const a = st.bg.kind === 'solid' ? SOLIDS[st.bg.i] : GRADS[st.bg.i][0];
+        const b = st.bg.kind === 'solid' ? '#121212' : GRADS[st.bg.i][1];
+        const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+        const [A, B] = [rgb(a), rgb(b)];
+        for (let i = 0; i < p.length; i += 4) {
+          const l = (p[i] * 0.299 + p[i + 1] * 0.587 + p[i + 2] * 0.114) / 255;
+          if (st.fx === 'bw') p[i] = p[i + 1] = p[i + 2] = l * 255;
+          else for (let c = 0; c < 3; c++) p[i + c] = B[c] + (A[c] - B[c]) * l;
+        }
+        ctx.putImageData(d, 0, 0);
+      }
+      if (st.fx === 'grain') {
+        const d = ctx.getImageData(0, 0, S, S), p = d.data;
+        for (let i = 0; i < p.length; i += 4) { const n = (Math.random() - 0.5) * 46; p[i] += n; p[i + 1] += n; p[i + 2] += n; }
+        ctx.putImageData(d, 0, 0);
+      }
+      if (st.fx === 'vignette') {
+        const g = ctx.createRadialGradient(S / 2, S / 2, S * 0.25, S / 2, S / 2, S * 0.75);
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(1, 'rgba(0,0,0,.7)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, S, S);
+      }
+      if (st.fx === 'glow') {
+        const g = ctx.createRadialGradient(S * 0.3, S * 0.25, 0, S * 0.3, S * 0.25, S * 0.8);
+        g.addColorStop(0, 'rgba(255,255,255,.35)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, S, S);
       }
     };
+    const text = () => {
+      const txt = st.text.trim();
+      if (!txt) return;
+      const [, weight, family, k] = FONTS[st.font];
+      let px = Math.round(96 * st.size * k);
+      const pad = 44;
+      ctx.font = `${weight} ${px}px ${family}`;
+      // wrap into lines that fit, shrink when even one word is too wide
+      const words = txt.split(/\s+/);
+      let lines;
+      for (;;) {
+        lines = [];
+        let cur = '';
+        for (const w of words) {
+          const tryL = cur ? cur + ' ' + w : w;
+          if (ctx.measureText(tryL).width > S - pad * 2 && cur) { lines.push(cur); cur = w; } else cur = tryL;
+        }
+        lines.push(cur);
+        const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+        if ((widest <= S - pad * 2 && lines.length * px * 1.05 <= S - pad * 2) || px < 24) break;
+        px = Math.round(px * 0.9);
+        ctx.font = `${weight} ${px}px ${family}`;
+      }
+      const lh = px * 1.05, block = lines.length * lh;
+      let y = st.pos === 'top' ? pad + px * 0.85 : st.pos === 'center' ? (S - block) / 2 + px * 0.85 : S - pad - block + px * 0.85;
+      ctx.textAlign = st.align;
+      const x = st.align === 'left' ? pad : st.align === 'center' ? S / 2 : S - pad;
+      ctx.fillStyle = st.color;
+      ctx.shadowColor = st.shadow ? 'rgba(0,0,0,.45)' : 'transparent';
+      ctx.shadowBlur = st.shadow ? 18 : 0;
+      ctx.shadowOffsetY = st.shadow ? 3 : 0;
+      for (const l of lines) { ctx.fillText(l, x, y); y += lh; }
+      ctx.shadowColor = 'transparent';
+    };
+    const draw = () => {
+      ctx.clearRect(0, 0, S, S);
+      background();
+      photo();
+      effects();
+      text();
+    };
+    const sw = (on) => (on ? 'on' : '');
+    const panels = {
+      bg: () => `<div class="ce-sec"><small>${t('ce_colors')}</small><div class="ce-sw">${SOLIDS.map((c, i) => `<button type="button" class="ce-dot ${sw(st.bg.kind === 'solid' && st.bg.i === i)}" data-solid="${i}" style="background:${c}"></button>`).join('')}</div></div>
+        <div class="ce-sec"><small>${t('ce_gradients')}</small><div class="ce-sw">${GRADS.map((c, i) => `<button type="button" class="ce-dot ${sw(st.bg.kind === 'grad' && st.bg.i === i)}" data-grad="${i}" style="background:linear-gradient(135deg,${c[0]},${c[1]})"></button>`).join('')}</div></div>`,
+      img: () => `<div class="ce-sec"><div class="ce-thumbs"><button type="button" class="ce-up" data-upload-ce>${icon('upload')}<span>${t('uploadPicture')}</span></button>${covers.slice(0, 12).map((u, i) => `<button type="button" class="ce-th ${sw(st.imgSrc === u)}" data-pick="${i}"><img alt="" src="${esc(u)}"></button>`).join('')}</div></div>
+        ${st.img ? `<div class="ce-sec ce-zoom"><small>${t('zoom')}</small><input type="range" min="1" max="3" step="0.01" value="${st.zoom}" data-zoom><button type="button" class="btn ghost" data-noimg>${icon('close')}${t('removePicture')}</button></div><p class="muted small">${t('ce_move')}</p>` : ''}`,
+      text: () => `<div class="ce-sec"><input class="textin" data-ctext maxlength="60" value="${esc(st.text)}" placeholder="${t('playlistName')}"></div>
+        <div class="ce-sec"><div class="ce-fonts">${FONTS.map((f, i) => `<button type="button" class="ce-font ${sw(st.font === i)}" data-font="${i}" style="font-family:${esc(f[2])};font-weight:${f[1]}">Aa</button>`).join('')}</div></div>
+        <div class="ce-sec ce-row"><div class="seg">${['top', 'center', 'bottom'].map((k) => `<button type="button" class="${sw(st.pos === k)}" data-pos="${k}">${t('ce_' + k)}</button>`).join('')}</div><div class="seg">${['left', 'center', 'right'].map((k) => `<button type="button" class="${sw(st.align === k)}" data-align="${k}">${icon('align_' + k)}</button>`).join('')}</div></div>
+        <div class="ce-sec ce-zoom"><small>${t('ce_size')}</small><input type="range" min="0.5" max="1.8" step="0.01" value="${st.size}" data-size></div>
+        <div class="ce-sec"><div class="ce-sw">${['#ffffff', '#121212', '#1db954', '#ffc862', '#ff6437', '#e91429', '#509bf5', '#8d67ab', '#f4f4f4'].map((c) => `<button type="button" class="ce-dot ${sw(st.color === c)}" data-tcolor="${c}" style="background:${c}"></button>`).join('')}<button type="button" class="ce-chip ${sw(st.shadow)}" data-shadow>${t('ce_shadow')}</button></div></div>`,
+      fx: () => `<div class="ce-sec"><div class="ce-fx">${FX.map((k) => `<button type="button" class="ce-chip ${sw(st.fx === k)}" data-fx="${k}">${t('ce_fx_' + k)}</button>`).join('')}</div></div>`
+    };
+    const paint = () => {
+      panel.innerHTML = panels[tab]();
+      wrap.querySelectorAll('.ce-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+    };
+    const setImg = async (src) => {
+      const im = await loadImg(src);
+      if (!im) return toast(t('error'));
+      Object.assign(st, { img: im, imgSrc: src, zoom: 1, ox: 0, oy: 0 });
+      // centre the picture
+      const base = Math.max(S / im.width, S / im.height);
+      st.ox = (S - im.width * base) / 2;
+      st.oy = (S - im.height * base) / 2;
+      draw();
+      paint();
+    };
     wrap.addEventListener('click', (e) => {
-      const c = e.target.closest('[data-g]'), y = e.target.closest('[data-sym]');
-      if (c) g = Number(c.dataset.g);
-      if (y) sym = y.dataset.sym;
-      if (!c && !y) return;
-      wrap.querySelectorAll('.mk-col').forEach((b) => b.classList.toggle('on', Number(b.dataset.g) === g));
-      wrap.querySelectorAll('.mk-sym').forEach((b) => b.classList.toggle('on', b.dataset.sym === sym));
+      const b = e.target.closest('button');
+      if (!b) return;
+      const d = b.dataset;
+      if (d.tab) { tab = d.tab; return paint(); }
+      if (d.solid) st.bg = { kind: 'solid', i: +d.solid };
+      else if (d.grad) st.bg = { kind: 'grad', i: +d.grad };
+      else if (d.pick) return setImg(covers[+d.pick]);
+      else if ('uploadCe' in d) {
+        const inp = document.createElement('input');
+        inp.type = 'file';
+        inp.accept = 'image/*';
+        inp.onchange = () => inp.files[0] && setImg(URL.createObjectURL(inp.files[0]));
+        return inp.click();
+      } else if ('noimg' in d) Object.assign(st, { img: null, imgSrc: '' });
+      else if (d.font) st.font = +d.font;
+      else if (d.pos) st.pos = d.pos;
+      else if (d.align) st.align = d.align;
+      else if (d.tcolor) st.color = d.tcolor;
+      else if ('shadow' in d) st.shadow = !st.shadow;
+      else if (d.fx) st.fx = d.fx;
+      else return;
+      draw();
+      paint();
+    });
+    wrap.addEventListener('input', (e) => {
+      const el = e.target;
+      if ('zoom' in el.dataset) {
+        // zoom around the middle of the square
+        const old = st.zoom;
+        st.zoom = +el.value;
+        st.ox = S / 2 - (S / 2 - st.ox) * (st.zoom / old);
+        st.oy = S / 2 - (S / 2 - st.oy) * (st.zoom / old);
+      } else if ('size' in el.dataset) st.size = +el.value;
+      else if ('ctext' in el.dataset) st.text = el.value;
+      else return;
       draw();
     });
+    // move the picture with the finger or mouse, pinch or wheel to zoom
+    const pts = new Map();
+    let last = null, pinch = 0;
+    cv.addEventListener('pointerdown', (e) => { if (!st.img) return; cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; });
+    cv.addEventListener('pointermove', (e) => {
+      if (!st.img || !pts.has(e.pointerId)) return;
+      const k = S / cv.getBoundingClientRect().width;
+      pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        const dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (pinch) { const z = Math.min(3, Math.max(1, st.zoom * (dist / pinch))); const old = st.zoom; st.zoom = z; st.ox = S / 2 - (S / 2 - st.ox) * (z / old); st.oy = S / 2 - (S / 2 - st.oy) * (z / old); }
+        pinch = dist;
+      } else if (last) {
+        st.ox += (e.clientX - last[0]) * k;
+        st.oy += (e.clientY - last[1]) * k;
+        last = [e.clientX, e.clientY];
+      }
+      draw();
+    });
+    const up = (e) => { pts.delete(e.pointerId); pinch = 0; last = pts.size ? [...pts.values()][0] : null; const z = panel.querySelector('[data-zoom]'); if (z) z.value = st.zoom; };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', up);
+    cv.addEventListener('wheel', (e) => { if (!st.img) return; e.preventDefault(); const old = st.zoom; st.zoom = Math.min(3, Math.max(1, st.zoom * (e.deltaY < 0 ? 1.06 : 0.94))); st.ox = S / 2 - (S / 2 - st.ox) * (st.zoom / old); st.oy = S / 2 - (S / 2 - st.oy) * (st.zoom / old); draw(); }, { passive: false });
     const close = (v) => (wrap.remove(), res(v));
     wrap.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => close(null)));
     wrap.addEventListener('mousedown', (e) => e.target === wrap && close(null));
-    wrap.querySelector('[data-ok]').onclick = () => cv.toBlob((b) => close(b), 'image/jpeg', 0.9);
+    wrap.querySelector('[data-ok]').onclick = () => {
+      try { cv.toBlob((b) => close(b), 'image/jpeg', 0.92); } catch { toast(t('error')); }
+    };
+    paint();
     draw();
+    // a playlist with songs starts like Spotify's editor: its first cover as the picture
+    if (covers[0]) setImg(covers[0]);
   });
+}
+/** Covers of the songs in a playlist, offered as pictures in the cover editor (each album once). */
+function coverChoices(pl, kind) {
+  if (!pl) return [];
+  const urls = kind === 'import'
+    ? (pl.items || []).map((x) => (x.local ? coverUrl(x.local.id) : x.cover)).filter(Boolean)
+    : (pl.tracks || []).map((x) => coverUrl(x.id)).filter(Boolean);
+  return [...new Set(urls)].slice(0, 12);
 }
 /** Playlist details like on Spotify: picture on the left (upload and place it, or make one), name and description on the right. */
 function playlistDialog(pl = null, kind = 'playlist') {
@@ -4287,7 +4624,7 @@ function playlistDialog(pl = null, kind = 'playlist') {
     const photoMenu = (anchor) =>
       menu(anchor, [
         { label: t(own ? 'changePhoto' : 'choosePhoto'), icon: 'image', run: async () => { const f = await pickImage(); const b = f && (await cropImage(f)); if (b) show(b); } },
-        { label: t('makeCover'), icon: 'edit', run: async () => { const b = await makeCover(form.elements.name.value); if (b) show(b); } },
+        { label: t('makeCover'), icon: 'edit', run: async () => { const b = await makeCover(form.elements.name.value, coverChoices(pl, kind)); if (b) show(b); } },
         own && {
           label: t('removePhoto'),
           icon: 'trash',
@@ -4408,6 +4745,7 @@ async function collectionMenu(anchor, ref) {
       },
       // the phone has no sidebar to pin to
       innerWidth >= 900 && { label: t(pinned ? 'unpin' : 'pin'), icon: 'pin', run: () => togglePin(ref) },
+      { label: t((settings.homePins || []).includes(ref) ? 'unpinHome' : 'pinHome'), icon: 'home', run: () => toggleHomePin(ref) },
       { label: t(kind === 'playlist' ? 'shareListen' : 'share'), icon: 'share', run: () => shareThing(kind, Number(id), name) },
       kind === 'playlist' && info.mine !== false && { label: t('shareCollab'), icon: 'edit', run: () => shareThing('collab', Number(id), name) },
       kind === 'playlist' && info.mine !== false && { label: t('shareListener'), icon: 'headphones', run: () => shareThing('listener', Number(id), name) },
@@ -4640,7 +4978,20 @@ async function loadOutputs(ask) {
   }
   return (outDevices = list);
 }
+/** This device can get its own name: other devices of the account and the device picker show it. */
 function devicesHtml() {
+  return setRow(t('devNameRow'), `<div class="remoteedit"><input id="devname" class="textin" maxlength="40" value="${esc(prefs.devName || '')}" placeholder="${esc(autoDeviceName())}" autocomplete="off" spellcheck="false"><button class="btn primary" data-savedevname>${t('save')}</button></div>`, { hint: t('devNameHint'), keys: 'name umbenennen rename gerät device', wide: true }) + devicesHtmlInner();
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('[data-savedevname]')) return;
+  prefs.devName = ($('#devname')?.value || '').trim().slice(0, 40);
+  savePrefs();
+  toast(t('devNameSaved', { name: myDeviceName() }));
+  presenceTick?.().catch?.(() => {});
+  redrawDevices();
+});
+document.addEventListener('keydown', (e) => { if (e.target.id === 'devname' && e.key === 'Enter') $('[data-savedevname]')?.click(); });
+function devicesHtmlInner() {
   const A = window.MusikAndroid;
   const line = (ic, name, on, attr = '') => `<${attr ? 'button' : 'div'} class="dev ${on ? 'on' : ''}" ${attr}>${icon(ic)}<span>${esc(name)}</span>${on ? `<small>${t('devPlaying')}</small>` : ''}</${attr ? 'button' : 'div'}>`;
   if (A?.audioDevices) {
@@ -4680,12 +5031,12 @@ function deviceList() {
     let l = [];
     try { l = JSON.parse(A.audioDevices()); } catch {}
     if (!l.length) l = [{ id: 0, kind: 'phone', name: '', active: true }];
-    return l.map((d) => ({ id: String(d.id ?? ''), kind: d.kind, name: d.name || t('dev_' + d.kind), active: !!d.active, android: true }));
+    return l.map((d) => ({ id: String(d.id ?? ''), kind: d.kind, name: (d.kind === 'phone' && prefs.devName) || d.name || t('dev_' + d.kind), active: !!d.active, android: true }));
   }
-  if (!outDevices?.length) return [{ id: 'default', kind: 'out', name: window.musikDesktop ? t('devThisComputer') : t('devThisBrowser'), active: true }];
+  if (!outDevices?.length) return [{ id: 'default', kind: 'out', name: prefs.devName || (window.musikDesktop ? t('devThisComputer') : t('devThisBrowser')), active: true }];
   const kind = (l) => (/bluetooth|airpods|buds|wh-|wf-|jbl|bose|sony/i.test(l) ? 'bluetooth' : /head|kopf|hörer|phone/i.test(l) ? 'wired' : 'out');
   const cur = prefs.sink && outDevices.some((d) => d.deviceId === prefs.sink) ? prefs.sink : 'default';
-  const l = outDevices.filter((d) => d.deviceId !== 'communications').map((d, i) => ({ id: d.deviceId, kind: kind(d.label), name: d.deviceId === 'default' ? (window.musikDesktop ? t('devThisComputer') : t('devSystem')) : d.label || t('devOutput') + ' ' + (i + 1), active: d.deviceId === cur }));
+  const l = outDevices.filter((d) => d.deviceId !== 'communications').map((d, i) => ({ id: d.deviceId, kind: kind(d.label), name: d.deviceId === 'default' ? prefs.devName || (window.musikDesktop ? t('devThisComputer') : t('devSystem')) : d.label || t('devOutput') + ' ' + (i + 1), active: d.deviceId === cur }));
   if (!l.some((d) => d.active) && l[0]) l[0].active = true;
   return l;
 }
@@ -4694,6 +5045,7 @@ function paintDevice() {
   const cur = deviceList().find((d) => d.active);
   const away = cur && !['phone', 'out'].includes(cur.kind) && !(cur.id === 'default');
   const line = $('.np-dev');
+  $('#mini')?.classList.toggle('devaway', !!away);
   if (line) {
     line.hidden = !away;
     line.innerHTML = away ? `${icon(DEV_ICON[cur.kind] || 'speaker')}<span><em>${esc(cur.name)}</em></span>` : '';
@@ -4751,6 +5103,9 @@ const DEV_ID = (() => {
   }
 })();
 function myDeviceName() {
+  return (prefs.devName || '').trim() || autoDeviceName();
+}
+function autoDeviceName() {
   const ua = navigator.userAgent;
   if (window.MusikAndroid) {
     const m = ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|\))/);
@@ -4996,7 +5351,7 @@ async function renderSettings() {
       setRow(t('chillBeat'), pseg('chillSync', ['off', 'beat', 'bar'], 'beat', (o) => t('chillSync_' + o)), { hint: t('chillBeatHint'), keys: 'chillscreen beat takt bar übergänge transitions rhythmus' })),
     setCard('viz', 'viz', t('viz'),
       setRow(t('viz'), `<select class="select" id="vizmode">${VIZ_MODES.map((m) => `<option value="${m}" ${(prefs.viz || 'off') === m ? 'selected' : ''}>${t('viz_' + m)}</option>`).join('')}</select>`, { hint: t('vizHint'), keys: 'visualizer bars ring wave' }) +
-      setRow(t('miniViz'), pseg('miniViz', MINI_MODES, 'bars', (v) => t('mviz_' + v)), { hint: t('miniVizHint'), keys: 'mini player visualizer klein', wide: true }) +
+      setRow(t('miniViz'), pseg('miniViz', MINI_MODES, 'off', (v) => t('mviz_' + v)), { hint: t('miniVizHint'), keys: 'mini player visualizer klein', wide: true }) +
       setRow(t('vizColor'), pseg('vizColor', ['accent', 'flow', 'rainbow'], 'accent', (v) => t('vcol_' + v)), { keys: 'farbe color regenbogen rainbow akzent' }) +
       `<div class="rainbow-only" ${['rainbow', 'flow'].includes(prefs.vizColor) ? '' : 'hidden'}>${setRow(t('vizSpeed'), prng('vizSpeed', 0.2, 3, 0.1, 1, (v) => Number(v).toFixed(1) + '×'), { keys: 'regenbogen rainbow speed tempo' })}</div>` +
       setRow(t('vizDelay'), prng('vizDelay', 0, 500, 10, 0, (v) => (Number(v) ? v + ' ms' : t('q_auto'))), { hint: t('vizDelayHint'), keys: 'verzögerung delay sync synchron bluetooth latenz latency' }) +
@@ -5644,10 +5999,13 @@ async function boot() {
     saveConn();
     history.replaceState(null, '', location.pathname + location.hash.replace(/[?&]auth=[0-9a-f]{64}/, ''));
   }
+  // fast start: who am I is asked at the same time as the check of the server
+  const meEarly = conn.server && conn.token && conn.server === location.origin ? api('GET', '/api/me', undefined, { timeout: 8000 }) : null;
+  meEarly?.catch(() => {});
   sameOrigin = await detectSameOrigin();
   if (sameOrigin) conn.server = sameOrigin;
   if (sameOrigin) {
-    const info = await api('GET', '/api/info', undefined, { token: null, timeout: 4000 }).catch(() => null);
+    const info = sameInfo || (await api('GET', '/api/info', undefined, { token: null, timeout: 4000 }).catch(() => null));
     if (info?.offline) {
       offlineMode = true;
       document.documentElement.classList.add('offline-mode');
@@ -5660,7 +6018,7 @@ async function boot() {
   }
   if (conn.server && conn.token) {
     try {
-      conn.user = await api('GET', '/api/me', undefined, { timeout: 8000 });
+      conn.user = await (meEarly && !offlineMode ? meEarly : api('GET', '/api/me', undefined, { timeout: 8000 }));
       saveConn();
       return startApp();
     } catch (e) {
@@ -5672,4 +6030,10 @@ async function boot() {
   showLogin();
 }
 
-boot();
+// the loading animation of index.html fades once the app (or the sign-in) stands
+boot().finally(() => {
+  const b = document.getElementById('boot');
+  if (!b) return;
+  b.classList.add('out');
+  setTimeout(() => b.remove(), 400);
+});
