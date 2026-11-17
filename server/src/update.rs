@@ -102,7 +102,10 @@ fn latest(force: bool) -> Result<Value, ApiError> {
         .into_json()
         .map_err(|_| ApiError::new(502, "update_unreachable"))?;
     let tag = r.get("tag_name").and_then(Value::as_str).unwrap_or_default();
+    // the desktop app has its own version: its file stays the same until the app itself changes
+    let desktop = desktop_version(&r);
     let v = json!({
+        "desktop": desktop,
         "version": tag.trim_start_matches('v'),
         "tag": tag,
         "notes": r.get("body").and_then(Value::as_str).unwrap_or_default(),
@@ -112,18 +115,28 @@ fn latest(force: bool) -> Result<Value, ApiError> {
     Ok(v)
 }
 
+/// The desktop app's own version, read from the name of its file in the release
+/// (streyn-desktop-<version>-<hash>-windows-x64.exe).
+fn desktop_version(release: &Value) -> Option<String> {
+    release.get("assets").and_then(Value::as_array)?.iter().filter_map(|x| x.get("name").and_then(Value::as_str)).find_map(|n| {
+        let v = n.strip_prefix("streyn-desktop-")?.split('-').next()?;
+        (!v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.')).then(|| v.to_string())
+    })
+}
+
 /// GET /api/update?force=1: versions and whether the server can update itself.
 async fn status(Auth(u, _): Auth, axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> R {
     let force = q.contains_key("force");
     let l = tokio::task::spawn_blocking(move || latest(force)).await.map_err(|_| ApiError::new(500, "internal"))?;
-    let (latest_v, notes, url) = match &l {
-        Ok(v) => (v["version"].as_str().unwrap_or_default().to_string(), v["notes"].clone(), v["url"].clone()),
-        Err(_) => (String::new(), Value::Null, Value::Null),
+    let (latest_v, notes, url, desktop) = match &l {
+        Ok(v) => (v["version"].as_str().unwrap_or_default().to_string(), v["notes"].clone(), v["url"].clone(), v["desktop"].clone()),
+        Err(_) => (String::new(), Value::Null, Value::Null, Value::Null),
     };
     Ok(Json(json!({
         "current": VERSION,
         "latest": if latest_v.is_empty() { Value::Null } else { json!(latest_v) },
         "available": !latest_v.is_empty() && newer(&latest_v, VERSION),
+        "desktop": desktop,
         "how": how(),
         "admin": u.admin,
         "notes": notes,
@@ -243,6 +256,12 @@ mod tests {
         assert!(newer("v1.10.0", "1.9.3"));
         assert!(!newer("1.4.0", "1.4.0"));
         assert!(!newer("1.3.0", "1.4.0"));
+    }
+    #[test]
+    fn desktop_version_from_assets() {
+        let r = json!({ "assets": [{ "name": "Streyn.exe" }, { "name": "streyn-desktop-1.27.0-ab12cd34ef-windows-x64.exe" }] });
+        assert_eq!(desktop_version(&r).as_deref(), Some("1.27.0"));
+        assert_eq!(desktop_version(&json!({ "assets": [{ "name": "Streyn.exe" }] })), None);
     }
     #[test]
     fn backup_copies_database() {

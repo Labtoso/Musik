@@ -189,18 +189,49 @@ jobs:
       - name: Protect connect page
         shell: bash
         run: npm ci --prefix tools/protect --no-audit --no-fund && node tools/protect/protect.mjs desktop/ui
+      # The Windows app file is only rebuilt when the desktop app itself changes (DESKTOP_VERSION).
+      # Otherwise the exact file of the last release goes into the new installer: a file Windows
+      # already knows keeps its reputation, a new unsigned file is checked from scratch every time.
       - name: Build
         shell: bash
         working-directory: desktop
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          DV=$(tr -d ' \n\r' < ../DESKTOP_VERSION)
+          H=$(cd .. && git ls-files -s desktop/src-tauri desktop/ui desktop/package.json desktop/package-lock.json tools/protect DESKTOP_VERSION | git hash-object --stdin | cut -c1-10)
+          RAW="streyn-desktop-$DV-$H-windows-x64.exe"
           npm ci
-          npx tauri build --bundles ${{ matrix.bundle }} --config "{\"version\":\"${{ needs.version.outputs.version }}\"}"
+          reuse=0
+          if [ "${{ matrix.name }}" = windows ]; then
+            names=$(gh release view -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)
+            if grep -qx "$RAW" <<< "$names"; then
+              gh release download -R "$GITHUB_REPOSITORY" -p "$RAW" -D prev && reuse=1
+            elif grep -q "^streyn-desktop-$DV-" <<< "$names"; then
+              echo "::warning::The desktop app changed but DESKTOP_VERSION is still $DV. Raise DESKTOP_VERSION so installed apps get the change."
+            fi
+          fi
+          if [ $reuse = 1 ]; then
+            echo "Desktop app $DV unchanged: reusing $RAW"
+            mkdir -p src-tauri/target/release
+            cp "prev/$RAW" src-tauri/target/release/streyn.exe
+            npx tauri bundle --bundles ${{ matrix.bundle }} --config "{\"version\":\"$DV\"}"
+          else
+            npx tauri build --bundles ${{ matrix.bundle }} --config "{\"version\":\"$DV\"}"
+          fi
           f=$(find src-tauri/target/release/bundle/${{ matrix.bundle }} -maxdepth 1 \( -name "*.exe" -o -name "*.AppImage" \) | head -n1)
           cp "$f" "../${{ matrix.out }}"
+          if [ "${{ matrix.name }}" = windows ]; then
+            cp src-tauri/target/release/streyn.exe "../$RAW"
+            sha256sum "../$RAW"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.name }}
-          path: ${{ matrix.out }}
+          path: |
+            ${{ matrix.out }}
+            streyn-desktop-*-windows-x64.exe
+          if-no-files-found: error
 
   release:
     name: Release

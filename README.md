@@ -73,6 +73,8 @@ cd desktop && npm install && npx tauri dev
 cd android && ./gradlew assembleDebug
 ```
 
+The Windows/Linux desktop app has its own number in `DESKTOP_VERSION`. Raise it whenever anything in `desktop/` changes: only then is the app file rebuilt and offered as an update. Otherwise every release reuses the exact app file of the last one, so Windows keeps trusting it.
+
 Raising the number in `VERSION` and pushing to `main` builds the server binaries, the APK, the Windows setup and the AppImage and publishes them as release `v<VERSION>` (notes from `.github/releases/v<VERSION>.md`).
 
 © LabtosoStudios. All rights reserved. See [LICENSE](LICENSE): the code may be viewed, but copying, rebranding or redistributing it is not allowed.

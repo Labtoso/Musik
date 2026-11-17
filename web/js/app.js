@@ -5794,6 +5794,8 @@ function appVersion() {
   if (window.musikDesktop?.version) return { kind: 'desktop', v: window.musikDesktop.version };
   return null;
 }
+/** Newest version for this app: the desktop app has its own number, the phone app follows the release. */
+const appLatestOf = (u, app) => (app?.kind === 'desktop' && u?.desktop ? u.desktop : u?.latest);
 const vNewer = (a, b) => {
   const p = (x) => String(x || '0').replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
   const A = p(a), B = p(b);
@@ -5819,20 +5821,22 @@ async function renderUpdates(force) {
   if (!$('#updinfo')) return;
   const app = appVersion();
   const latest = u.latest;
-  const row = (label, cur, avail, action) => `<div class="upd-row"><div><b>${label}</b><span class="muted small">${cur ? 'v' + esc(cur) : '–'}${latest ? avail ? ` → <span class="upd-new">v${esc(latest)}</span>` : ` · ${t('upToDate')}` : ''}</span></div>${action || ''}</div>`;
+  const row = (label, cur, avail, action, to = latest) => `<div class="upd-row"><div><b>${label}</b><span class="muted small">${cur ? 'v' + esc(cur) : '–'}${to ? avail ? ` → <span class="upd-new">v${esc(to)}</span>` : ` · ${t('upToDate')}` : ''}</span></div>${action || ''}</div>`;
   let srvAction = '';
   if (u.available) {
     if (!u.admin) srvAction = `<span class="muted small">${t('updAdminOnly')}</span>`;
     else if (u.how === 'self') srvAction = `<button class="btn primary" data-updserver>${t('updNow')}</button>`;
     else srvAction = `<span class="muted small">${t('upd_' + u.how)}</span>`;
   }
-  const appAvail = app && latest && vNewer(latest, app.v);
+  // the desktop app has its own version (its file only changes when the app itself changes)
+  const appLatest = appLatestOf(u, app);
+  const appAvail = app && appLatest && vNewer(appLatest, app.v);
   // the app first, then the server: a new server can expect things an old app does not have yet
   if (appAvail && u.available && srvAction.includes('data-updserver')) srvAction = `<span class="muted small">${t('updAfterApp')}</span>`;
   const both = appAvail && u.available && u.admin && u.how === 'self';
   box.innerHTML =
     (both ? `<div class="upd-row upd-all"><div><b>${t('updAll')}</b><span class="muted small">${t('updAllHint')}</span></div><button class="btn primary" data-updall>${t('updAllBtn')}</button></div>` : '') +
-    (app ? row(t(app.kind === 'android' ? 'updAndroid' : 'updDesktop'), app.v, appAvail, appAvail ? `<button class="btn ${both ? '' : 'primary'}" data-updapp>${t('updNow')}</button>` : '') : '') +
+    (app ? row(t(app.kind === 'android' ? 'updAndroid' : 'updDesktop'), app.v, appAvail, appAvail ? `<button class="btn ${both ? '' : 'primary'}" data-updapp>${t('updNow')}</button>` : '', appLatest) : '') +
     row(t('updServer'), u.current, u.available, srvAction) +
     (!latest ? `<p class="muted small">${t('updOffline')}</p>` : '') + '<div id="updprog" class="muted small"></div>';
 }
@@ -5911,7 +5915,7 @@ async function updateFlow() {
   if (next === 'server') {
     const u = await updateStatus(true).catch(() => null);
     // still the old app (the install was cancelled): ask again later
-    if (u?.latest && vNewer(u.latest, app.v)) return;
+    if (appLatestOf(u, app) && vNewer(appLatestOf(u, app), app.v)) return;
     try { localStorage.removeItem('musik.updnext'); } catch {}
     if (u?.available && u.admin && u.how === 'self') {
       toast(t('updServerNext'));
@@ -5920,7 +5924,8 @@ async function updateFlow() {
     }
     return;
   }
-  if (vNewer(info.version, app.v)) {
+  // the desktop app has its own version number, the update bar below covers it
+  if (app.kind !== 'desktop' && vNewer(info.version, app.v)) {
     const bar = document.createElement('div');
     bar.className = 'updbar';
     bar.innerHTML = `${icon('download')}<span><b>${t('updAppOld')}</b> ${t('updAppOldHint', { app: app.v, server: info.version })}</span><button class="btn sm primary" data-updapp>${t('updNow')}</button><button class="icon-btn sm" data-x title="${t('close')}">${icon('close')}</button>`;
@@ -5935,7 +5940,7 @@ async function autoUpdateCheck() {
   const u = await updateStatus(false).catch(() => null);
   if (!u?.latest) return;
   const app = appVersion();
-  const appOld = !!app && vNewer(u.latest, app.v);
+  const appOld = !!app && !!appLatestOf(u, app) && vNewer(appLatestOf(u, app), app.v);
   if (!u.available && !appOld) return;
   let gone = '';
   try { gone = localStorage.getItem('musik.upddismiss') || ''; } catch {}

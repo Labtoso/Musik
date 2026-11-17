@@ -331,40 +331,7 @@ fn home_url() -> &'static str {
     }
 }
 
-// ---- Musik is now Streyn: move the old settings over
-const OLD_ID: &str = "de.labtoso.musik";
-const NEW_ID: &str = "de.labtoso.streyn";
-
-/// Folders that carry the app id: settings, offline playlists and the web view's saved logins.
-fn id_dirs(id: &str) -> Vec<PathBuf> {
-    let mut v = Vec::new();
-    #[cfg(windows)]
-    for var in ["APPDATA", "LOCALAPPDATA"] {
-        if let Some(d) = std::env::var_os(var) {
-            v.push(PathBuf::from(d).join(id));
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-        let cfg = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
-        let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"));
-        let cache = std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".cache"));
-        v.extend([cfg.join(id), data.join(id), cache.join(id)]);
-    }
-    v
-}
-
-fn migrate_from_musik() {
-    for (old, new) in id_dirs(OLD_ID).into_iter().zip(id_dirs(NEW_ID)) {
-        if old.is_dir() && !new.exists() {
-            let _ = std::fs::rename(&old, &new);
-        }
-    }
-}
-
 fn main() {
-    migrate_from_musik();
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![connect, saved_server, self_update, open_saved, use_offline, can_offline])
         .setup(|app| {
