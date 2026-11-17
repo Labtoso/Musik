@@ -1925,3 +1925,14 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
   .cover.gen.year .gen-mark { display: none; }
   .cover.gen.year .gen-ov b { font-size: 30cqw; }
 }
+
+/* 1.27.1: Standard theme on Android phones: the page runs on behind the tab bar and mini player and stays visible there,
+   but only the bars react to taps (the strip behind them is see-through and catches the taps) */
+@media (max-width: 899px) and (pointer: coarse) {
+  :root:not([data-theme='glass']):not([data-theme='green']) .shell { grid-template-rows: 1fr; grid-template-areas: 'main'; }
+  :root:not([data-theme='glass']):not([data-theme='green']) #content { grid-area: main; }
+  :root:not([data-theme='glass']):not([data-theme='green']) .player { grid-area: main; align-self: end; margin-bottom: calc(88px + var(--safe-b)); }
+  :root:not([data-theme='glass']):not([data-theme='green']) .bottomnav { grid-area: main; align-self: end; }
+  :root:not([data-theme='glass']):not([data-theme='green']) #view { padding-bottom: calc(182px + var(--safe-b)); }
+  :root:not([data-theme='glass']):not([data-theme='green']) .shell::after { background: none !important; }
+}
