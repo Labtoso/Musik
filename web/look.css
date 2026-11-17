@@ -289,32 +289,34 @@ html[data-theme='glass'][data-oled] { background: #000; }
 [data-theme='glass'] .bt { border-radius: 18px; }
 [data-theme='glass'] .bt .cover:not(.round) { border-radius: 10px; }
 
-/* ---------- 1.27: Liquid Glass sliders, the colour ends just before the glass knob (also while dragging) ---------- */
+/* ---------- Liquid Glass sliders (1.28.2): seamless like Apple. The colour runs to the middle of the knob and the
+   track goes on from there, so nothing is cut while the knob is solid. While dragging, the knob turns into clear glass:
+   then the colour stops just under its rim and the track starts again under the other rim, so no colour shows inside
+   the glass and the edges hide under the rim. --tw = knob width (for its position), --cut = half the clear part. ---------- */
 @property --tw { syntax: '<length>'; inherits: true; initial-value: 0px; }
-@property --tg { syntax: '<length>'; inherits: true; initial-value: 0px; }
+@property --cut { syntax: '<length>'; inherits: true; initial-value: 0px; }
 [data-theme='glass'] input[type='range'] {
-  --tw: 0px; --tg: 0px; --fill: var(--text); --rest: #3a3d44;
-  transition: --tw 0.4s var(--lg-spring, ease), --tg 0.2s ease;
+  --tw: 12px; --cut: 0px; --fill: var(--text); --rest: #3a3d44;
+  transition: --tw 0.4s var(--lg-spring, ease), --cut 0.4s var(--lg-spring, ease);
 }
-[data-theme='glass'] input[type='range']:hover, [data-theme='glass'] input[type='range']:focus-visible { --tw: 12px; --tg: 3px; --fill: var(--accent); }
+[data-theme='glass'] input[type='range']:hover, [data-theme='glass'] input[type='range']:focus-visible { --fill: var(--accent); }
 [data-theme='glass'] input[type='range'].vol:hover, [data-theme='glass'] input[type='range'].vol:active { --fill: var(--text); }
-[data-theme='glass'] .prng input[type='range'], [data-theme='glass'] .prng input[type='range']:hover { --tw: 16px; --tg: 3px; --fill: var(--accent); --rest: color-mix(in srgb, var(--text) 18%, transparent); }
+[data-theme='glass'] .prng input[type='range'], [data-theme='glass'] .prng input[type='range']:hover { --tw: 16px; --fill: var(--accent); --rest: color-mix(in srgb, var(--text) 18%, transparent); }
 [data-theme='glass'] .fs-vol input[type='range'].vol { --rest: rgba(255, 255, 255, 0.22); }
-[data-theme='glass'] input[type='range']:active, [data-theme='glass'] .prng input[type='range']:active { --tw: 34px; --tg: 4px; }
+[data-theme='glass'] input[type='range']:active, [data-theme='glass'] .prng input[type='range']:active { --tw: 34px; --cut: 16px; }
 [data-theme='glass'] input[type='range']::-webkit-slider-runnable-track {
   background: linear-gradient(to right,
-    var(--fill) max(0px, calc(var(--pn, 0) * (100% - var(--tw)) - var(--tg))),
-    transparent 0 calc(var(--pn, 0) * (100% - var(--tw)) + var(--tw) + var(--tg)),
+    var(--fill) calc(var(--pn, 0) * (100% - var(--tw)) + var(--tw) / 2 - var(--cut)),
+    transparent 0 calc(var(--pn, 0) * (100% - var(--tw)) + var(--tw) / 2 + var(--cut)),
     var(--rest) 0);
 }
-/* phone: the media sliders always show their knob */
-@media (max-width: 899px) {
-  [data-theme='glass'] .fs input[type='range'].seek, [data-theme='glass'] .fs input[type='range'].seek:hover { --tw: 14px; --tg: 3px; }
-  [data-theme='glass'] .fs input[type='range'].seek:active { --tw: 34px; --tg: 4px; }
-}
 @media (min-width: 900px) {
-  [data-theme='glass'] .player input[type='range'].seek:hover, [data-theme='glass'] .fs input[type='range'].seek, [data-theme='glass'] .fs input[type='range'].seek:hover { --tw: 14px; --tg: 3px; }
-  [data-theme='glass'] .player input[type='range'].seek:active, [data-theme='glass'] .fs input[type='range'].seek:active { --tw: 34px; --tg: 4px; }
+  [data-theme='glass'] .player input[type='range'].seek, [data-theme='glass'] .fs input[type='range'].seek { --tw: 14px; }
+  [data-theme='glass'] .player input[type='range'].seek:active, [data-theme='glass'] .fs input[type='range'].seek:active { --tw: 34px; --cut: 16px; }
+}
+@media (max-width: 899px) {
+  [data-theme='glass'] .fs input[type='range'].seek { --tw: 14px; }
+  [data-theme='glass'] .fs input[type='range'].seek:active { --tw: 34px; --cut: 16px; }
 }
 
 /* ALWAYS: with the ring visualizer the cover in the big player is a circle, in every theme (Liquid Glass's rounded-corner
