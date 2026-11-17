@@ -249,6 +249,33 @@ Object.assign(en, {
   ce_fx_none: 'None', ce_fx_duotone: 'Duotone', ce_fx_bw: 'Black & white', ce_fx_grain: 'Grain', ce_fx_vignette: 'Vignette', ce_fx_blur: 'Soft', ce_fx_glow: 'Light'
 });
 
+Object.assign(de, {
+  gLibrary: 'Bibliothek', gCreate: 'Erstellen', gHideLib: 'Bibliothek ausblenden', gShowLib: 'Bibliothek einblenden', gOpenLib: 'Bibliothek öffnen',
+  gChipPl: 'Playlists', gChipAl: 'Alben', gChipAr: 'Künstler*in',
+  gCreatePl: 'Playlist', gCreatePlHint: 'Erstelle eine Playlist mit Songs.', gCreateImp: 'Importieren', gCreateImpHint: 'Hol Playlists und Alben aus anderen Apps.', gCreateUp: 'Hochladen', gCreateUpHint: 'Füge Songs von deinem Computer hinzu.', gCreateMix: 'Dein Mix', gCreateMixHint: 'Songs, die zu deinem Geschmack passen, ohne Ende.',
+  gBrowse: 'Browse', gWhatsNew: 'Neues', gWhatsNewHint: 'Neu in deiner Bibliothek und von Künstler*innen, denen du folgst', gFriends: 'Höraktivität', gFriendsText: 'Hier siehst du, was gerade auf deinen anderen Geräten läuft.',
+  gNpv: '„Wird gerade gespielt“-Ansicht', gMini: 'Miniplayer öffnen', gFull: 'Vollbild', gTitle: 'Titel',
+  gAboutArtist: 'Informationen zum*zur Künstler*in', gCredits: 'Songinfos', gMainArtist: 'Hauptkünstler*in', gArtistRole: 'Künstler*in', gAlbumRole: 'Album',
+  gNextQ: 'Nächster Titel in der Warteschlange', gOpenQ: 'Warteschlange öffnen', gRecent: 'Zuletzt gehört', gNowPl: 'Aktueller Titel', gNextFrom: 'Nächster Titel von: {name}', gClearQ: 'Warteschlange löschen', gQueueEmpty: 'Füge Songs zur Warteschlange hinzu, dann erscheinen sie hier.',
+  gConnect: 'Connect', gPlayingOn: 'Wiedergabe auf {name}',
+  gMiniSet: 'Einstellungen für den Miniplayer', gMiniBg: 'Hintergrundfarbe', gMiniQueue: 'Warteschlange', gMiniSettings: 'Einstellungen', gMiniClose: 'Miniplayer schließen',
+  gFile: 'Datei', gEdit: 'Bearbeiten', gView: 'Anzeigen', gPlayback: 'Wiedergabe', gHelp: 'Hilfe', gZoomIn: 'Vergrößern', gZoomOut: 'Verkleinern', gZoomReset: 'Zoom zurücksetzen',
+  gDocs: 'Streyn-Hilfe', gAbout: 'Über Streyn', gVolUp: 'Lauter', gVolDown: 'Leiser', gNewPlaylist: 'Neue Playlist', gPrefs: 'Einstellungen', gFind: 'Suchen', gLyricsPreview: 'Vorschau der Lyrics', gAppMenu: 'Menü', gFollowers: '{n} Follower'
+});
+Object.assign(en, {
+  gLibrary: 'Your Library', gCreate: 'Create', gHideLib: 'Collapse Your Library', gShowLib: 'Expand Your Library', gOpenLib: 'Open Your Library',
+  gChipPl: 'Playlists', gChipAl: 'Albums', gChipAr: 'Artists',
+  gCreatePl: 'Playlist', gCreatePlHint: 'Build a playlist with songs.', gCreateImp: 'Import', gCreateImpHint: 'Bring playlists and albums from other apps.', gCreateUp: 'Upload', gCreateUpHint: 'Add songs from your computer.', gCreateMix: 'Your mix', gCreateMixHint: 'Endless songs that match your taste.',
+  gBrowse: 'Browse', gWhatsNew: "What's New", gWhatsNewHint: 'New in your library and from artists you follow', gFriends: 'Friend Activity', gFriendsText: 'See what is playing on your other devices right now.',
+  gNpv: 'Now playing view', gMini: 'Open Miniplayer', gFull: 'Full screen', gTitle: 'Title',
+  gAboutArtist: 'About the artist', gCredits: 'Credits', gMainArtist: 'Main Artist', gArtistRole: 'Artist', gAlbumRole: 'Album',
+  gNextQ: 'Next in queue', gOpenQ: 'Open queue', gRecent: 'Recently played', gNowPl: 'Now playing', gNextFrom: 'Next from: {name}', gClearQ: 'Clear queue', gQueueEmpty: 'Add songs to the queue and they show up here.',
+  gConnect: 'Connect', gPlayingOn: 'Playing on {name}',
+  gMiniSet: 'Miniplayer settings', gMiniBg: 'Background colour', gMiniQueue: 'Queue', gMiniSettings: 'Settings', gMiniClose: 'Close Miniplayer',
+  gFile: 'File', gEdit: 'Edit', gView: 'View', gPlayback: 'Playback', gHelp: 'Help', gZoomIn: 'Zoom in', gZoomOut: 'Zoom out', gZoomReset: 'Reset zoom',
+  gDocs: 'Streyn Help', gAbout: 'About Streyn', gVolUp: 'Volume up', gVolDown: 'Volume down', gNewPlaylist: 'New playlist', gPrefs: 'Settings', gFind: 'Search', gLyricsPreview: 'Lyrics preview', gAppMenu: 'Menu', gFollowers: '{n} followers'
+});
+
 const dicts = { de, en };
 let lang = 'de';
 

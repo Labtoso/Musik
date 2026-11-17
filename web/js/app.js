@@ -71,6 +71,7 @@ function applyPrefs() {
   customAccent();
   window.MusikAndroid?.setMode?.(light ? 'light' : 'dark');
   window.MusikAndroid?.setAccent?.(accentNow());
+  if (document.getElementById('gpanel')) gSync();
 }
 document.addEventListener('click', async (e) => {
   if (!e.target.closest('[data-savepublic]')) return;
@@ -1185,7 +1186,12 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
   const w = { year: '52px', genre: 'minmax(0, 1fr)', added: '104px' };
   const full = ['40px', 'minmax(0, 3fr)', showAlb && 'minmax(0, 2fr)', ...extra.map((k) => w[k]), '72px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
   const mid = ['40px', 'minmax(0, 1fr)', '72px', c.has('duration') && '52px', '36px'].filter(Boolean).join(' ');
-  return `<div class="tracks ${c.has('cover') ? '' : 'nocover'}" style="--cols:${full};--cols-mid:${mid}" data-list="${id}" ${playlistId ? `data-playlist="${playlistId}"` : ''} ${reorder ? 'data-reorder' : ''}>${tracks
+  // Green on the desktop: Spotify's table, with a number column and a header line
+  const gt = gOn();
+  const nolead = numbers || !c.has('cover');
+  const gcols = ['16px', !nolead && '40px', 'minmax(0, 6fr)', showAlb && 'minmax(0, 4fr)', ...extra.map(() => 'minmax(0, 3fr)'), '32px', c.has('duration') && '48px', '32px'].filter(Boolean).join(' ');
+  const head = gt ? `<div class="row thead" aria-hidden="true"><span class="gix">#</span><div class="lead"></div><div class="main">${t('gTitle')}</div>${showAlb ? `<div class="alb">${t('col_album')}</div>` : ''}${extra.map((k) => `<div class="alb xcol">${t('col_' + k)}</div>`).join('')}<div class="acts"></div>${c.has('duration') ? `<div class="dur">${icon('clock')}</div>` : ''}<span></span></div>` : '';
+  return `<div class="tracks ${c.has('cover') ? '' : 'nocover'}${gt ? ' gtable' + (nolead ? ' nolead' : '') : ''}" style="--cols:${full};--cols-mid:${mid};--gcols:${gcols}" data-list="${id}" ${playlistId ? `data-playlist="${playlistId}"` : ''} ${reorder ? 'data-reorder' : ''}>${head}${tracks
     .map((tr, i) => {
       const reason = reasons && tr.reason ? `<span class="reason">${esc(t('reason_' + tr.reason, { artist: artistName(tr) }))}</span>` : '';
       const src = tr.ext?.source || tr._src;
@@ -1200,7 +1206,7 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
       const sub = [c.has('artist') ? artistText(tr) : '', reason].filter(Boolean).join(' · ');
       const xc = { year: tr.year || '', genre: esc(tr.genre || ''), added: tr.added ? fmtDate(tr.added) : '' };
       return `<div class="row ${tr.id === cur ? 'current' : ''} ${tr._off ? 'off' : ''}" data-i="${i}" data-id="${esc(String(tr.id))}" ${reorder ? 'draggable="true"' : ''}>
-        <div class="lead">${lead}<span class="eqi" aria-hidden="true"><i></i><i></i><i></i><i></i></span><button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
+        ${gt ? `<span class="gix"><b>${(numbers && tr.track_no) || i + 1}</b><span class="eqi" aria-hidden="true"><i></i><i></i><i></i><i></i></span><button class="playbtn" title="${t('play')}">${icon('play')}</button></span>` : ''}<div class="lead">${lead}<span class="eqi" aria-hidden="true"><i></i><i></i><i></i><i></i></span><button class="playbtn" title="${t('play')}">${icon('play')}</button></div>
         <div class="main"><div class="title">${esc(tr.title)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>
         ${showAlb ? `<div class="alb">${albumLink(tr)}</div>` : ''}
         ${extra.map((k) => `<div class="alb xcol">${xc[k]}</div>`).join('')}
@@ -1214,7 +1220,7 @@ function trackList(tracks, { numbers = false, album = true, reasons = false, pla
 
 document.addEventListener('click', (e) => {
   const row = e.target.closest('.tracks .row');
-  if (!row || e.target.closest('a.alink')) return;
+  if (!row || row.classList.contains('thead') || e.target.closest('a.alink')) return;
   const listEl = row.closest('.tracks');
   const tracks = state.lists?.[listEl.dataset.list];
   if (!tracks) return;
@@ -1239,6 +1245,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('.playbtn') || isTouch || e.detail >= 2) {
     const ok = tracks.filter((x) => !x._off);
     player.playList(ok, ok.indexOf(tr));
+    gCtx = { queue: player.queue, name: listEl.closest('#view') ? $('#view .detail-head h1')?.textContent || '' : '' };
   }
 });
 
@@ -2713,7 +2720,8 @@ document.addEventListener('click', (e) => {
 // which list the queue was started from, so its play button can show pause and pause it
 let playSrc = { key: '', queue: null };
 const markSource = (key) => {
-  playSrc = { key, queue: player.queue };
+  // the name of the page it was started on, for the head of the panel on the right in Green
+  playSrc = { key, queue: player.queue, name: key === 'mix' ? t('mixForYou') : document.querySelector('#view .detail-head h1')?.textContent || '' };
   paintPlayButtons();
 };
 const sourceActive = (key) => playSrc.key === key && player.queue === playSrc.queue && !!player.current;
@@ -4061,6 +4069,7 @@ function renderPlayer() {
     v.innerHTML = `<h1>${t('queue')}</h1>${player.queue.length ? queueHtml() : `<p class="muted empty">${t('empty')}</p>`}`;
   }
   if ($('#fs').classList.contains('open') && $('#fs-queue').classList.contains('open')) $('#fs-queue').innerHTML = queueHtml();
+  gOnChange();
 }
 function renderState() {
   document.documentElement.classList.toggle('is-playing', !!player.playing);
@@ -5547,6 +5556,12 @@ function paintDevice() {
     fd.querySelector('svg')?.replaceWith(document.createRange().createContextualFragment(icon(away ? DEV_ICON[cur.kind] || 'speaker' : 'devices')));
   }
   document.querySelectorAll('.devbtn').forEach((b) => b.classList.toggle('away', !!away));
+  const gc = $('.gconnect');
+  if (gc) {
+    gc.hidden = !away;
+    gc.querySelector('span').textContent = away ? t('gPlayingOn', { name: cur.name }) : '';
+    document.documentElement.classList.toggle('gaway', !!away);
+  }
 }
 /** A name that does not fit glides slowly to its end and back, so it can be read in full. */
 function marquee(box) {
@@ -6385,28 +6400,770 @@ async function showLogin(errorMsg = '') {
 }
 
 // ---------- shell ----------
+// ---------- Green theme on the desktop: Spotify's layout ----------
+// Library on the left (folds to a strip of covers), the page in the middle, a panel on the right
+// (now playing, queue, devices, other devices), the player row below. Only while Green is on and
+// the window is wide; phones keep their own layout.
+var gCtx = { queue: null, name: '' }; // the page a song list was started from
+function gOn() {
+  return curTheme() === 'green' && innerWidth >= 900;
+}
+function gPanelMode() {
+  if (!gOn()) return null;
+  const m = prefs.gPanel === undefined ? 'np' : prefs.gPanel;
+  return ['np', 'queue', 'devices', 'friends'].includes(m) ? m : null;
+}
+function gSync() {
+  const root = document.documentElement;
+  const on = gOn();
+  const was = root.classList.contains('gdesk');
+  root.classList.toggle('gdesk', on);
+  gApplyZoom();
+  root.classList.toggle('glib-min', on && !!prefs.gLibMin);
+  const box = document.getElementById('gpanel');
+  if (!box) return;
+  gBind();
+  gStickyBind();
+  const mode = gPanelMode();
+  root.classList.toggle('gpanel-open', !!mode);
+  if (!mode) {
+    box.innerHTML = '';
+    box.dataset.mode = '';
+  } else if (box.dataset.mode !== mode) gRenderPanel();
+  document.querySelectorAll('[data-gpanel]').forEach((b) => b.classList.toggle('on', b.dataset.gpanel === mode));
+  $('#player [data-act="queue"]')?.classList.toggle('on', mode === 'queue');
+  $('#player .extra .devbtn')?.classList.toggle('on', mode === 'devices');
+  const tog = $('[data-glibmin]');
+  if (tog) tog.title = t(prefs.gLibMin ? 'gShowLib' : 'gHideLib');
+  gChipFilter();
+  // song lists get (or lose) the table head with the number column
+  if (was !== on && $('#view')?.children.length) render();
+}
+addEventListener('resize', () => {
+  if (gOn() !== document.documentElement.classList.contains('gdesk')) gSync();
+});
+function gSetPanel(mode) {
+  prefs.gPanel = gPanelMode() === mode ? 'off' : mode;
+  savePrefs();
+  gSync();
+}
+// the track changed: the panel follows
+function gOnChange() {
+  const box = document.getElementById('gpanel');
+  const mode = gPanelMode();
+  if (box && mode === 'np' && box.dataset.id !== String(player.current?.id ?? '')) gRenderPanel();
+  else if (box && mode === 'queue') gRenderPanel();
+  else if (box && mode === 'np') gPaintNext();
+  gMiniPaint();
+}
+
+function gRenderPanel() {
+  const box = document.getElementById('gpanel');
+  const mode = gPanelMode();
+  if (!box || !mode) return;
+  box.dataset.mode = mode;
+  if (mode === 'np') return gRenderNp(box);
+  if (mode === 'queue') return gRenderQueue(box);
+  if (mode === 'devices') {
+    box.dataset.id = '';
+    box.innerHTML = `${gHead(t('devConnect'))}<div class="gp-scroll"><div class="devsheet gdev"><div class="ds-body"></div></div></div>`;
+    if (!window.MusikAndroid && outDevices === null) loadOutputs(false).then(() => fillDevSheet());
+    return fillDevSheet();
+  }
+  box.dataset.id = '';
+  box.innerHTML = `${gHead(t('gFriends'))}<div class="gp-scroll"><p class="gp-intro">${t('gFriendsText')}</p><div class="gp-friends">${accountDevicesHtml() || `<p class="muted small">${t('devNone')}</p>`}</div></div>`;
+}
+const gHead = (title, extra = '', big = false) =>
+  `<div class="gp-head"><div class="gp-ht">${title}</div>${extra}${big ? `<button class="icon-btn" data-act="open-fs" title="${t('gFull')}">${icon('expand')}</button>` : `<button class="icon-btn" data-gclose title="${t('close')}">${icon('close')}</button>`}</div>`;
+
+// what is playing: the list or album the song came from, else the artist
+function gContext(tr) {
+  if (playSrc.name && player.queue === playSrc.queue) return playSrc.name;
+  if (gCtx.name && player.queue === gCtx.queue) return gCtx.name;
+  return tr.album || artistName(tr);
+}
+
+const gArtistInfo = new Map(); // name -> Promise<{ picture, fans, id }>
+function gArtistLookup(name) {
+  if (!gArtistInfo.has(name)) {
+    gArtistInfo.set(
+      name,
+      get('/api/catalog/search?q=' + encodeURIComponent(name))
+        .then((c) => {
+          const same = (a) => a.name.toLowerCase() === name.toLowerCase();
+          return c?.artists?.find(same) || null;
+        })
+        .catch(() => null)
+    );
+  }
+  return gArtistInfo.get(name);
+}
+
+async function gRenderNp(box) {
+  const tr = player.current;
+  box.dataset.id = String(tr?.id ?? '');
+  const more = `<button class="icon-btn" data-gpmore title="…">${icon('more')}</button>`;
+  if (!tr) {
+    box.innerHTML = `${gHead(t('gNowPl'), more)}<div class="gp-scroll"><p class="gp-intro">${t('nothingPlaying')}</p></div>`;
+    return;
+  }
+  await loadFollows().catch(() => null);
+  if (box.dataset.id !== String(tr.id)) return;
+  const refs = artistRefs(tr);
+  const main = refs[0] || { name: artistName(tr), href: findArtistHref(artistName(tr), tr.ext?.source) };
+  const spId = tr.ext?.source === 'spotify' ? tr.artists?.[0]?.id : null;
+  const fol = (a, i) => {
+    if (!tr.ext) return followBtn('local', a.name, a.name, tr.id);
+    const id = tr.ext.source === 'spotify' ? tr.artists?.[i]?.id : null;
+    return id ? followBtn('spotify', id, a.name, '') : '';
+  };
+  box.innerHTML = `${gHead(`<a href="#/queue" class="gp-ctx" data-gpanel="queue">${esc(gContext(tr))}</a>`, more, true)}
+    <div class="gp-scroll">
+      <div class="gp-cover" data-act="open-fs">${coverImg(tr.id, 'xl')}</div>
+      <div class="gp-meta"><div class="gp-mt"><div class="gp-title">${esc(tr.title)}</div><div class="gp-artists">${artistLinks(tr)}</div></div>
+        <button class="icon-btn" data-gpshare title="${t('share')}">${icon('share2')}</button>
+        <button class="icon-btn like ${tr.liked || extLikes.has(tr.id) ? 'on' : ''}" data-act="like" title="${t('like')}">${icon('heart')}</button></div>
+      <div class="gp-card gp-lyr" data-glyr hidden><div class="gp-ch"><b>${t('gLyricsPreview')}</b></div><div class="gp-lines"></div></div>
+      <div class="gp-card gp-about"><a class="gp-apic" href="${main.href}"><div class="gp-ch gp-onpic"><b>${t('gAboutArtist')}</b></div></a>
+        <div class="gp-ab"><a class="gp-an" href="${main.href}">${esc(main.name)}</a>
+        <div class="gp-arow"><span class="gp-al" data-glisteners></span>${fol(main, 0)}</div></div></div>
+      <div class="gp-card gp-credits"><div class="gp-ch"><b>${t('gCredits')}</b></div>
+        ${refs.map((a, i) => `<div class="gp-cr"><div><a href="${a.href}">${esc(a.name)}</a><small>${t(i ? 'gArtistRole' : 'gMainArtist')}</small></div>${fol(a, i)}</div>`).join('')}
+        ${tr.album ? `<div class="gp-cr"><div>${albumLink(tr)}<small>${t('gAlbumRole')}</small></div></div>` : ''}</div>
+      <div class="gp-card gp-next" hidden></div>
+    </div>`;
+  gPaintNext();
+  // the artist's picture and how many listen to them
+  gArtistLookup(main.name).then((a) => {
+    if (box.dataset.id !== String(tr.id)) return;
+    const pic = box.querySelector('.gp-apic');
+    if (a?.picture && pic) {
+      pic.style.backgroundImage = `url("${String(a.picture).replace('/250x250-', '/1000x1000-')}")`;
+      pic.classList.add('has');
+    }
+    const el = box.querySelector('[data-glisteners]');
+    if (el && a?.fans) el.textContent = t('gFollowers', { n: a.fans.toLocaleString(getLang() === 'de' ? 'de-DE' : 'en-US') });
+  });
+  (async () => {
+    let id = spId;
+    if (!id) id = (await spotifyFindArtist(main.name).catch(() => null))?.id;
+    if (!id) return;
+    const r = await get('/api/catalog/sp-listeners/' + id).catch(() => null);
+    const el = box.querySelector('[data-glisteners]');
+    if (!r?.listeners || !el || box.dataset.id !== String(tr.id)) return;
+    const loc = getLang() === 'de' ? 'de-DE' : 'en-US';
+    const n = r.exact === false ? new Intl.NumberFormat(loc, { notation: 'compact', maximumFractionDigits: 1 }).format(r.listeners) : new Intl.NumberFormat(loc).format(r.listeners);
+    el.textContent = t('monthlyListeners', { n });
+  })();
+  // a few lines of the lyrics on the colour of the cover, they move with the song
+  loadLyrics(tr)
+    .then((r) => {
+      if (box.dataset.id !== String(tr.id) || !r.lines.some((l) => l.text)) return;
+      const card = box.querySelector('[data-glyr]');
+      card.hidden = false;
+      card._lines = r.lines;
+      card._synced = r.synced;
+      card._at = -2;
+      card.querySelector('.gp-lines').innerHTML = r.lines.filter((l) => l.text || r.synced).map((l, i) => `<p data-gl="${i}">${esc(l.text) || '♪'}</p>`).join('');
+      gLyrSync();
+    })
+    .catch(() => {});
+}
+function gPaintNext() {
+  const card = $('#gpanel .gp-next');
+  if (!card) return;
+  const i = player.index + 1;
+  const up = player.queue[i];
+  card.hidden = !up;
+  if (!up) return;
+  card.innerHTML = `<div class="gp-ch"><b>${t('gNextQ')}</b><button class="gp-link" data-gpanel="queue">${t('gOpenQ')}</button></div>
+    <button class="gp-nrow" data-gjump="${i}">${coverImg(up.id, 'sm')}<span class="gp-play">${icon('play')}</span><span><b>${esc(up.title)}</b><small>${esc(artistName(up))}</small></span></button>`;
+}
+function gLyrSync() {
+  const card = $('#gpanel [data-glyr]');
+  if (!card || card.hidden || !card._lines) return;
+  const lines = card._lines;
+  let i = -1;
+  if (card._synced) {
+    const pos = player.position + 0.25;
+    for (let k = 0; k < lines.length; k++) if (lines[k].t <= pos) i = k;
+  }
+  if (i === card._at) return;
+  card._at = i;
+  card.querySelectorAll('p').forEach((p) => {
+    const k = Number(p.dataset.gl);
+    p.classList.toggle('past', card._synced && k < i);
+    p.classList.toggle('on', k === i);
+  });
+  const p = card.querySelector(`[data-gl="${i}"]`);
+  const box = card.querySelector('.gp-lines');
+  if (p) box.scrollTo({ top: Math.max(0, p.offsetTop - box.offsetTop - 34), behavior: 'smooth' });
+}
+
+function gRenderQueue(box) {
+  box.dataset.id = '';
+  const tab = box._tab || 'queue';
+  const q = player.queue;
+  const cur = player.index;
+  const row = (tr, i, isNow = false) => `<div class="row gq ${isNow ? 'current' : ''}" data-i="${i}" data-q="${i}" data-id="${esc(String(tr.id))}">
+      <div class="lead">${coverImg(tr.id, 'sm')}<span class="eqi" aria-hidden="true"><i></i><i></i><i></i><i></i></span><button class="playbtn">${icon('play')}</button></div>
+      <div class="main"><div class="title">${esc(tr.title)}</div><div class="sub">${esc(artistName(tr))}</div></div>
+      <button class="icon-btn more" title="…">${icon('more')}</button></div>`;
+  let body = '';
+  if (tab === 'queue') {
+    state.lists = state.lists || {};
+    state.lists.gq = q;
+    const now = q[cur];
+    const up = q.slice(cur + 1, cur + 81);
+    body = now
+      ? `<h4 class="gp-sh">${t('gNowPl')}</h4><div class="tracks" data-list="gq" data-queue="1">${row(now, cur, true)}</div>
+        ${up.length ? `<div class="gp-sh2"><h4 class="gp-sh">${t('gNextFrom', { name: esc(gContext(now)) })}</h4><button class="gp-link" data-clearq>${t('gClearQ')}</button></div><div class="tracks" data-list="gq" data-queue="1">${up.map((tr, k) => row(tr, cur + 1 + k)).join('')}</div>` : ''}`
+      : `<div class="gp-empty">${icon('queue', 'big')}<b>${t('queue')}</b><p>${t('gQueueEmpty')}</p><a class="btn" href="#/search">${t('search')}</a></div>`;
+  } else {
+    const list = extHistory().slice(0, 50).map(histTrack);
+    state.lists = state.lists || {};
+    state.lists.grecent = list;
+    body = list.length ? `<div class="tracks" data-list="grecent">${list.map((tr, i) => row(tr, i).replace(' data-q="' + i + '"', '')).join('')}</div>` : `<p class="gp-intro">${t('empty')}</p>`;
+  }
+  const scroll = box.querySelector('.gp-scroll')?.scrollTop || 0;
+  box.innerHTML = `${gHead(`<span class="gp-tabs"><button class="${tab === 'queue' ? 'on' : ''}" data-gqtab="queue">${t('queue')}</button><button class="${tab === 'recent' ? 'on' : ''}" data-gqtab="recent">${t('gRecent')}</button></span>`)}<div class="gp-scroll">${body}</div>`;
+  box.querySelector('.gp-scroll').scrollTop = scroll;
+}
+
+// ---------- clicks ----------
+document.addEventListener(
+  'click',
+  (e) => {
+    if (!gOn()) return;
+    const el = e.target;
+    // the player's queue and device buttons open the panel instead of a page or a sheet
+    const qb = el.closest('#player [data-act="queue"]');
+    if (qb) {
+      e.stopPropagation();
+      return gSetPanel('queue');
+    }
+    if (el.closest('#player .extra [data-devsheet], .gconnect')) {
+      e.stopPropagation();
+      return gSetPanel('devices');
+    }
+    if (el.closest('#player [data-act="lyrics"]') && gPanelMode() === 'np' && state.route === 'lyrics') {
+      e.stopPropagation();
+      return history.back();
+    }
+  },
+  true
+);
+document.addEventListener('click', (e) => {
+  const el = e.target;
+  const gp = el.closest('[data-gpanel]');
+  if (gp) {
+    e.preventDefault();
+    return gSetPanel(gp.dataset.gpanel);
+  }
+  if (el.closest('[data-gclose]')) {
+    prefs.gPanel = 'off';
+    savePrefs();
+    return gSync();
+  }
+  const qt = el.closest('[data-gqtab]');
+  if (qt) {
+    const box = $('#gpanel');
+    box._tab = qt.dataset.gqtab;
+    return gRenderQueue(box);
+  }
+  const j = el.closest('[data-gjump]');
+  if (j) return player.jump(Number(j.dataset.gjump));
+  if (el.closest('[data-glyr]')) return go('#/lyrics');
+  if (el.closest('[data-gpshare]') && player.current) {
+    const tr = player.current;
+    const txt = `${tr.title} · ${artistName(tr)}`;
+    return navigator.clipboard?.writeText(txt).then(() => toast(t('copied')), () => toast(txt));
+  }
+  const pm = el.closest('[data-gpmore]');
+  if (pm && player.current) return trackMenu(pm, player.current, {});
+  if (el.closest('[data-gfull]')) {
+    if (document.fullscreenElement) return document.exitFullscreen?.();
+    return document.documentElement.requestFullscreen?.().catch(() => openFs(true));
+  }
+  if (el.closest('[data-gmini]')) return gMiniOpen();
+  const tog = el.closest('[data-glibmin]');
+  if (tog) {
+    prefs.gLibMin = !prefs.gLibMin;
+    savePrefs();
+    const side = $('.side');
+    side?.classList.add('gmoving');
+    setTimeout(() => side?.classList.remove('gmoving'), 320);
+    return gSync();
+  }
+  const chip = el.closest('[data-glibchip]');
+  if (chip) {
+    prefs.gLibChip = prefs.gLibChip === chip.dataset.glibchip ? '' : chip.dataset.glibchip;
+    savePrefs();
+    return gChipFilter();
+  }
+  const cr = el.closest('[data-gcreate]');
+  if (cr) return gCreateMenu(cr);
+  const am = el.closest('[data-appmenu]');
+  if (am) return gAppMenu(am);
+});
+addEventListener('fullscreenchange', () => $('[data-gfull]')?.classList.toggle('on', !!document.fullscreenElement));
+
+// the lyrics card and the mini player move with the song
+let gTick = 0;
+function gTime() {
+  const now = performance.now();
+  if (now - gTick < 200) return;
+  gTick = now;
+  if (gPanelMode() === 'np') gLyrSync();
+  gMiniTime();
+}
+
+// ---------- library on the left: filter chips, artists you follow, fold to covers ----------
+function gChipFilter() {
+  const box = $('#side-playlists');
+  if (!box) return;
+  const want = gOn() ? prefs.gLibChip || '' : '';
+  box.querySelectorAll('.side-pl').forEach((a) => (a.hidden = !!want && a.dataset.kind !== want));
+  document.querySelectorAll('[data-glibchip]').forEach((c) => c.classList.toggle('on', c.dataset.glibchip === want));
+  $('.glib-chips')?.classList.toggle('picked', !!want);
+}
+async function gSideExtras() {
+  const box = $('#side-playlists');
+  if (!box) return;
+  box.querySelectorAll('.side-pl').forEach((a) => {
+    if (!a.dataset.kind) a.dataset.kind = /^import:/.test(a.dataset.ref || '') && /album/i.test(a.querySelector('small')?.textContent || '') ? 'album' : 'playlist';
+    if (!a.querySelector('.gside-play')) a.querySelector('.cover')?.insertAdjacentHTML('afterend', `<span class="gside-play" aria-hidden="true">${icon('play')}</span>`);
+  });
+  if (!gOn()) return gChipFilter();
+  if (!box.querySelector('.gliked')) {
+    const n = await get('/api/likes').then((l) => (Array.isArray(l) ? l.length : 0) + (extLikes?.size || 0)).catch(() => 0);
+    box.insertAdjacentHTML('afterbegin', `<a href="#/likes" class="side-pl gliked" data-kind="playlist" data-ref=""><div class="cover xs liked">${icon('heartFill')}</div><span class="gside-play" aria-hidden="true">${icon('play')}</span><span class="spl-t"><b>${esc(settings.likesName || t('likes'))}</b><small>${t('playlist')} · ${songCount(n)}</small></span></a>`);
+  }
+  const fol = await loadFollows().catch(() => []);
+  if (box.querySelector('.side-pl[data-kind="artist"]')) box.querySelectorAll('.side-pl[data-kind="artist"]').forEach((x) => x.remove());
+  box.insertAdjacentHTML(
+    'beforeend',
+    (fol || [])
+      .map((f) => {
+        const c = followCard(f);
+        return `<a href="${c.href}" class="side-pl gart" data-kind="artist">${coverImg(c.cover, 'xs round')}<span class="gside-play" aria-hidden="true">${icon('play')}</span><span class="spl-t"><b>${esc(c.name)}</b><small>${t('artist')}</small></span></a>`;
+      })
+      .join('')
+  );
+  // titles for the folded strip, where only the covers show
+  box.querySelectorAll('.side-pl').forEach((a) => (a.title = a.querySelector('.spl-t b')?.textContent || ''));
+  gChipFilter();
+}
+{
+  // run after the sidebar list was (re)built
+  const orig = renderSidebarPlaylists;
+  // eslint-disable-next-line no-func-assign
+  renderSidebarPlaylists = async function () {
+    await orig();
+    await gSideExtras();
+  };
+}
+
+// ---------- the "Create" button and the "…" menu at the top left ----------
+function gCreateMenu(btn) {
+  if (document.querySelector('.gcreate-pop')) return closeGPop();
+  const items = [
+    ['noteplus', 'gCreatePl', 'gCreatePlHint', async () => {
+      const p = await playlistDialog();
+      if (p) {
+        renderSidebarPlaylists();
+        go('#/playlist/' + p.id);
+      }
+    }],
+    ['download', 'gCreateImp', 'gCreateImpHint', () => go('#/add')],
+    ['upload', 'gCreateUp', 'gCreateUpHint', () => pickUpload()],
+    ['mix', 'gCreateMix', 'gCreateMixHint', () => gFire('playmix')]
+  ];
+  const pop = document.createElement('div');
+  pop.className = 'gcreate-pop';
+  pop.innerHTML = items.map(([ic, l, h], i) => `<button data-i="${i}"><span class="gc-ic">${icon(ic)}</span><span><b>${t(l)}</b><small>${t(h)}</small></span></button>`).join('');
+  document.body.appendChild(pop);
+  const r = btn.getBoundingClientRect();
+  pop.style.left = Math.min(r.left, innerWidth - pop.offsetWidth - 8) + 'px';
+  pop.style.top = r.bottom + 8 + 'px';
+  btn.classList.add('open');
+  pop._btn = btn;
+  pop.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-i]');
+    if (!b) return;
+    closeGPop();
+    Promise.resolve(items[Number(b.dataset.i)][3]()).catch((err) => toast(errorText(err)));
+  });
+  setTimeout(() => addEventListener('mousedown', gPopOutside), 0);
+}
+function gPopOutside(e) {
+  const pop = document.querySelector('.gcreate-pop, .gmenu');
+  if (!pop || pop.contains(e.target) || pop._btn?.contains(e.target)) return;
+  closeGPop();
+}
+function closeGPop() {
+  document.querySelectorAll('.gcreate-pop, .gmenu').forEach((p) => {
+    p._btn?.classList.remove('open');
+    p.remove();
+  });
+  removeEventListener('mousedown', gPopOutside);
+}
+addEventListener('keydown', (e) => e.key === 'Escape' && closeGPop());
+// press a button that lives somewhere else in the app (one place for each action)
+function gFire(attr) {
+  const b = document.createElement('button');
+  b.setAttribute('data-' + attr, '');
+  b.hidden = true;
+  document.body.appendChild(b);
+  b.click();
+  b.remove();
+}
+function gZoom(step) {
+  prefs.gZoom = step === 0 ? 1 : Math.min(2, Math.max(0.5, Math.round(((prefs.gZoom || 1) + step) * 10) / 10));
+  savePrefs();
+  gApplyZoom();
+}
+function gApplyZoom() {
+  const z = curTheme() === 'green' && prefs.gZoom && prefs.gZoom !== 1 ? prefs.gZoom : '';
+  document.body.style.zoom = z;
+}
+addEventListener('keydown', (e) => {
+  if (!gOn() || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+  if (e.key === '+' || e.key === '=') gZoom(0.1);
+  else if (e.key === '-') gZoom(-0.1);
+  else if (e.key === '0') gZoom(0);
+  else return;
+  e.preventDefault();
+});
+function gAppMenu(btn) {
+  if (document.querySelector('.gmenu')) return closeGPop();
+  const vol = (d) => {
+    player.setVolume(Math.min(1, Math.max(0, player.volume + d)));
+    prefs.volume = player.volume;
+    savePrefs();
+  };
+  const groups = [
+    ['gFile', [
+      [t('gNewPlaylist'), () => gFire('newpl')],
+      [t('gCreateImp'), () => go('#/add')],
+      [t('gCreateUp'), () => pickUpload()],
+      '-',
+      [t('gPrefs'), () => openSettings()],
+      [t('logout'), () => logout()]
+    ]],
+    ['gEdit', [
+      [t('gFind'), () => ($('#tbq') ? $('#tbq').focus() : go('#/search')), 'Ctrl+K'],
+      [t('gPrefs'), () => openSettings(), 'Ctrl+,']
+    ]],
+    ['gView', [
+      [t('gZoomIn'), () => gZoom(0.1), 'Ctrl++'],
+      [t('gZoomOut'), () => gZoom(-0.1), 'Ctrl+−'],
+      [t('gZoomReset'), () => gZoom(0), 'Ctrl+0'],
+      '-',
+      [t(prefs.gLibMin ? 'gShowLib' : 'gHideLib'), () => gFire('glibmin')],
+      [t('gNpv'), () => gSetPanel('np')],
+      [t('queue'), () => gSetPanel('queue')],
+      [t('gFull'), () => gFire('gfull'), 'F11']
+    ]],
+    ['gPlayback', [
+      [t(player.playing ? 'pause' : 'play'), () => player.toggle(), 'Space'],
+      [t('next'), () => player.next(), 'Ctrl+→'],
+      [t('prev'), () => player.prev(), 'Ctrl+←'],
+      [t('shuffle'), () => player.toggleShuffle(), 'Ctrl+S'],
+      [t('repeat'), () => player.cycleRepeat(), 'Ctrl+R'],
+      '-',
+      [t('gVolUp'), () => vol(0.1), 'Ctrl+↑'],
+      [t('gVolDown'), () => vol(-0.1), 'Ctrl+↓']
+    ]],
+    ['gHelp', [
+      [t('gDocs'), () => openExt('https://musik.labtoso.de/docs/')],
+      ['Discord', () => openExt(DISCORD_URL)],
+      [t('gAbout'), () => openSettings('updates')]
+    ]]
+  ];
+  const m = document.createElement('div');
+  m.className = 'gmenu';
+  const acts = [];
+  m.innerHTML = groups
+    .map(([g, list]) => `<div class="gam-item"><button class="gam-top">${t(g)}${icon('back', 'gam-arrow')}</button><div class="gam-sub">${list
+      .map((it) => {
+        if (it === '-') return '<hr>';
+        acts.push(it[1]);
+        return `<button data-a="${acts.length - 1}"><span>${esc(it[0])}</span>${it[2] ? `<kbd>${it[2]}</kbd>` : ''}</button>`;
+      })
+      .join('')}</div></div>`)
+    .join('');
+  document.body.appendChild(m);
+  const r = btn.getBoundingClientRect();
+  m.style.left = r.left + 'px';
+  m.style.top = r.bottom + 4 + 'px';
+  m._btn = btn;
+  btn.classList.add('open');
+  m.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-a]');
+    if (!b) return;
+    closeGPop();
+    Promise.resolve(acts[Number(b.dataset.a)]()).catch((err) => toast(errorText(err)));
+  });
+  setTimeout(() => addEventListener('mousedown', gPopOutside), 0);
+}
+
+// ---------- the bar that sticks to the top of a page with its play button ----------
+function gStickyBind() {
+  const c = $('#content');
+  if (!c || c._gsticky) return;
+  c._gsticky = true;
+  c.addEventListener('scroll', gSticky, { passive: true });
+  // a new page: the bar starts hidden again
+  new MutationObserver(() => setTimeout(() => (gSticky(), gFitTitle()), 30)).observe($('#view'), { childList: true });
+}
+// the big title of a page gets the largest of Spotify's sizes that fits on one line
+function gFitTitle() {
+  const h = gOn() ? $('#view .detail-head .dh-text > h1') : null;
+  if (!h || !h.clientWidth) return;
+  h.classList.add('gfit');
+  h.classList.remove('wrap');
+  for (const px of [96, 72, 48, 32]) {
+    h.style.fontSize = px + 'px';
+    if (h.scrollWidth <= h.clientWidth + 1) return;
+  }
+  h.classList.add('wrap');
+}
+addEventListener('resize', () => gFitTitle());
+function gSticky() {
+  const c = $('#content');
+  if (!c) return;
+  let bar = $('#gsticky');
+  const head = gOn() ? $('#view .detail-head') : null;
+  if (!head) return bar?.classList.remove('on');
+  if (!bar) {
+    c.insertAdjacentHTML('afterbegin', `<div id="gsticky" class="gsticky"><button class="gs-play" data-gsplay>${icon('play')}</button><span class="gs-t"></span></div>`);
+    bar = $('#gsticky');
+  }
+  const h1 = head.querySelector('h1');
+  const edge = head.offsetTop + head.offsetHeight - 104 - 64 - 64;
+  const show = c.scrollTop > edge;
+  const tint = getComputedStyle(head).getPropertyValue('--tint').trim();
+  bar.style.setProperty('--gs', tint || 'var(--dyn-bg, #404040)');
+  bar.querySelector('.gs-t').textContent = h1?.textContent || '';
+  bar.classList.toggle('on', show);
+  // a little later it fades in, like the bar in Spotify that rises with the scroll
+  bar.style.setProperty('--gso', Math.min(1, Math.max(0, (c.scrollTop - edge) / 64)));
+  const pb = head.querySelector('.toolbar [data-playkey]');
+  const on = pb && player.playing && sourceActive(location.hash + '|' + pb.dataset.playkey);
+  bar.querySelector('.gs-play').innerHTML = icon(on ? 'pause' : 'play');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('[data-gsplay]')) return;
+  $('#view .detail-head .toolbar .btn.primary, #view .detail-head .toolbar .playcircle')?.click();
+});
+
+// ---------- tooltips like Spotify's: a small dark box under or over the control ----------
+{
+  let tip = null;
+  let timer = 0;
+  const hide = () => {
+    clearTimeout(timer);
+    tip?.remove();
+    tip = null;
+  };
+  document.addEventListener('mouseover', (e) => {
+    if (!gOn() || matchMedia('(hover: none)').matches) return;
+    const el = e.target.closest?.('.titlebar [title], .player [title], .gpanel [title], .glib-head [title], .side-pl[title], .detail-head .toolbar [title]');
+    if (!el) return;
+    if (el._gt === undefined) {
+      el._gt = el.getAttribute('title');
+      el.removeAttribute('title');
+      el.setAttribute('aria-label', el._gt);
+    }
+    hide();
+    if (!el._gt) return;
+    timer = setTimeout(() => {
+      tip = document.createElement('div');
+      tip.className = 'gtip';
+      tip.textContent = el._gt;
+      document.body.appendChild(tip);
+      const r = el.getBoundingClientRect();
+      const side = el.closest('.side-pl') && document.documentElement.classList.contains('glib-min');
+      let x = side ? r.right + 8 : r.left + r.width / 2 - tip.offsetWidth / 2;
+      let y = side ? r.top + r.height / 2 - tip.offsetHeight / 2 : el.closest('.player') ? r.top - tip.offsetHeight - 8 : r.bottom + 8;
+      tip.style.left = Math.max(8, Math.min(x, innerWidth - tip.offsetWidth - 8)) + 'px';
+      tip.style.top = Math.max(8, y) + 'px';
+    }, 450);
+    el.addEventListener('mouseleave', hide, { once: true });
+  });
+  document.addEventListener('mousedown', hide, true);
+}
+
+// ---------- "What's New": the bell at the top ----------
+views.gnew = async () => {
+  const [lib, fol] = await Promise.all([get('/api/library').catch(() => ({})), loadFollows().catch(() => [])]);
+  const albums = (lib.albums || []).slice().sort((a, b) => (b.added || 0) - (a.added || 0)).slice(0, 24);
+  let html = `<h1 class="gnew-h">${t('gWhatsNew')}</h1><p class="muted gnew-p">${t('gWhatsNewHint')}</p>`;
+  const recent = extHistory().slice(0, 12).map(histTrack);
+  if (albums.length) html += section(t('newAlbums') !== 'newAlbums' ? t('newAlbums') : t('albums'), `<div class="cards">${albums.map((a) => `<a class="card" href="${albumHref(a.album || a.name, a.artist)}">${coverImg(a.cover_id, 'lg')}<div class="c-title">${esc(a.album || a.name || '')}</div><div class="c-sub">${esc(a.artist || '')}</div></a>`).join('')}</div>`);
+  if (fol?.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
+  if (recent.length) html += section(t('recent'), trackCards(recent, 'gnewrecent'));
+  if (!albums.length && !fol?.length && !recent.length) html += `<div class="emptystate">${icon('bell', 'big')}<p>${t('empty')}</p></div>`;
+  return html;
+};
+
+// ---------- Miniplayer: a small window with the cover, it stays on top ----------
+let gMini = null; // { win, el }
+async function gMiniOpen() {
+  if (gMini) return gMiniClose();
+  const el = document.createElement('div');
+  el.className = 'gmini';
+  el.innerHTML = `<div class="gm-bg"></div><div class="gm-cover"></div>
+    <div class="gam-top"><button class="gm-b" data-gm="set" title="${t('gMiniSettings')}">${icon('more')}</button><button class="gm-b" data-gm="close" title="${t('gMiniClose')}">${icon('close')}</button></div>
+    <div class="gm-ctl"><button class="gm-b" data-gm="prev">${icon('prev')}</button><button class="gm-b gm-pp" data-gm="toggle">${icon('play')}</button><button class="gm-b" data-gm="next">${icon('next')}</button></div>
+    <div class="gm-foot"><div class="gm-txt"><b></b><small></small></div><button class="gm-b gm-like like" data-gm="like">${icon('heart')}</button></div>
+    <div class="gm-q"></div>
+    <div class="gm-bar"><i></i></div>`;
+  let win = null;
+  if (window.documentPictureInPicture?.requestWindow) {
+    try {
+      win = await documentPictureInPicture.requestWindow({ width: 320, height: 320 });
+      for (const s of document.querySelectorAll('link[rel="stylesheet"], style')) win.document.head.appendChild(s.cloneNode(true));
+      win.document.documentElement.dataset.theme = 'green';
+      win.document.body.className = 'gmini-win';
+      win.document.body.appendChild(el);
+      win.addEventListener('pagehide', () => {
+        gMini = null;
+        $('[data-gmini]')?.classList.remove('on');
+      });
+    } catch {
+      win = null;
+    }
+  }
+  if (!win) {
+    el.classList.add('float');
+    document.body.appendChild(el);
+    // drag it anywhere in the window
+    el.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button, .gm-bar, .gm-set')) return;
+      const r = el.getBoundingClientRect();
+      const dx = e.clientX - r.left, dy = e.clientY - r.top;
+      const mv = (ev) => {
+        el.style.left = Math.max(0, Math.min(innerWidth - r.width, ev.clientX - dx)) + 'px';
+        el.style.top = Math.max(0, Math.min(innerHeight - r.height, ev.clientY - dy)) + 'px';
+        el.style.right = el.style.bottom = 'auto';
+      };
+      const up = () => removeEventListener('pointermove', mv);
+      addEventListener('pointermove', mv);
+      addEventListener('pointerup', up, { once: true });
+    });
+  }
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-gm]');
+    if (!b) return;
+    const a = b.dataset.gm;
+    if (a === 'close') return gMiniClose();
+    if (a === 'set') return gMiniSettings(el);
+    if (a === 'toggle') player.toggle();
+    else if (a === 'next') player.next();
+    else if (a === 'prev') player.prev();
+    else if (a === 'like' && player.current) toggleLike(player.current);
+  });
+  el.querySelector('.gm-bar').addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const d = player.current?.duration || 0;
+    if (d) player.seek(((e.clientX - r.left) / r.width) * d);
+  });
+  gMini = { win, el };
+  $('[data-gmini]')?.classList.add('on');
+  gMiniPaint();
+}
+function gMiniClose() {
+  if (!gMini) return;
+  if (gMini.win) gMini.win.close();
+  else gMini.el.remove();
+  gMini = null;
+  $('[data-gmini]')?.classList.remove('on');
+}
+function gMiniSettings(el) {
+  if (el.querySelector('.gm-set')) return;
+  const sw = (k, on) => `<label class="switch"><input type="checkbox" data-gms="${k}" ${on ? 'checked' : ''}><span></span></label>`;
+  el.insertAdjacentHTML('beforeend', `<div class="gm-set"><div class="gm-card"><h3>${t('gMiniSet')}</h3>
+    <div class="gm-row"><span>${t('gMiniBg')}</span>${sw('bg', prefs.gMiniBg !== false)}</div>
+    <div class="gm-row"><span>${t('gMiniQueue')}</span>${sw('queue', !!prefs.gMiniQueue)}</div>
+    <button class="gm-done" data-gmdone>${t('done')}</button></div></div>`);
+  const set = el.querySelector('.gm-set');
+  set.addEventListener('change', (e) => {
+    const k = e.target.dataset.gms;
+    if (k === 'bg') prefs.gMiniBg = e.target.checked;
+    if (k === 'queue') prefs.gMiniQueue = e.target.checked;
+    savePrefs();
+    gMiniPaint();
+  });
+  set.addEventListener('click', (e) => {
+    if (e.target.closest('[data-gmdone]') || e.target === set) set.remove();
+  });
+}
+function gMiniPaint() {
+  if (!gMini) return;
+  const el = gMini.el;
+  const tr = player.current;
+  el.querySelector('.gm-cover').innerHTML = tr ? coverImg(tr.id, 'xl') : '';
+  el.querySelector('.gm-txt b').textContent = tr?.title || t('nothingPlaying');
+  el.querySelector('.gm-txt small').textContent = tr ? artistName(tr) : '';
+  el.querySelector('.gm-pp').innerHTML = icon(player.playing ? 'pause' : 'play');
+  el.querySelector('.gm-like').classList.toggle('on', !!(tr && (tr.liked || extLikes.has(tr.id))));
+  el.classList.toggle('nobg', prefs.gMiniBg === false);
+  el.style.setProperty('--gm-bg', getComputedStyle(document.documentElement).getPropertyValue('--dyn-bg') || '#333');
+  const q = el.querySelector('.gm-q');
+  el.classList.toggle('withq', !!prefs.gMiniQueue);
+  q.innerHTML = prefs.gMiniQueue
+    ? player.queue.slice(player.index + 1, player.index + 6).map((x, i) => `<button class="gm-qr" data-gmj="${player.index + 1 + i}">${coverImg(x.id, 'xs')}<span><b>${esc(x.title)}</b><small>${esc(artistName(x))}</small></span></button>`).join('')
+    : '';
+  q.onclick = (e) => {
+    const b = e.target.closest('[data-gmj]');
+    if (b) player.jump(Number(b.dataset.gmj));
+  };
+  gMiniTime(true);
+}
+function gMiniTime() {
+  if (!gMini) return;
+  const d = player.current?.duration || 0;
+  gMini.el.querySelector('.gm-bar i').style.width = d ? Math.min(100, (player.position / d) * 100) + '%' : '0';
+}
+
+// ---------- wire it up once the player exists ----------
+function gBind() {
+  if (gBind.done || typeof player === 'undefined') return;
+  gBind.done = true;
+  player.addEventListener('time', gTime);
+  player.addEventListener('playing', () => {
+    gMiniPaint();
+    gSticky();
+  });
+}
+
 function buildShell() {
   const nav = (key, ic, label) => `<a href="#/${key}" data-nav="${key}">${icon(ic)}<span>${label}</span></a>`;
   const frameless = !!window.musikDesktop?.frameless;
   document.documentElement.classList.toggle('frameless', frameless);
   $('#app').innerHTML = `
-  ${frameless ? `<div class="titlebar" data-drag>
-    <div class="tb-left"><span class="tb-logo"><span class="brandmark" aria-hidden="true"></span></span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
-    <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><label class="tb-search">${icon('search')}<input id="tbq" type="search" placeholder="${t('tbSearch')}" autocomplete="off" spellcheck="false"></label></div>
-    <div class="tb-right">${discordBtn('tb-discord')}<button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
-      <button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
+  ${`<div class="titlebar${frameless ? '' : ' tb-web'}" data-drag>
+    <div class="tb-left"><button class="tb-more gonly" data-appmenu title="${t('gAppMenu')}">${icon('more')}</button><span class="tb-logo"><span class="brandmark" aria-hidden="true"></span></span><button class="tb-btn" data-hist="-1" title="${t('back')}">${icon('back')}</button><button class="tb-btn fwd" data-hist="1" title="${t('forward')}">${icon('back')}</button></div>
+    <div class="tb-mid"><a class="tb-home" href="#/home" title="${t('home')}">${icon('home')}</a><label class="tb-search">${icon('search')}<input id="tbq" type="search" placeholder="${t('tbSearch')}" autocomplete="off" spellcheck="false"><a class="tb-browse gonly" href="#/search" title="${t('gBrowse')}">${icon('browse')}</a></label></div>
+    <div class="tb-right">${discordBtn('tb-discord')}<a class="tb-icon gonly" href="#/gnew" title="${t('gWhatsNew')}">${icon('bell')}</a><button class="tb-icon gonly" data-gpanel="friends" title="${t('gFriends')}">${icon('friends')}</button><button class="tb-avatar" data-profile title="${t('profile')}">${avatarInner()}</button>
+      ${frameless ? `<button class="tb-win" data-win="min" title="${t('minimize')}"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
       <button class="tb-win" data-win="max" title="${t('maximize')}"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button>
-      <button class="tb-win close" data-win="close" title="${t('close')}"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button></div>
-  </div>` : ''}
+      <button class="tb-win close" data-win="close" title="${t('close')}"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>` : ''}</div>
+  </div>`}
   <div class="shell">
     <aside class="side">
       <div class="side-top"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></span>${discordBtn('side-discord')}</div>
       <nav class="side-nav">${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}${nav('likes', 'heart', t('likes'))}${nav('queue', 'queue', t('queue'))}</nav>
       <div class="side-head">${t('playlists')}<button class="icon-btn sm" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button></div>
+      <div class="glib-head gonly"><button class="glib-tog" data-glibmin title="${t(prefs.gLibMin ? 'gShowLib' : 'gHideLib')}">${icon('libside')}<span>${t('gLibrary')}</span></button><button class="glib-create" data-gcreate title="${t('gCreate')}">${icon('plus')}<span>${t('gCreate')}</span></button><a class="icon-btn glib-open" href="#/library" title="${t('gOpenLib')}">${icon('expand')}</a></div>
+      <div class="glib-chips gonly"><button class="chip" data-glibchip="playlist">${t('gChipPl')}</button><button class="chip" data-glibchip="album">${t('gChipAl')}</button><button class="chip" data-glibchip="artist">${t('gChipAr')}</button></div>
       <div id="side-playlists" class="side-pls"></div>
     </aside>
     <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><span class="logo"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></span><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
     <main id="content">${offlineMode ? `<div class="offbar">${icon('download')}<span id="offbar-text"><b>${t('offMode')}</b> ${t('offModeHint')}</span><button class="btn sm" data-goonline>${t('goOnline')}</button></div>` : ''}<div id="view"></div></main>
+    <aside id="gpanel" class="gpanel" aria-label="${t('gNpv')}"></aside>
     <footer id="player" class="player idle">
       <div id="mini-progress"><i></i></div>
       <div class="np" id="mini">
@@ -6429,13 +7186,17 @@ function buildShell() {
       </div>
       <div class="extra desktop-only">
         <button class="icon-btn" data-act="viz" title="${t('viz')}">${icon('viz')}</button>
+        <button class="icon-btn gonly" data-gpanel="np" title="${t('gNpv')}">${icon('npv')}</button>
         <button class="icon-btn" data-act="lyrics" title="${t('lyrics')}">${icon('lyrics')}</button>
         <button class="icon-btn" data-act="queue" title="${t('queue')}">${icon('queue')}</button>
         <button class="icon-btn devbtn" data-devsheet title="${t('devConnect')}">${icon('devices')}</button>
         <button class="icon-btn" data-act="mute" title="${t('volume')}">${icon('volume')}</button>
         <input id="vol" class="vol" type="range" min="0" max="1" step="0.01" value="1">
+        <button class="icon-btn gonly" data-gmini title="${t('gMini')}">${icon('pip')}</button>
+        <button class="icon-btn gonly" data-gfull title="${t('gFull')}">${icon('fullscreen')}</button>
       </div>
     </footer>
+    <div class="gconnect gonly" hidden>${icon('speaker')}<span></span></div>
     <nav class="bottomnav"><i class="navblob"></i>${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}</nav>
   </div>
   <div id="fs" class="fs">
@@ -6464,6 +7225,7 @@ function buildShell() {
   renderSidebarPlaylists();
   paintDevice();
   watchFsCover();
+  gSync();
 }
 
 // offline with nothing downloaded: keep the normal app, but say so in the bar

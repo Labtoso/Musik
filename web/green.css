@@ -537,3 +537,353 @@
   [data-theme='green'] .fs-bottom .btn { color: rgba(255, 255, 255, 0.7); border: 0; font-weight: 400; }
   [data-theme='green'] .fs-queue { background: var(--g-base); border-top: 0; border-radius: 8px 8px 0 0; }
 }
+
+/* ==========================================================================
+   Green on the desktop: Spotify's frame (1.27.2)
+   Title bar 64 px, library | page | panel with 8 px gaps, player row 80 px.
+   html.gdesk is set by the app while Green is on and the window is 900 px or wider.
+   ========================================================================== */
+.gonly, .gpanel, .gconnect, .titlebar.tb-web, .tracks .thead, .tracks .gix, .gside-play, .glib-head, .glib-chips { display: none; }
+
+.gdesk { --tb: 64px; --gside: clamp(280px, 26.25vw, 420px); --gpw: clamp(280px, 26.25vw, 420px); --gbar: 80px; }
+.gdesk.glib-min { --gside: 72px; }
+.gdesk .gonly { display: revert; }
+.gdesk .gonly[hidden] { display: none; }
+.gdesk .titlebar.tb-web { display: grid; }
+.gdesk .shell {
+  height: calc(100dvh - var(--tb)); padding: 0 8px; gap: 8px;
+  grid-template-columns: var(--gside) minmax(0, 1fr) 0;
+  grid-template-rows: minmax(0, 1fr) var(--gbar);
+  grid-template-areas: 'side main panel' 'player player player';
+  transition: grid-template-columns 0.3s cubic-bezier(0.3, 0, 0, 1);
+}
+.gdesk.gpanel-open .shell { grid-template-columns: var(--gside) minmax(0, 1fr) var(--gpw); }
+.gdesk:not(.gpanel-open) .shell { column-gap: 0; }
+.gdesk:not(.gpanel-open) .side { margin-right: 8px; }
+.gdesk.gaway .shell { height: calc(100dvh - var(--tb) - 24px); }
+.gdesk .settings, .gdesk .scrim, .gdesk .profile-wrap, .gdesk .modal-wrap { top: var(--tb); }
+.gdesk .fs { top: var(--tb); height: auto; }
+
+/* ---- title bar ---- */
+.gdesk .titlebar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; background: #000; }
+.gdesk .tb-left { padding-left: 8px; gap: 0; }
+.gdesk .tb-more { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--g-sub); margin-right: 8px; }
+.gdesk .tb-more:hover, .gdesk .tb-more.open { color: #fff; }
+.gdesk .tb-logo { display: none; }
+.gdesk .tb-btn { width: 32px; height: 32px; margin-right: 4px; background: transparent; color: #fff; }
+.gdesk .tb-btn .ic { width: 16px; height: 16px; }
+.gdesk .tb-btn:hover { background: transparent; transform: none; }
+.gdesk .tb-mid { display: flex; align-items: center; gap: 8px; width: calc(48px + 8px + 474px); max-width: 40vw; }
+.gdesk .tb-mid .tb-home { position: static; margin: 0 !important; flex: none; }
+.gdesk .tb-home.on, .gdesk .tb-home[aria-current] { color: #fff; }
+.gdesk .tb-search { padding: 0 6px 0 12px; }
+.gdesk .tb-browse { display: grid; place-items: center; flex: none; height: 24px; padding-left: 12px; margin-left: 4px; border-left: 1px solid #7c7c7c; color: var(--g-sub); }
+.gdesk .tb-browse .ic { width: 24px; height: 24px; }
+.gdesk .tb-browse:hover { color: #fff; transform: scale(1.04); }
+.gdesk .tb-right { gap: 8px; }
+.gdesk .tb-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--g-sub); transition: color 0.1s, transform 33ms; }
+.gdesk .tb-icon .ic { width: 16px; height: 16px; }
+.gdesk .tb-icon:hover, .gdesk .tb-icon.on { color: #fff; transform: scale(1.04); }
+.gdesk .tb-discord { display: none; }
+.gdesk .tb-avatar { margin: 0 8px; }
+.gdesk:not(.frameless) .tb-right { padding-right: 16px; }
+
+/* ---- library on the left ---- */
+.gdesk .side { background: var(--g-base); border-radius: 8px; padding: 0; gap: 0; overflow: hidden; }
+.gdesk .side-nav, .gdesk .side-head, .gdesk .side-top { display: none; }
+.gdesk .glib-head { display: flex; align-items: center; gap: 8px; height: 64px; padding: 0 16px; flex: none; }
+.gdesk .glib-tog { display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 8px; margin-left: -8px; color: #fff; font-size: 16px; font-weight: 700; border-radius: 4px; flex: 1; min-width: 0; text-align: left; }
+.gdesk .glib-tog .ic { width: 24px; height: 24px; color: var(--g-sub); flex: none; transition: color 0.1s; }
+.gdesk .glib-tog span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.gdesk .glib-tog:hover .ic, .gdesk .glib-tog:hover { color: #fff; }
+.gdesk .glib-create { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 16px 0 12px; border-radius: 999px; background: var(--g-highlight); color: #fff; font-size: 14px; font-weight: 700; flex: none; transition: background-color 0.1s, transform 33ms; }
+.gdesk .glib-create .ic { width: 16px; height: 16px; transition: transform 0.2s; }
+.gdesk .glib-create:hover { background: var(--g-elevated-hi); transform: scale(1.04); }
+.gdesk .glib-create.open .ic { transform: rotate(45deg); }
+.gdesk .glib-open { width: 32px; height: 32px; flex: none; }
+.gdesk .glib-open .ic { width: 16px; height: 16px; }
+.gdesk .glib-chips { display: flex; gap: 8px; padding: 0 16px 8px; flex: none; overflow: hidden; }
+.gdesk .glib-chips .chip { flex: none; }
+.gdesk .glib-chips.picked .chip:not(.on) { display: none; }
+.gdesk .side-pls { background: none; border-radius: 0; padding: 4px 8px 8px; flex: 1; overflow-y: auto; }
+.gdesk .side-pls:hover { scrollbar-color: rgba(255, 255, 255, 0.3) transparent; }
+.gdesk .side-pl { position: relative; padding: 8px; gap: 12px; border-radius: 6px; }
+.gdesk .side-pl .cover.xs { width: 48px; height: 48px; border-radius: 4px; }
+.gdesk .side-pl .cover.xs.round { border-radius: 50%; }
+.gdesk .side-pl .cover.liked .ic { width: 20px; height: 20px; }
+.gdesk .gside-play { display: grid; place-items: center; position: absolute; left: 8px; top: 8px; width: 48px; height: 48px; border-radius: 4px; background: rgba(0, 0, 0, 0.5); color: #fff; opacity: 0; transition: opacity 0.1s; pointer-events: none; }
+.gdesk .gart .gside-play { border-radius: 50%; }
+.gdesk .gside-play .ic { width: 24px; height: 24px; fill: currentColor; }
+.gdesk .side-pl:hover .gside-play { opacity: 1; }
+.gdesk .side-pl .spl-t small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.gdesk .side-pl[hidden] { display: none; }
+/* folded: a strip of covers */
+.gdesk.glib-min .glib-head { flex-direction: column; height: auto; padding: 12px 0 8px; gap: 8px; }
+.gdesk.glib-min .glib-tog { flex: none; margin: 0; padding: 0; width: 40px; height: 40px; justify-content: center; }
+.gdesk.glib-min .glib-tog span, .gdesk.glib-min .glib-create span, .gdesk.glib-min .glib-open, .gdesk.glib-min .glib-chips { display: none; }
+.gdesk.glib-min .glib-create { width: 32px; height: 32px; padding: 0; justify-content: center; }
+.gdesk.glib-min .side-pls { padding: 0 4px 8px; scrollbar-width: none; }
+.gdesk.glib-min .side-pls::-webkit-scrollbar { display: none; }
+.gdesk.glib-min .side-pl { padding: 8px; justify-content: center; }
+.gdesk.glib-min .side-pl .gside-play { left: 8px; }
+.gdesk.glib-min .spl-t { display: none; }
+.gdesk .side.gmoving .spl-t, .gdesk .side.gmoving .glib-chips { opacity: 0; }
+
+/* the Create menu: big rows with a round icon */
+.gcreate-pop {
+  position: fixed; z-index: 2000; width: 340px; padding: 4px; border-radius: 4px; background: #282828;
+  box-shadow: 0 16px 24px rgba(0, 0, 0, 0.3), 0 6px 8px rgba(0, 0, 0, 0.2); animation: g-menu-in 0.15s ease-out;
+}
+.gcreate-pop button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 12px 8px 8px; border-radius: 2px; text-align: left; color: #fff; }
+.gcreate-pop button:hover { background: rgba(255, 255, 255, 0.1); }
+.gcreate-pop .gc-ic { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: #3e3e3e; flex: none; }
+.gcreate-pop .gc-ic .ic { width: 24px; height: 24px; }
+.gcreate-pop b { display: block; font-size: 16px; font-weight: 700; }
+.gcreate-pop small { display: block; font-size: 14px; color: #b3b3b3; line-height: 1.4; }
+@keyframes g-menu-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* the "…" app menu at the top left with its side menus */
+.gmenu {
+  position: fixed; z-index: 2000; min-width: 196px; padding: 4px; border-radius: 4px; background: #282828; font-family: var(--g-font);
+  box-shadow: 0 16px 24px rgba(0, 0, 0, 0.3), 0 6px 8px rgba(0, 0, 0, 0.2); animation: g-menu-in 0.15s ease-out;
+}
+.gmenu .gam-item { position: relative; }
+.gmenu button { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; height: 40px; padding: 0 8px 0 12px; border-radius: 2px; color: rgba(255, 255, 255, 0.9); font-size: 14px; text-align: left; white-space: nowrap; }
+.gmenu button:hover, .gmenu .gam-item:hover > .gam-top { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.gmenu .gam-arrow { width: 16px; height: 16px; transform: scaleX(-1); color: #b3b3b3; }
+.gmenu .gam-sub { display: none; position: absolute; left: 100%; top: -4px; min-width: 240px; padding: 4px; border-radius: 4px; background: #282828; box-shadow: 0 16px 24px rgba(0, 0, 0, 0.3), 0 6px 8px rgba(0, 0, 0, 0.2); }
+.gmenu .gam-item:hover > .gam-sub { display: block; }
+.gmenu kbd { font: inherit; font-size: 12px; color: #b3b3b3; }
+.gmenu hr { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 4px 0; }
+
+/* tooltips */
+.gtip {
+  position: fixed; z-index: 3000; max-width: 300px; padding: 4px 8px; border-radius: 4px; background: #282828; color: #fff;
+  font: 400 14px/1.4 var(--g-font, sans-serif); box-shadow: 0 16px 24px rgba(0, 0, 0, 0.3), 0 6px 8px rgba(0, 0, 0, 0.2);
+  pointer-events: none; animation: g-tip 0.12s ease-out;
+}
+@keyframes g-tip { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- the page in the middle ---- */
+.gdesk #content { position: relative; border-radius: 8px; isolation: isolate; }
+.gdesk #view { padding: 24px 24px 40px; }
+.gdesk .gsticky {
+  position: sticky; top: 0; z-index: 100; display: flex; align-items: center; gap: 8px; height: 64px; padding: 0 24px; margin-bottom: -64px;
+  background: color-mix(in srgb, var(--gs) 70%, #000); opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.gdesk .gsticky.on { opacity: var(--gso, 1); pointer-events: auto; }
+.gdesk .gs-play { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); flex: none; transition: transform 33ms, background-color 33ms; }
+.gdesk .gs-play .ic { width: 24px; height: 24px; fill: currentColor; }
+.gdesk .gs-play:hover { transform: scale(1.04); }
+.gdesk .gs-t { font-size: 24px; font-weight: 700; color: #fff; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* page heads: the colour of the cover over the whole width, darker towards the songs */
+.gdesk .detail-head { margin: -24px -24px 0; padding: 24px 24px 0; position: relative; }
+.gdesk .dh-text > h1.gfit { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gdesk .dh-text > h1.gfit.wrap { white-space: normal; }
+.gdesk .detail-head::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: 104px; height: auto; z-index: -1; opacity: 1;
+  background: linear-gradient(180deg, transparent 0, rgba(0, 0, 0, 0.5) 100%), var(--tint, #535353); transition: background-color 0.3s;
+}
+.gdesk .detail-head::after {
+  content: ''; position: absolute; left: 0; right: 0; top: calc(100% - 104px); height: 336px; z-index: -1; pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.6) 0, var(--g-base) 100%), var(--tint, #535353);
+}
+.gdesk .detail-head > .cover.xl, .gdesk .detail-head > .dh-cover { margin-bottom: 24px; }
+.gdesk .detail-head .toolbar { margin: 0; padding: 24px 0; min-height: 104px; box-sizing: border-box; }
+.gdesk .detail-head .toolbar .btn.primary .ic { fill: currentColor; }
+.gdesk .mback { display: none; }
+.gdesk .dh-text > h1 { margin: 4px 0 8px; }
+.gdesk .dh-text > .muted:not(.kind) { margin-bottom: 24px; }
+.gdesk.dyn #content { background: var(--g-base); }
+/* artists: a big picture over the whole width, the name on it */
+.gdesk .detail-head:has(> .cover.xl.round) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto auto; min-height: calc(clamp(300px, 38vh, 400px) + 104px); padding-top: 0; }
+.gdesk .detail-head > .cover.xl.round {
+  position: absolute; left: 0; right: 0; top: 0; bottom: 104px; width: auto; height: auto; aspect-ratio: auto; margin: 0; border-radius: 0; z-index: -1; box-shadow: none; grid-area: auto; align-self: stretch; justify-self: stretch;
+}
+.gdesk .detail-head > .cover.xl.round img { width: 100%; height: 100%; object-fit: cover; object-position: center 25%; }
+.gdesk .detail-head:has(> .cover.xl.round)::before { background: linear-gradient(180deg, transparent 30%, rgba(0, 0, 0, 0.55) 100%); z-index: 0; pointer-events: none; }
+.gdesk .detail-head:has(> .cover.xl.round) .dh-text > * { grid-column: 1; position: relative; z-index: 1; }
+.gdesk .detail-head:has(> .cover.xl.round) .dh-text > h1 { font-size: clamp(48px, 7vw, 96px); }
+.gdesk .detail-head:has(> .cover.xl.round) .toolbar { grid-column: 1; }
+
+/* the song table: number column, header line that sticks under the bar */
+.gdesk .tracks.gtable .row { grid-template-columns: var(--gcols); padding: 0 16px; gap: 16px; }
+.gdesk .tracks.gtable.nolead .row > .lead { display: none; }
+.gdesk .tracks.gtable .row .lead .playbtn, .gdesk .tracks.gtable .row .lead .eqi { display: none; }
+.gdesk .tracks .gix { display: grid; place-items: center end; position: relative; width: 16px; height: 100%; font-size: 16px; color: var(--g-sub); font-variant-numeric: tabular-nums; }
+.gdesk .tracks .gix b { font-weight: 400; }
+.gdesk .tracks .gix .playbtn { position: absolute; inset: 0 -4px; display: none; place-items: center; background: none; color: #fff; }
+.gdesk .tracks .gix .playbtn .ic { width: 16px; height: 16px; fill: currentColor; }
+.gdesk .tracks .gix .eqi { display: none; position: absolute; right: 0; }
+.gdesk .tracks .row:hover .gix b, .gdesk .tracks .row:hover .gix .eqi { visibility: hidden; }
+.gdesk .tracks .row:hover .gix .playbtn { display: grid; }
+.gdesk .tracks .row.current .gix b { color: var(--accent); }
+.gdesk.is-playing .tracks .row.current .gix b { display: none; }
+.gdesk .tracks .row.current .gix .eqi { inset: auto 0 auto auto; padding: 0; height: 14px; }
+.gdesk.is-playing .tracks .row.current .gix .eqi { display: flex; }
+.gdesk .tracks .row.current .gix .eqi i { background: var(--accent); }
+.gdesk .tracks .thead {
+  display: grid; position: sticky; top: 64px; z-index: 6; min-height: 36px; margin: 0 -24px 16px; padding: 0 40px; border-radius: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: var(--g-sub); font-size: 14px; cursor: default; background: transparent;
+}
+.gdesk .tracks .thead:hover { background: transparent; }
+.gdesk .tracks .thead > * { color: var(--g-sub) !important; font-size: 14px; }
+.gdesk .tracks .thead .dur { display: grid; justify-content: end; }
+.gdesk .tracks .thead .dur .ic { width: 16px; height: 16px; }
+.gdesk .tracks .thead .gix { display: grid; }
+.gdesk:has(.gsticky.on) .tracks .thead { background: var(--g-highlight); }
+.gdesk .tracks.gtable .row .dur { text-align: right; padding-right: 0; }
+.gdesk .tracks.gtable .row .acts { opacity: 1; }
+.gdesk .tracks.gtable .row .like:not(.on) { opacity: 0; }
+.gdesk .tracks.gtable .row:hover .like { opacity: 1; }
+
+/* ---- the panel on the right ---- */
+.gdesk .gpanel { display: flex; flex-direction: column; grid-area: panel; min-width: 0; background: var(--g-base); border-radius: 8px; overflow: hidden; }
+.gdesk:not(.gpanel-open) .gpanel { visibility: hidden; }
+.gp-head { display: flex; align-items: center; gap: 8px; height: 64px; padding: 0 16px; flex: none; }
+.gp-ht { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gp-ht a:hover { text-decoration: underline; }
+.gp-head .icon-btn { width: 32px; height: 32px; flex: none; }
+.gp-head .icon-btn .ic { width: 16px; height: 16px; }
+.gp-head .icon-btn:hover { background: var(--g-highlight); }
+.gp-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; }
+.gp-intro { color: var(--g-sub); font-size: 14px; line-height: 1.5; margin: 0 0 16px; }
+.gp-cover .cover.xl { width: 100%; height: auto; aspect-ratio: 1; border-radius: 8px; box-shadow: none; cursor: pointer; }
+.gp-meta { display: flex; align-items: center; gap: 4px; margin: 16px 0 0; }
+.gp-mt { flex: 1; min-width: 0; }
+.gp-title { font-size: 24px; font-weight: 700; color: #fff; line-height: 1.3; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gp-artists { font-size: 16px; color: var(--g-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gp-artists a:hover { color: #fff; text-decoration: underline; }
+.gp-meta .icon-btn { width: 32px; height: 32px; flex: none; }
+.gp-meta .icon-btn .ic { width: 16px; height: 16px; }
+.gp-meta .like::before { width: 20px; height: 20px; margin: -10px 0 0 -10px; }
+.gp-card { margin-top: 16px; border-radius: 8px; background: var(--g-highlight); padding: 16px; overflow: hidden; }
+.gp-ch { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.gp-ch b { font-size: 16px; font-weight: 700; color: #fff; }
+.gp-link { font-size: 14px; font-weight: 700; color: var(--g-sub); }
+.gp-link:hover { color: #fff; text-decoration: underline; transform: scale(1.04); }
+.gp-lyr { background: color-mix(in srgb, var(--dyn-bg, #5a5a5a) 85%, #fff 0%); cursor: pointer; filter: saturate(1.4); }
+.gp-lines { max-height: 300px; overflow: hidden; position: relative; }
+.gp-lines p { margin: 0 0 8px; font-size: 20px; font-weight: 700; line-height: 1.4; color: #fff; letter-spacing: -0.01em; transition: color 0.3s; }
+.gp-lines p.past { color: rgba(255, 255, 255, 0.6); }
+.gp-lines p.on { color: #fff; }
+.gp-about { padding: 0; cursor: default; }
+.gp-apic { display: block; height: 0; padding: 16px; background: center 25% / cover no-repeat; position: relative; }
+.gp-apic.has { height: 240px; box-sizing: border-box; }
+.gp-apic.has::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0.5) 0, transparent 40%); }
+.gp-onpic { position: relative; z-index: 1; margin: 0; }
+.gp-apic:not(.has) { height: auto; padding-bottom: 0; }
+.gp-ab { padding: 16px; }
+.gp-an { display: block; font-size: 16px; font-weight: 700; color: #fff; }
+.gp-an:hover { text-decoration: underline; }
+.gp-arow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
+.gp-al { font-size: 14px; color: var(--g-sub); }
+.gp-card .btn.follow { height: 32px; padding: 0 15px; font-size: 14px; flex: none; }
+.gp-card .btn.follow .ic { display: none; }
+.gp-cr { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; min-height: 44px; }
+.gp-cr a { font-size: 16px; color: #fff; }
+.gp-cr a:hover { text-decoration: underline; }
+.gp-cr small { display: block; font-size: 14px; color: var(--g-sub); }
+.gp-nrow { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px; margin: -8px; width: calc(100% + 16px); border-radius: 6px; text-align: left; position: relative; }
+.gp-nrow:hover { background: rgba(255, 255, 255, 0.1); }
+.gp-nrow .cover.sm { width: 48px; height: 48px; border-radius: 4px; flex: none; }
+.gp-nrow b { display: block; font-size: 16px; font-weight: 400; color: #fff; }
+.gp-nrow small { font-size: 14px; color: var(--g-sub); }
+.gp-play { position: absolute; left: 8px; width: 48px; height: 48px; display: grid; place-items: center; background: rgba(0, 0, 0, 0.5); border-radius: 4px; opacity: 0; color: #fff; }
+.gp-play .ic { width: 20px; height: 20px; fill: currentColor; }
+.gp-nrow:hover .gp-play { opacity: 1; }
+/* queue tabs */
+.gp-tabs { display: flex; gap: 24px; }
+.gp-tabs button { font-size: 16px; font-weight: 700; color: var(--g-sub); padding: 4px 0; position: relative; }
+.gp-tabs button:hover { color: #fff; }
+.gp-tabs button.on { color: #fff; }
+.gp-tabs button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 2px; border-radius: 1px; background: var(--accent); }
+.gp-sh { margin: 8px 0; font-size: 16px; font-weight: 700; color: #fff; }
+.gp-sh2 { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 24px; }
+.gpanel .tracks .row { grid-template-columns: 48px minmax(0, 1fr) 32px; min-height: 64px; padding: 0 8px; gap: 12px; margin: 0 -8px; }
+.gpanel .tracks .row .lead .cover.sm { width: 48px; height: 48px; }
+.gpanel .tracks .row.current .title { color: var(--accent); }
+.gp-empty { display: grid; justify-items: center; text-align: center; gap: 8px; padding: 48px 16px; color: var(--g-sub); }
+.gp-empty b { color: #fff; font-size: 20px; }
+.gp-empty .ic.big { width: 48px; height: 48px; color: #fff; }
+/* devices in the panel instead of the sheet */
+.gpanel .devsheet.gdev { position: static; transform: none; width: auto; max-width: none; background: none; box-shadow: none; padding: 0; border: 0; animation: none; }
+.gpanel .ds-cur { border-radius: 8px; padding: 16px; background: color-mix(in srgb, var(--accent) 14%, var(--g-highlight)); }
+.gpanel .ds-cur small { color: var(--accent); }
+.gpanel .ds-row { border-radius: 6px; }
+.gpanel .ds-row:hover { background: rgba(255, 255, 255, 0.1); }
+.gp-friends { display: grid; gap: 8px; }
+
+/* the green line under the player when something plays on another device */
+.gdesk .gconnect:not([hidden]) {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px; position: fixed; left: 0; right: 0; bottom: 0; height: 24px; padding: 0 32px;
+  background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 700; cursor: pointer; z-index: 50;
+}
+.gdesk .gconnect .ic { width: 16px; height: 16px; }
+
+/* ---- player row ---- */
+.gdesk .player { height: var(--gbar); padding: 0 8px; background: #000; grid-template-columns: minmax(180px, 30%) minmax(0, 40%) minmax(180px, 30%); }
+.gdesk .extra { justify-content: flex-end; }
+.gdesk .extra .icon-btn.gonly { display: grid; }
+.gdesk .extra .icon-btn.on { color: var(--accent); }
+.gdesk .player .extra [data-act='viz'] { display: none; }
+.gdesk .np-dev, .gdesk .player .np .devbtn { display: none !important; }
+
+/* ---- Miniplayer ---- */
+.gmini {
+  position: relative; width: 320px; height: 320px; overflow: hidden; border-radius: 8px; background: #121212; color: #fff;
+  font-family: 'Streyn Green', system-ui, sans-serif; user-select: none; -webkit-user-select: none;
+}
+.gmini.float { position: fixed; right: 24px; bottom: 112px; z-index: 1500; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6); cursor: grab; animation: g-menu-in 0.2s ease-out; }
+.gmini-win { margin: 0; background: #121212; overflow: hidden; }
+.gmini-win .gmini { width: 100vw; height: 100vh; border-radius: 0; }
+.gm-bg { position: absolute; inset: 0; background: var(--gm-bg, #333); }
+.gmini.nobg .gm-bg { background: #121212; }
+.gm-cover { position: absolute; inset: 0; display: grid; place-items: center; padding: 48px 48px 72px; }
+.gm-cover .cover.xl { width: auto; height: 100%; max-width: 100%; aspect-ratio: 1; border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.gmini .gm-b { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: #fff; background: rgba(0, 0, 0, 0.5); }
+.gmini .gm-b .ic { width: 16px; height: 16px; }
+.gm-top { position: absolute; top: 8px; right: 8px; display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s; }
+.gm-ctl { position: absolute; left: 0; right: 0; top: 50%; margin-top: -32px; display: flex; justify-content: center; gap: 16px; opacity: 0; transition: opacity 0.2s; }
+.gm-ctl .gm-b { width: 48px; height: 48px; }
+.gm-ctl .gm-pp { background: #fff; color: #000; }
+.gm-ctl .gm-b .ic { width: 20px; height: 20px; fill: currentColor; }
+.gmini:hover .gm-top, .gmini:hover .gm-ctl { opacity: 1; }
+.gmini:hover .gm-cover { filter: brightness(0.6); }
+.gm-foot { position: absolute; left: 16px; right: 8px; bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.gm-txt { flex: 1; min-width: 0; }
+.gm-txt b, .gm-txt small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gm-txt b { font-size: 14px; }
+.gm-txt small { font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+.gm-foot .gm-like { background: none; }
+.gm-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255, 255, 255, 0.3); cursor: pointer; }
+.gm-bar i { display: block; height: 100%; background: #fff; }
+.gmini.withq { height: 480px; }
+.gmini.withq .gm-cover { bottom: 160px; }
+.gmini.withq .gm-foot { bottom: 176px; }
+.gm-q { position: absolute; left: 0; right: 0; bottom: 4px; height: 156px; overflow: auto; padding: 0 8px; display: none; }
+.gmini.withq .gm-q { display: block; }
+.gm-qr { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px; border-radius: 4px; color: #fff; text-align: left; }
+.gm-qr:hover { background: rgba(255, 255, 255, 0.1); }
+.gm-qr .cover.xs { width: 32px; height: 32px; border-radius: 2px; flex: none; }
+.gm-qr b { display: block; font-size: 13px; font-weight: 400; }
+.gm-qr small { font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+/* its settings, a small dialog over the picture */
+.gm-set { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.6); z-index: 5; animation: g-tip 0.15s; }
+.gm-card { width: calc(100% - 32px); max-width: 280px; padding: 24px; border-radius: 8px; background: #282828; box-shadow: 0 16px 24px rgba(0, 0, 0, 0.4); }
+.gm-card h3 { margin: 0 0 16px; font-size: 16px; font-weight: 700; color: #fff; }
+.gm-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; font-size: 14px; }
+.gm-done { display: block; margin: 16px 0 0 auto; height: 32px; padding: 0 16px; border-radius: 999px; background: var(--accent, #1ed760); color: var(--accent-ink, #000); font-weight: 700; font-size: 14px; }
+.gm-done:hover { transform: scale(1.04); }
+
+/* ---- "What's New" ---- */
+.gdesk .gnew-h { font-size: 32px; font-weight: 700; margin: 8px 0 4px; }
+.gnew-p { margin-bottom: 8px; }
+
+@media (max-width: 1099px) {
+  .gdesk { --gpw: 0px; }
+  .gdesk .gpanel, .gdesk [data-gpanel] { display: none !important; }
+  .gdesk.gpanel-open .shell { grid-template-columns: var(--gside) minmax(0, 1fr) 0; column-gap: 0; }
+  .gdesk .side { margin-right: 8px; }
+}
