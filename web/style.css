@@ -1759,9 +1759,6 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
 @media (max-width: 899px) { .detail-head .icon-btn.m-only { display: grid; } }
 /* the picture in "Edit details" reads as editable at a glance: a pencil badge, the picture lights up under the finger */
 .pld-cover { cursor: pointer; }
-.pld-pen { position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); pointer-events: none; transition: transform 0.15s; }
-.pld-pen .ic { width: 17px; height: 17px; }
-.pld-cover:hover .pld-pen { transform: scale(1.08); }
 .pld-cover:active { filter: brightness(0.85); }
 .pld-foot { justify-content: flex-end; }
 .nologos .src.logo { display: none !important; }

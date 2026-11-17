@@ -4884,7 +4884,7 @@ function playlistDialog(pl = null, kind = 'playlist') {
     const desc = imp ? pl?.meta?.description || '' : pl?.description || '';
     wrap.innerHTML = `<form class="modal pld" novalidate><div class="modal-head"><h2>${t(pl ? 'editDetails' : 'newPlaylist')}</h2><button type="button" class="icon-btn" data-x>${icon('close')}</button></div>
       <div class="pld-grid">
-        <div class="pld-cover" data-photo tabindex="0" role="button" title="${t('choosePhoto')}">${cur ? `<img alt="" src="${esc(cur)}">` : icon('note')}<span class="pld-over">${icon('edit')}${t('choosePhoto')}</span><span class="pld-pen">${icon('edit')}</span></div>
+        <div class="pld-cover" data-photo tabindex="0" role="button" title="${t('choosePhoto')}">${cur ? `<img alt="" src="${esc(cur)}">` : icon('note')}<span class="pld-over">${icon('edit')}${t('choosePhoto')}</span></div>
         <div class="pld-fields">
           <label class="field"><span>${t('playlistName')}</span><input name="name" maxlength="80" value="${esc(pl?.name || '')}" autocomplete="off"></label>
           <label class="field"><span>${t('description')}</span><textarea name="description" maxlength="300" rows="4" placeholder="${t('descriptionHint')}">${esc(desc)}</textarea></label>
