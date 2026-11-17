@@ -3809,10 +3809,11 @@ function renderPlayer() {
       viz?.attach(big);
     }
     // like Spotify: once the sound plays on another device the artist moves up next to the song, after a dot
-    $('#np-title').innerHTML = `<span class="np-t">${esc(tr.title)}</span><span class="np-inl"> • ${esc(artistName(tr))}</span>`;
+    $('#np-title').innerHTML = `<span class="np-t">${esc(tr.title)}</span><span class="np-inl"> • ${artistText(tr)}</span>`;
     $('#np-artist').innerHTML = artistLinks(tr);
     $('#fs-title').textContent = tr.title;
     $('#fs-artist').innerHTML = artistLinks(tr);
+    playerMarquees();
     document.title = `${tr.title} · ${artistName(tr)}`;
     applyDyn(tr);
   } else {
@@ -3824,6 +3825,7 @@ function renderPlayer() {
     $('#np-artist').textContent = '';
     $('#fs-title').textContent = t('nothingPlaying');
     $('#fs-artist').textContent = '';
+    playerMarquees();
     document.title = 'Streyn';
     applyDyn(null);
   }
@@ -4077,6 +4079,7 @@ function watchFsCover() {
 function openFs(open) {
   $('#fs').classList.toggle('open', open);
   if (open) fitFsCover();
+  if (open) playerMarquees();
   vizSync();
   if (!open) $('#fs-queue').classList.remove('open', 'full');
   if (!open) $('#fs-lyrics').classList.remove('open', 'full');
@@ -5307,7 +5310,7 @@ function paintDevice() {
   const cur = deviceList().find((d) => d.active);
   const away = cur && !['phone', 'out'].includes(cur.kind) && !(cur.id === 'default');
   const line = $('.np-dev');
-  $('#mini')?.classList.toggle('devaway', !!away);
+  if ($('#mini') && $('#mini').classList.contains('devaway') !== !!away) { $('#mini').classList.toggle('devaway', !!away); playerMarquees(); }
   if (line) {
     line.hidden = !away;
     line.innerHTML = away ? `${icon(DEV_ICON[cur.kind] || 'speaker')}<span><em>${esc(cur.name)}</em></span>` : '';
@@ -5333,6 +5336,29 @@ function marquee(box) {
   }
 }
 addEventListener('resize', () => marquee($('.np-dev span')));
+/** Phone, like Spotify: a song name or artist line that does not fit waits a moment, then runs to the left in a loop
+   (the text follows itself after a gap) and rests again at the start. Desktop keeps the cut-off with dots. */
+function spotMarquee(el) {
+  if (!el) return;
+  const old = el.querySelector(':scope > .smq');
+  if (old) el.innerHTML = old.firstElementChild.innerHTML;
+  el.classList.remove('smq-on');
+  if (!matchMedia('(max-width: 899px)').matches || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (el.scrollWidth - el.clientWidth <= 2) return;
+  const html = el.innerHTML;
+  el.innerHTML = `<span class="smq"><span>${html}</span><span aria-hidden="true" inert>${html}</span></span>`;
+  const w = el.querySelector('.smq > span').offsetWidth + 40;
+  el.style.setProperty('--smq-w', `-${w}px`);
+  // about 30 px a second plus the rest at the start, like Spotify
+  el.style.setProperty('--smq-t', `${(w / 30 + 2.5).toFixed(1)}s`);
+  el.classList.add('smq-on');
+}
+function playerMarquees() {
+  // after layout, so the widths are real (the big player may only just be opening)
+  requestAnimationFrame(() => ['#np-title', '#np-artist', '#fs-title', '#fs-artist'].forEach((s) => spotMarquee($(s))));
+}
+addEventListener('resize', () => playerMarquees());
+matchMedia('(max-width: 899px)').addEventListener?.('change', () => playerMarquees());
 function fillDevSheet() {
   const box = $('.devsheet .ds-body');
   if (!box) return;

@@ -1891,3 +1891,17 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
   .modal.reorder .ro-row.lifted, .modal.reorder .ro-list.sorting .ro-row { will-change: transform; }
   .modal.reorder .ro-list { scroll-behavior: auto; }
 }
+
+/* 1.26.0: phone player text like Spotify: bold song name, artists in grey below, long lines run in a loop instead of being cut off */
+.smq { display: inline-flex; gap: 40px; white-space: nowrap; will-change: transform; animation: smq var(--smq-t, 9s) linear infinite; }
+.smq > span { flex: none; }
+.smq-on { text-overflow: clip !important; -webkit-mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 18px), transparent); mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 18px), transparent); }
+@keyframes smq { 0%, 22% { transform: none; } 100% { transform: translateX(var(--smq-w)); } }
+#np-title, #np-artist, #fs-title, #fs-artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+@media (max-width: 899px) {
+  .fs-meta .title { font-size: 23px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; }
+  .fs-meta .sub { font-size: 16px; line-height: 1.35; margin-top: 2px; }
+  .fs-meta .sub a.alink { color: inherit; }
+  #np-title { font-size: 14px; font-weight: 700; }
+  #np-artist { font-size: 13px; }
+}
