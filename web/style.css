@@ -346,6 +346,7 @@ body.auth #app { height: 100%; }
 /* title and line start and end where the cover does */
 .fs-meta, .fs .timeline { width: var(--cov, 100%); max-width: 100%; margin-inline: auto; }
 .fs-meta > div { min-width: 0; }
+.fs-acts { display: flex; align-items: center; gap: 2px; flex: none; }
 .fs-meta .title { font-size: 21px; }
 .fs-meta .sub { color: var(--muted); }
 .fs .timeline { flex-direction: column; gap: 2px; max-width: none; }

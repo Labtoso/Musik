@@ -1105,7 +1105,7 @@ function trackMenu(anchor, tr, ctx = {}) {
       run: async () => menu(anchor, await pickPlaylist([tr]))
     },
     !tr.ext && { label: t('startRadio'), icon: 'radio', run: () => startRadio(tr) },
-    !tr.ext && { label: t('share'), icon: 'share', run: () => shareThing('track', tr.id, tr.title) },
+    { label: t('share'), icon: 'share', run: () => shareTrack(tr) },
     tr.ext?.url && { label: t('openOn', { src: t('src_' + tr.ext.source) }), icon: 'link', run: () => openExt(tr.ext.url) },
     '-',
     ...artistRefs(tr).slice(0, 4).map((a, i, l) => ({ label: l.length > 1 ? `${t('goArtist')}: ${a.name}` : t('goArtist'), icon: 'user', run: () => go(a.href) })),
@@ -1377,13 +1377,22 @@ function srcBadge(src) {
 }
 
 // ---------- share ----------
+/** Share one song: a song on the server by its id, a platform song (Spotify, YouTube, ...) by its details. */
+function shareTrack(tr) {
+  if (!tr) return;
+  const title = tr.title + (artistName(tr) ? ' · ' + artistName(tr) : '');
+  if (tr.ext) return shareThing('song', itemOf(tr), title);
+  if (Number.isInteger(Number(tr.id))) return shareThing('track', Number(tr.id), title);
+}
 async function shareThing(kind, ref, title) {
   try {
     const r = await post('/api/shares', { kind, ref: typeof ref === 'object' ? JSON.stringify(ref) : String(ref) });
     // a public link (musik.labtoso.de) when the server has one, otherwise the home address
     const url = r.url || (conn.server || location.origin) + r.path;
     if (window.MusikAndroid?.share) return window.MusikAndroid.share(title, url);
-    if (navigator.share) {
+    // on a computer the link goes straight to the clipboard, like "Copy link" in Spotify
+    const computer = window.musikDesktop || !matchMedia('(pointer: coarse)').matches;
+    if (navigator.share && !computer) {
       try {
         return await navigator.share({ title, text: t('shareText', { title }), url });
       } catch (e) {
@@ -4382,6 +4391,7 @@ function bindPlayer() {
     else if (a === 'close-fs') openFs(false);
     else if (a === 'chill') openChill();
     else if (a === 'menu' && player.current) trackMenu(b, player.current, {});
+    else if (a === 'share' && player.current) shareTrack(player.current);
     e.stopPropagation();
   });
   document.addEventListener('input', (e) => {
@@ -7539,7 +7549,7 @@ function buildShell() {
   <div id="fs" class="fs">
     <div class="fs-top"><button class="icon-btn" data-act="close-fs">${icon('down')}</button><span class="muted small">${t('nowPlaying')}</span><span class="fs-topr"><button class="icon-btn" data-act="chill" id="fs-chill" title="${t('chill')}" ${prefs.chill ? '' : 'hidden'}>${icon('expand')}</button><button class="icon-btn" data-act="menu">${icon('more')}</button></span></div>
     <div id="fs-cover" class="fs-cover"></div>
-    <div class="fs-meta"><div><div id="fs-title" class="title"></div><div id="fs-artist" class="sub"></div></div><button class="icon-btn like" data-act="like">${icon('heart')}</button></div>
+    <div class="fs-meta"><div><div id="fs-title" class="title"></div><div id="fs-artist" class="sub"></div></div><span class="fs-acts"><button class="icon-btn" data-act="share" title="${t('share')}" aria-label="${t('share')}">${icon('share')}</button><button class="icon-btn like" data-act="like">${icon('heart')}</button></span></div>
     <div class="timeline"><input class="seek" type="range" min="0" max="1" step="0.1" value="0"><div class="times"><span class="t-pos">0:00</span><span class="t-dur">0:00</span></div></div>
     <div class="fs-buttons">
       <button class="icon-btn" data-act="shuffle">${icon('shuffle')}</button>

@@ -1964,7 +1964,15 @@ async fn create_share(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R
         Value::String(s) => s.clone(),
         v => v.to_string(),
     };
-    let reference = clip(&reference, 600);
+    let reference = if b.kind == "song" {
+        // only the fields a song needs, always in the same order, so the same song gets the same link
+        match serde_json::from_str::<Value>(&reference).ok().and_then(|v| song_item(&v)) {
+            Some(v) => v.to_string(),
+            None => return Err(ApiError::new(400, "bad_share")),
+        }
+    } else {
+        clip(&reference, 600)
+    };
     let db = st.db.lock().unwrap();
     // check the thing exists and belongs to the user where that matters
     let ok = match b.kind.as_str() {
@@ -1990,6 +1998,11 @@ async fn create_share(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R
         "album" => serde_json::from_str::<Value>(&reference)
             .map(|v| v["album"].is_string())
             .unwrap_or(false),
+        // a single platform song (Spotify, YouTube, ...): kept as its import item
+        "song" => serde_json::from_str::<Value>(&reference)
+            .ok()
+            .and_then(|v| song_item(&v))
+            .is_some(),
         "import" => reference
             .parse::<i64>()
             .ok()
@@ -2043,6 +2056,28 @@ fn public_link(st: &St, token: &str) -> Option<String> {
     Some(format!("{base}/s/{token}"))
 }
 
+/// A shared platform song, cleaned up: every field a string (duration a number), sizes capped.
+fn song_item(v: &Value) -> Option<Value> {
+    let s = |k: &str, n: usize| clip(v[k].as_str().unwrap_or("").trim(), n);
+    let source = s("source", 20);
+    let title = s("title", 300);
+    if title.is_empty() || !matches!(source.as_str(), "spotify" | "youtube" | "ytmusic" | "soundcloud" | "deezer" | "apple" | "tidal") {
+        return None;
+    }
+    let cover = s("cover", 600);
+    let url = s("url", 600);
+    Some(json!({
+        "source": source,
+        "ext_id": s("ext_id", 120),
+        "title": title,
+        "artist": s("artist", 300),
+        "album": s("album", 300),
+        "duration": v["duration"].as_f64().filter(|d| d.is_finite() && *d >= 0.0 && *d < 86400.0).unwrap_or(0.0),
+        "cover": if cover.starts_with("https://") { cover } else { String::new() },
+        "url": if url.starts_with("https://") { url } else { String::new() },
+    }))
+}
+
 /// What a share link shows: (title, subtitle, kind, local tracks, external items)
 pub(crate) fn resolve_share(
     db: &Connection,
@@ -2084,6 +2119,14 @@ pub(crate) fn resolve_share(
                 t,
                 vec![],
             ))
+        }
+        "song" => {
+            let v: Value = serde_json::from_str(&reference).map_err(|_| nf())?;
+            let item = song_item(&v).ok_or_else(nf)?;
+            let title = item["title"].as_str().unwrap_or("").to_string();
+            let artist = item["artist"].as_str().unwrap_or("").to_string();
+            // shown like a song from the server: one song, kind "track"
+            Ok((title, artist, "track".into(), vec![], vec![item]))
         }
         "album" => {
             let v: Value = serde_json::from_str(&reference).map_err(|_| nf())?;
@@ -2283,8 +2326,28 @@ async fn public_song(State(st): State<St>, Path((token, k)): Path<(String, usize
 /// is on this server, otherwise as an imported playlist (platform songs stay playable there).
 async fn save_share(State(st): State<St>, Auth(u, _): Auth, Path(token): Path<String>) -> R {
     let mut db = st.db.lock().unwrap();
-    let (title, _, _, tracks, ext) = resolve_share(&db, &token)?;
+    let (title, _, kind, tracks, ext) = resolve_share(&db, &token)?;
     let now = now_ms();
+    // a single song goes to "Liked Songs", like the heart in the app
+    if kind == "track" {
+        if let Some(id) = tracks.first().and_then(|t| t["id"].as_i64()) {
+            db.execute("INSERT OR IGNORE INTO likes (user_id, track_id, created) VALUES (?,?,?)", params![u.id, id, now]).ok();
+            return Ok(Json(json!({ "kind": "like", "name": title, "tracks": 1 })));
+        }
+        if let Some(e) = ext.first() {
+            let src = e["source"].as_str().unwrap_or("");
+            let ext_id = e["ext_id"].as_str().unwrap_or("");
+            let key = format!("{src}:{ext_id}");
+            let player = match src { "ytmusic" => "youtube", "spotify" => "ytfind", s => s };
+            let data = json!({ "id": key, "title": e["title"], "artist": e["artist"], "album": e["album"], "duration": e["duration"], "cover": e["cover"], "ext": { "source": src, "player": player, "id": ext_id, "url": e["url"] } });
+            db.execute(
+                "INSERT INTO ext_likes (user_id, key, data, created) VALUES (?,?,?,?) ON CONFLICT(user_id, key) DO UPDATE SET data = excluded.data",
+                params![u.id, key, data.to_string(), now],
+            )
+            .ok();
+            return Ok(Json(json!({ "kind": "like", "name": title, "tracks": 1 })));
+        }
+    }
     if ext.is_empty() {
         let ids: Vec<i64> = tracks.iter().filter_map(|t| t["id"].as_i64()).collect();
         db.execute(
