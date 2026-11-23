@@ -215,12 +215,15 @@ jobs:
           reuse=0
           srvreuse=0
           if [ "${{ matrix.name }}" = windows ]; then
-            names=$(gh release view -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)
+            # one release for every reused file, even if another build publishes a newer one meanwhile
+            TAG=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
+            names=""
+            [ -n "$TAG" ] && names=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)
             if grep -qx "$SRV" <<< "$names"; then
-              gh release download -R "$GITHUB_REPOSITORY" -p "$SRV" -D prevsrv && cp "prevsrv/$SRV" "$SIDECAR" && srvreuse=1 && echo "Offline server for $DV unchanged: reusing $SRV"
+              gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$SRV" -D prevsrv && cp "prevsrv/$SRV" "$SIDECAR" && srvreuse=1 && echo "Offline server for $DV unchanged: reusing $SRV"
             fi
             if grep -qx "$RAW" <<< "$names"; then
-              gh release download -R "$GITHUB_REPOSITORY" -p "$RAW" -D prev && reuse=1
+              gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$RAW" -D prev && reuse=1
             elif grep -q "^streyn-desktop-$DV-" <<< "$names"; then
               echo "::warning::The desktop app changed but DESKTOP_VERSION is still $DV. Raise DESKTOP_VERSION so installed apps get the change."
             fi
@@ -236,7 +239,7 @@ jobs:
             # Streyn Setup: a plain Rust program (desktop/setup) that installs both files per user,
             # like Spotify. No NSIS, so no plug-in DLLs unpacked to %TEMP% and no process scanning.
             # Its version is the desktop version, so nothing in it changes with server-only releases.
-            if [ $reuse = 1 ] && [ $srvreuse = 1 ] && grep -qx "$SETUP" <<< "$names" && gh release download -R "$GITHUB_REPOSITORY" -p "$SETUP" -D prevsetup; then
+            if [ $reuse = 1 ] && [ $srvreuse = 1 ] && grep -qx "$SETUP" <<< "$names" && gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$SETUP" -D prevsetup; then
               echo "Setup unchanged: reusing $SETUP"
               cp "prevsetup/$SETUP" "../${{ matrix.out }}"
             else
