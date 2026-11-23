@@ -2416,7 +2416,7 @@ function drawSearch(box, loading, done = false) {
       ? `<div class="noresult"><h3>${t(d.note)}</h3><div class="stack"><a class="btn primary" href="#/sources">${t('spotifyConnect')}</a></div></div>`
       : loading || !done
         ? `<p class="muted small">${t('searching')}</p>`
-        : `<div class="noresult"><h3>${t('noResultsFor', { q: d.q })}</h3><p class="muted">${t('noResultsHint')}</p><div class="stack"><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/sources">${t('manageSources')}</a></div></div>`;
+        : `<div class="noresult"><h3>${t('noResultsFor', { q: d.q })}</h3><p class="muted">${t('noResultsHint')}</p><div class="stack"><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/sources">${t('manageSources')}</a>${spSearchLink(d.q)}</div></div>`;
     return;
   }
   let html = chips;
@@ -2446,6 +2446,8 @@ function drawSearch(box, loading, done = false) {
   else if (f === 'artists') html += artistCards(artists);
   else if (f === 'albums') html += plainAlbumCards(albums);
   else html += plainAlbumCards(playlists);
+  // a show that only Spotify has: a link to Spotify's own search, no Spotify login in Streyn needed
+  if (done && f === 'podcasts' && !spotify.connected()) html += `<div class="sp-hint"><span class="muted small">${t('podNotFoundHint')}</span>${spSearchLink(d.q)}</div>`;
   if (!done) html += `<p class="muted small">${t('searchingMore')}</p>`;
   box.innerHTML = html;
   paintEpisodes();
@@ -4506,6 +4508,7 @@ document.addEventListener('click', (ev) => {
 });
 
 // ---------- in search, the library and the sidebar ----------
+const spSearchLink = (q) => `<button class="btn" data-openext="https://open.spotify.com/search/${encodeURIComponent(q)}/podcasts">${srcBadge('spotify')}${t('podSearchSpotify')}</button>`;
 /** Lower case without accents, like the server compares names ("Kâffchen" → "kaffchen"). */
 const podFold = (x) => String(x || '').toLowerCase().replace(/ß/g, 'ss').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 async function searchPodcasts(q) {

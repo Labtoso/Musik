@@ -2084,3 +2084,4 @@ body.pod-playing #player [data-act='like'], body.pod-playing #fs [data-act='like
 .gp-pshow { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .gp-pshow .cover { width: 48px; height: 48px; border-radius: 4px; flex: none; }
 .gp-pshow small { display: block; color: var(--g-sub, var(--muted)); }
+.sp-hint { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 18px 0 8px; }
