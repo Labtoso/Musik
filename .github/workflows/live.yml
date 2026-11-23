@@ -1,0 +1,22 @@
+name: Live check
+
+# Runs the server's lookups against the real YouTube Music: finds a few known songs and opens
+# their streams. Started by hand or when the lookup code changes.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['server/src/yt.rs', 'server/src/ytdl.rs', '.github/workflows/live.yml']
+
+jobs:
+  live:
+    name: YouTube Music
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - working-directory: server
+        run: cargo test live -- --ignored --nocapture

@@ -1,0 +1,1361 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d0c0b">
+<meta name="description" content="Streyn: deine eigene Musik-App. Server auf Proxmox, Apps für Android, Windows und Linux, und ein Mix, der lernt, was du magst.">
+<title>Streyn · Deine Musik auf deinem Server</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..900,0..100,0..1;1,9..144,300..900,0..100,0..1&family=Schibsted+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
+<style>
+:root {
+  --bg: #06070d; --bg2: #0d0f19; --line: #1b1e2c; --line2: #2a2e42;
+  --paper: #eef0ff; --muted: #959ab5; --dim: #5b607c;
+  --accent2: #38d6ff;
+  --accent: #4f7cff; --acc-rgb: 79,124,255; --ink: #060c22;
+  --serif: Fraunces, Georgia, serif; --sans: 'Schibsted Grotesk', system-ui, sans-serif; --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  --gut: clamp(16px, 4vw, 48px);
+  color-scheme: dark;
+}
+:root[data-accent=green] { --accent: #2fd283; --acc-rgb: 47,210,131; --ink: #03140b; --accent2: #c8f25a; }
+:root[data-accent=purple] { --accent: #9b6dff; --acc-rgb: 155,109,255; --ink: #110a26; --accent2: #ff6fd8; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body { margin: 0; overflow-x: hidden; }
+body { background: var(--bg); color: var(--paper); font: 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 100; opacity: .07; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+::selection { background: var(--accent); color: var(--ink); }
+
+/* ── top bar ── */
+.bar { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: flex; align-items: center; gap: 18px; height: 64px; padding: 0 var(--gut); color: var(--paper); background: linear-gradient(rgba(6,7,13,.82), rgba(6,7,13,0)); }
+.gear { width: 36px; height: 36px; display: grid; place-items: center; margin-left: -8px; transition: transform .5s cubic-bezier(.3,1.4,.5,1); }
+.gear:hover { transform: rotate(90deg); }
+.disc { width: 38px; height: 38px; flex: none; background: var(--accent); -webkit-mask: url(logo.svg) center / contain no-repeat; mask: url(logo.svg) center / contain no-repeat; transition: background .6s; }
+.wm { display: block; height: 30px; aspect-ratio: 5486 / 1990; background: currentColor; -webkit-mask: url(wordmark.svg) center / contain no-repeat; mask: url(wordmark.svg) center / contain no-repeat; }
+.gear svg { width: 21px; height: 21px; }
+.word { display: inline-flex; align-items: center; gap: 10px; font: italic 800 24px/1 var(--serif); font-variation-settings: 'SOFT' 100, 'WONK' 1; letter-spacing: -.02em; }
+.bar nav { margin-left: auto; display: flex; gap: 6px; }
+.cat { position: relative; }
+.cbtn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px 0 14px; border-radius: 18px; font: 500 13px var(--mono); text-transform: uppercase; letter-spacing: .06em; transition: background .2s; }
+.cbtn:hover, .cat.open .cbtn { background: rgba(255,255,255,.08); }
+.cbtn svg { width: 14px; height: 14px; transition: transform .25s; }
+.cat.open .cbtn svg { transform: rotate(180deg); }
+.menu { position: absolute; top: calc(100% + 10px); right: 0; min-width: 260px; padding: 8px; border-radius: 18px; background: rgba(13,15,25,.94); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid var(--line2); box-shadow: 0 30px 80px -20px #000; opacity: 0; transform: translateY(-6px); pointer-events: none; transition: opacity .18s, transform .22s cubic-bezier(.2,.9,.2,1); }
+.cat.open .menu { opacity: 1; transform: none; pointer-events: auto; }
+.menu a { display: block; padding: 10px 12px; border-radius: 12px; transition: background .15s; }
+.menu a:hover { background: rgba(255,255,255,.07); }
+.menu b { display: block; font: italic 600 19px/1.2 var(--serif); font-variation-settings: 'SOFT' 100; }
+.menu small { display: block; color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 2px; }
+.wp { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px 0 12px; border-radius: 18px; background: linear-gradient(100deg, var(--accent), var(--accent2)); color: var(--ink); font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: .06em; transition: transform .2s, box-shadow .2s; flex: none; }
+.wp:hover { transform: translateY(-1px); box-shadow: 0 8px 26px -8px var(--accent); }
+.wp svg { width: 15px; height: 15px; }
+.dc { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 12px; border-radius: 18px; border: 1px solid var(--line2); color: var(--paper); font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: .06em; text-decoration: none; flex: none; transition: background .2s, border-color .2s; }
+.dc:hover, .dc:active, .dc:focus { background: none; border-color: var(--line2); color: var(--paper); }
+.dc svg { width: 17px; height: 17px; }
+.dc[hidden] { display: none; }
+@media (max-width: 720px) { .dc span { display: none; } .dc { width: 36px; padding: 0; justify-content: center; } }
+@media (max-width: 480px) { .dc { width: 34px; height: 34px; } .bar .cbtn { white-space: nowrap; letter-spacing: .02em; padding: 0 4px 0 6px; } .bar .cbtn svg { width: 12px; } }
+.btn.dcb { background: #5865f2; border-color: #5865f2; color: #fff; }
+.btn.dcb:hover, .btn.dcb:active, .btn.dcb:focus { background: #5865f2; border-color: #5865f2; color: #fff; transform: none; }
+.wpop { position: fixed; z-index: 62; top: 72px; right: var(--gut); width: min(360px, calc(100vw - 2 * var(--gut))); padding: 20px; border-radius: 20px; background: rgba(13,15,25,.92); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid var(--line2); box-shadow: 0 30px 80px -20px #000; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity .2s, transform .25s cubic-bezier(.2,.9,.2,1); }
+.wpop.open { opacity: 1; transform: none; pointer-events: auto; }
+.wpop h4 { margin: 0 0 6px; font: italic 700 24px var(--serif); }
+.wpop p { margin: 0 0 14px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+.wpop label { display: block; font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+.wpop input { width: 100%; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line2); background: rgba(0,0,0,.35); color: var(--paper); font: 15px var(--mono); outline: none; }
+.wpop input:focus { border-color: var(--accent); }
+.wpop .row { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+.wpop .go { flex: 1; height: 44px; border-radius: 12px; background: var(--paper); color: #0a0b10; font-weight: 700; }
+.wpop .go:hover { background: #fff; }
+.wpop small { display: block; margin-top: 12px; color: var(--dim); font: 12px var(--mono); }
+.wpop small a { text-decoration: underline; }
+
+/* ── settings ── */
+.scrim { position: fixed; inset: 0; z-index: 60; background: rgba(4,5,10,.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); opacity: 0; pointer-events: none; transition: opacity .3s; }
+.panel { position: fixed; z-index: 61; top: 0; left: 0; bottom: 0; width: min(380px, 100vw); padding: 26px var(--gut) 30px; background: rgba(13,15,25,.82); backdrop-filter: blur(28px); -webkit-backdrop-filter: blur(28px); border-right: 1px solid var(--line2); border-radius: 0 28px 28px 0; transform: translateX(-102%); transition: transform .45s cubic-bezier(.2,.9,.2,1); display: flex; flex-direction: column; gap: 34px; }
+body.set-open .scrim { opacity: 1; pointer-events: auto; }
+body.set-open .panel { transform: none; }
+.panel-h { display: flex; justify-content: space-between; align-items: center; }
+.panel-h h3 { margin: 0; font: italic 700 30px var(--serif); }
+.x { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line2); }
+.x:hover { border-color: var(--paper); }
+.opt .lbl { font: 500 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 12px; }
+.choice { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.choice button { display: flex; align-items: center; gap: 14px; padding: 15px 2px; border-bottom: 1px solid var(--line); text-align: left; color: var(--muted); font-size: 17px; }
+.choice button::after { content: ''; margin-left: auto; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line2); }
+.choice button.on { color: var(--paper); }
+.choice button.on::after { background: var(--paper); border-color: var(--paper); }
+.choice i { width: 22px; height: 22px; border-radius: 50%; }
+.choice i.dynsw { background: conic-gradient(#ff6b6b, #ffd166, #2fd283, #38d6ff, #9b6dff, #ff6fd8, #ff6b6b); }
+.panel small { margin-top: auto; font: 12px var(--mono); color: var(--dim); }
+
+/* ── hero ── */
+.hero { position: relative; min-height: 100svh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 2vw; padding: 100px var(--gut) 150px; overflow: hidden; }
+.hero h1 { margin: 0; font: 800 clamp(56px, 9.6vw, 168px)/.86 var(--serif); font-variation-settings: 'opsz' 144, 'SOFT' 30, 'WONK' 0; letter-spacing: -.045em; position: relative; z-index: 2; }
+.hero h1 em { font-style: italic; font-weight: 400; font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1; background: linear-gradient(100deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; letter-spacing: -.03em; padding-right: .08em; }
+.hero .lead { max-width: 470px; color: var(--muted); font-size: 19px; margin: 34px 0 34px; position: relative; z-index: 2; }
+.hero .lead b { color: var(--paper); font-weight: 600; }
+.ctas { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; position: relative; z-index: 2; }
+.btn { display: inline-flex; align-items: center; gap: 12px; height: 54px; padding: 0 26px; border-radius: 999px; font-weight: 600; font-size: 16px; border: 1px solid var(--line2); transition: background .2s, color .2s, border-color .2s; white-space: nowrap; }
+.btn:hover { border-color: var(--paper); }
+.btn.solid { background: var(--paper); color: var(--bg); border-color: var(--paper); }
+.btn.solid:hover { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.listen .ic-pause { display: none; }
+.playing .listen .ic-play { display: none; }
+.playing .listen .ic-pause { display: block; }
+.meta { margin-top: 26px; font: 12px var(--mono); color: var(--dim); display: flex; gap: 8px 22px; flex-wrap: wrap; position: relative; z-index: 2; }
+.meta b { color: var(--muted); font-weight: 500; }
+.meta a { color: inherit; text-decoration: none; }
+.meta a:hover b { color: var(--text, #fff); }
+
+/* turntable */
+.stage { position: absolute; inset: 0; z-index: 1; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 1.2s; }
+.has3d .stage canvas { opacity: 1; }
+.deck { display: none; }
+.no3d .deck { display: block; }
+.wash { position: absolute; border-radius: 50%; filter: blur(80px); pointer-events: none; opacity: .38; }
+.wash.a { width: 46vw; height: 46vw; right: 6%; top: 8%; background: var(--accent); }
+.wash.b { width: 30vw; height: 30vw; right: -6%; top: 46%; background: var(--accent2); opacity: .22; }
+.hero::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(90deg, rgba(6,7,13,.95) 0%, rgba(6,7,13,.82) 32%, rgba(6,7,13,.35) 50%, rgba(6,7,13,0) 62%); }
+.hero::after { content: ''; position: absolute; inset: auto 0 0 0; height: 40%; background: linear-gradient(transparent, var(--bg)); pointer-events: none; z-index: 1; }
+.deck { position: absolute; aspect-ratio: 1; width: min(42vw, 600px); right: 6%; top: 50%; transform: translateY(-50%); }
+.record { position: absolute; inset: 0; border-radius: 50%; background:
+  conic-gradient(from 20deg, rgba(255,255,255,.0) 0deg, rgba(255,255,255,.09) 30deg, rgba(255,255,255,0) 70deg, rgba(255,255,255,0) 180deg, rgba(255,255,255,.07) 215deg, rgba(255,255,255,0) 250deg),
+  repeating-radial-gradient(circle, #111 0 1.5px, #1a1918 1.5px 3px),
+  #111; box-shadow: 0 50px 120px -30px #000, 0 0 0 1px #262422 inset; animation: spin 1.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.record::before { content: ''; position: absolute; inset: 31%; border-radius: 50%; background: radial-gradient(circle, var(--bg) 0 3.5%, transparent 3.8%), var(--accent); box-shadow: 0 0 0 10px #0d0d0d; transition: background .3s; }
+.label { position: absolute; inset: 31%; border-radius: 50%; display: grid; place-items: center; color: var(--ink); text-align: center; pointer-events: none; }
+.label span { position: absolute; top: 18%; font: italic 800 clamp(16px, 2.3vw, 34px)/1 var(--serif); font-variation-settings: 'SOFT' 100, 'WONK' 1; }
+.label small { position: absolute; bottom: 20%; font: 500 clamp(7px, .7vw, 10px) var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.sheen { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; background: radial-gradient(circle at 30% 25%, rgba(255,255,255,.08), transparent 45%); }
+.arm { position: absolute; right: -4%; top: -6%; width: 34%; height: 78%; transform-origin: 78% 10%; transform: rotate(0deg); transition: transform 1.1s cubic-bezier(.4,0,.2,1); pointer-events: none; filter: drop-shadow(0 18px 18px rgba(0,0,0,.6)); }
+.hz { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; width: 100%; pointer-events: none; z-index: 2; }
+.glowbg { position: absolute; inset: 0; pointer-events: none; transition: opacity .2s; opacity: .5; }
+
+/* now playing hud */
+.np { position: absolute; z-index: 3; right: var(--gut); bottom: 150px; display: flex; align-items: center; gap: 14px; padding: 10px 18px 10px 10px; min-width: 300px; max-width: 360px; border-radius: 18px; background: rgba(13,15,25,.55); border: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); box-shadow: 0 20px 60px -20px rgba(0,0,0,.8); transition: opacity .5s, transform .5s; }
+.np.swap { opacity: 0; transform: translateY(10px); }
+.np img { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; flex: none; background: var(--bg2); }
+.npx { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.npx small { font: 500 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.npx b { font: italic 700 20px/1.15 var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.npx span { font-size: 13px; color: var(--muted); }
+.npbar { height: 3px; border-radius: 3px; background: rgba(255,255,255,.12); margin-top: 8px; overflow: hidden; }
+.npbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+.npbar i.run { animation: prog 12s linear forwards; }
+@keyframes prog { from { width: 0; } to { width: 100%; } }
+.eq { display: flex; align-items: flex-end; gap: 3px; height: 22px; }
+.eq i { width: 3px; border-radius: 2px; background: var(--accent); animation: eq 1s ease-in-out infinite; }
+.eq i:nth-child(1) { animation-delay: -.2s; } .eq i:nth-child(2) { animation-delay: -.7s; } .eq i:nth-child(3) { animation-delay: -.4s; } .eq i:nth-child(4) { animation-delay: -.9s; } .eq i:nth-child(5) { animation-delay: -.1s; }
+@keyframes eq { 0%, 100% { height: 25%; } 50% { height: 100%; } }
+
+/* player gallery */
+.gal { overflow: hidden; }
+.ring { position: relative; height: 720px; perspective: 1800px; margin: 0 calc(var(--gut) * -1); cursor: grab; touch-action: pan-y; user-select: none; }
+.ring:active { cursor: grabbing; }
+.carousel { position: absolute; left: 50%; top: 30px; width: 0; height: 0; transform-style: preserve-3d; }
+.ph { position: absolute; margin: 0; width: 290px; height: 628px; left: -145px; top: 0; border-radius: 34px; padding: 7px; background: linear-gradient(160deg, #2b2f40, #10121b 45%, #1b1e2b); box-shadow: 0 0 0 1px rgba(255,255,255,.07) inset, 0 40px 80px -30px #000; backface-visibility: hidden; transition: filter .3s; }
+.ph img { width: 100%; height: 100%; display: block; border-radius: 28px; object-fit: cover; pointer-events: none; }
+.ring-floor { position: absolute; left: 10%; right: 10%; bottom: 20px; height: 90px; border-radius: 50%; background: radial-gradient(closest-side, rgba(var(--acc-rgb), .35), transparent); filter: blur(20px); }
+.drag { text-align: center; color: var(--dim); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; margin: 0 0 70px; }
+.screens { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; perspective: 1400px; max-width: 1400px; margin-left: auto; margin-right: auto; }
+.screens.body { margin-left: auto; }
+.scr { margin: 0; transform: translateY(var(--ty, 40px)) scale(var(--sc, .96)); transition: transform .2s linear; }
+.scr img { box-shadow: 0 40px 90px -40px rgba(var(--acc-rgb), .55), 0 20px 50px -30px #000; transition: box-shadow .6s; }
+.scr:hover img { box-shadow: 0 40px 100px -30px rgba(var(--acc-rgb), .8), 0 20px 50px -30px #000; }
+.scr img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; border-radius: 14px; }
+.scr figcaption { padding: 16px 2px 0; font-size: 15px; color: var(--muted); }
+
+/* marquee */
+.marq { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; white-space: nowrap; padding: 18px 0; }
+.marq div { display: inline-block; animation: mq 38s linear infinite; font: italic 400 clamp(26px, 3.4vw, 46px)/1 var(--serif); font-variation-settings: 'SOFT' 100; color: var(--muted); }
+.marq span { margin: 0 .5em; }
+.marq span.d { color: var(--accent); font-style: normal; }
+@keyframes mq { to { transform: translateX(-50%); } }
+
+/* sections as tracks */
+.track { padding: clamp(80px, 11vw, 150px) var(--gut); border-bottom: 1px solid var(--line); }
+.th { display: grid; grid-template-columns: 140px 1fr; gap: 24px; margin-bottom: clamp(48px, 6vw, 80px); }
+.th .no { font: 500 13px var(--mono); color: var(--dim); padding-top: 14px; }
+.th .no b { color: var(--accent); font-weight: 500; display: block; font-size: 15px; margin-bottom: 4px; }
+.th h2 { margin: 0; font: 700 clamp(40px, 6.4vw, 104px)/.92 var(--serif); font-variation-settings: 'opsz' 144, 'SOFT' 40; letter-spacing: -.04em; }
+.th h2 em { font-style: italic; font-weight: 400; font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1; }
+.th p { color: var(--muted); max-width: 600px; margin: 22px 0 0; font-size: 19px; }
+.body { margin-left: 164px; }
+
+/* A1 signal chain */
+.chain { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line2); }
+.chain::before { content: ''; position: absolute; top: -4px; left: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px 3px rgba(var(--acc-rgb), .7); animation: run 5s cubic-bezier(.6,0,.4,1) infinite; }
+@keyframes run { 0% { left: 0; opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } 100% { left: calc(100% - 7px); opacity: 0; } }
+.st { padding: 30px 32px 10px 0; position: relative; }
+.st + .st { padding-left: 32px; border-left: 1px solid var(--line); }
+.st .t { font: 12px var(--mono); color: var(--dim); }
+.st h3 { margin: 12px 0 14px; font: 700 36px/1 var(--serif); letter-spacing: -.02em; }
+.st p { color: var(--muted); margin: 0 0 22px; font-size: 16px; }
+.st dl { margin: 0; font-size: 15px; }
+.st dl div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px dashed var(--line2); }
+.st dt { color: var(--paper); }
+.st dd { margin: 0; font: 12px var(--mono); color: var(--dim); align-self: center; white-space: nowrap; }
+.st.core h3 { color: var(--accent); }
+
+/* A2 mix */
+.mix { display: grid; grid-template-columns: 1fr 1.15fr; gap: clamp(32px, 6vw, 96px); align-items: start; }
+.weights { border-top: 1px solid var(--line2); }
+.wt { display: grid; grid-template-columns: 110px 1fr; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+.wt .v { font: 500 30px/1 var(--mono); letter-spacing: -.04em; }
+.wt .v.p { color: var(--accent); }
+.wt .v.n { color: #ff6b7a; }
+.wt b { font-weight: 600; display: block; }
+.wt span { color: var(--muted); font-size: 15px; }
+.fine { color: var(--muted); font-size: 15px; margin-top: 26px; max-width: 520px; }
+.demo .dh { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line2); }
+.demo .dh h3 { margin: 0; font: italic 600 28px var(--serif); font-variation-settings: 'SOFT' 100, 'WONK' 1; }
+.demo .dh button { font: 500 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.demo .dh button:hover { color: var(--paper); }
+.demo .hint { color: var(--dim); font-size: 14px; margin: 12px 0 8px; }
+.list { position: relative; }
+.song { position: absolute; left: 0; right: 0; height: 68px; display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; border-bottom: 1px solid var(--line); transition: transform .55s cubic-bezier(.2,.9,.2,1); }
+.song .i { font: 13px var(--mono); color: var(--dim); }
+.song .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song .t small { font: 12px var(--mono); color: var(--dim); font-weight: 400; margin-left: 8px; }
+.song .why { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song .why.up { color: var(--accent); }
+.song .acts { display: flex; gap: 2px; }
+.song .acts button { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--dim); transition: color .15s, background .15s; }
+.song .acts button:hover { color: var(--paper); background: var(--bg2); }
+.song .acts svg { width: 17px; height: 17px; }
+.song .meter { position: absolute; left: 34px; bottom: -1px; height: 2px; background: var(--accent); transition: width .55s cubic-bezier(.2,.9,.2,1); }
+.song.flash { animation: flash .7s; }
+@keyframes flash { from { background: rgba(var(--acc-rgb), .14); } }
+.keys { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 16px; font: 12px var(--mono); color: var(--dim); }
+.keys span { display: inline-flex; gap: 6px; align-items: center; }
+.keys svg { width: 14px; height: 14px; }
+
+/* B1 downloads */
+.dls { border-top: 1px solid var(--line2); }
+.dl { position: relative; display: grid; grid-template-columns: 1fr 1.1fr auto; gap: 24px; align-items: center; padding: 34px 16px; margin: 0 -16px; border-bottom: 1px solid var(--line2); overflow: hidden; isolation: isolate; }
+.dl::before { content: ''; position: absolute; inset: 0; background: var(--accent); transform: scaleY(0); transform-origin: bottom; transition: transform .45s cubic-bezier(.2,.9,.2,1); z-index: -1; }
+.dl:hover::before { transform: scaleY(1); }
+.dl:hover, .dl:hover .d p, .dl:hover .d small, .dl:hover .go { color: var(--ink); }
+.dl .n { font: 700 clamp(44px, 7vw, 112px)/.9 var(--serif); font-variation-settings: 'opsz' 144, 'SOFT' 40; letter-spacing: -.045em; transition: transform .45s cubic-bezier(.2,.9,.2,1); }
+.dl:hover .n { transform: translateX(14px); font-style: italic; }
+.dl .d p { margin: 0; color: var(--muted); font-size: 16px; max-width: 420px; transition: color .3s; }
+.dl .d small { display: block; margin-top: 8px; font: 12px var(--mono); color: var(--dim); transition: color .3s; }
+.dl .go { width: 74px; height: 74px; border-radius: 50%; border: 1px solid currentColor; display: grid; place-items: center; color: var(--paper); margin-right: 8px; transition: color .3s; }
+.dl .go svg { width: 26px; height: 26px; transition: transform .35s; }
+.dl:hover .go svg { transform: translateY(4px); }
+.yours { display: inline-block; vertical-align: top; margin-left: 12px; font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 6px 9px; border-radius: 99px; border: 1px solid currentColor; color: var(--accent); font-style: normal; }
+.dl:hover .yours { color: var(--ink); }
+.binr { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 30px; font: 13px var(--mono); color: var(--dim); }
+.binr a { color: var(--paper); border-bottom: 1px solid var(--line2); }
+.binr a:hover { border-color: var(--accent); color: var(--accent); }
+.windl { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin: 16px 0 4px; font: 13px var(--mono); color: var(--paper); border-bottom: 1px solid var(--line2); }
+.windl:hover { color: var(--accent); border-color: var(--accent); }
+.windl b { color: var(--accent); font-weight: 500; }
+
+/* B2 server */
+.tabs { display: flex; gap: 28px; flex-wrap: wrap; border-bottom: 1px solid var(--line2); margin-bottom: 36px; }
+.steps a { color: var(--accent2); text-decoration: underline; text-underline-offset: 3px; }
+.tabs button { padding: 14px 0; font: italic 500 24px var(--serif); color: var(--dim); position: relative; }
+.tabs button.on { color: var(--paper); }
+.tabs button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); }
+.pane { display: none; grid-template-columns: 1.25fr 1fr; gap: clamp(28px, 5vw, 72px); }
+.pane.on { display: grid; }
+.term { background: #04050a; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; align-self: start; min-width: 0; }
+.term-h { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--dim); }
+.term-h button { margin-left: auto; font: 500 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.term-h button:hover { color: var(--accent); }
+.term pre { margin: 0; padding: 20px; font: 13.5px/1.75 var(--mono); color: #d6daf0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.term [data-cmd] { user-select: all; -webkit-user-select: all; }
+.term .p { color: var(--accent); user-select: none; }
+.term .o { color: var(--dim); }
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.steps li { counter-increment: s; position: relative; padding: 0 0 22px 52px; color: var(--muted); font-size: 16px; }
+.steps li::before { content: counter(s, decimal-leading-zero); position: absolute; left: 0; top: -4px; font: italic 600 26px/1 var(--serif); color: var(--paper); }
+.steps code, .notes code { font: 13px var(--mono); color: var(--paper); background: var(--bg2); padding: 1px 6px; border-radius: 4px; word-break: break-all; }
+.steps b { color: var(--paper); }
+
+/* B3 liner notes */
+.notes { columns: 3 280px; column-gap: 48px; column-rule: 1px solid var(--line); }
+.notes div { break-inside: avoid; margin-bottom: 34px; }
+.notes h4 { margin: 0 0 8px; font: italic 600 22px/1.2 var(--serif); font-variation-settings: 'SOFT' 100; }
+.notes p { margin: 0; color: var(--muted); font-size: 15.5px; }
+
+/* footer */
+footer { padding: 60px var(--gut) 0; overflow: hidden; }
+.fl { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; font: 12px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+.fl a:hover { color: var(--paper); }
+.big { display: block; width: min(100%, 1180px); aspect-ratio: 5486 / 1990; margin: 28px auto 0; background: linear-gradient(100deg, var(--accent), var(--accent2)); -webkit-mask: url(wordmark.svg) center / contain no-repeat; mask: url(wordmark.svg) center / contain no-repeat; margin-bottom: clamp(40px, 6vw, 90px); }
+
+/* A3 shots */
+.shots { overflow: hidden; }
+.sn { display: inline-block; font: 500 11px var(--mono); letter-spacing: .14em; color: var(--accent); border: 1px solid rgba(var(--acc-rgb), .45); border-radius: 999px; padding: 3px 9px 2px; margin-bottom: 14px; }
+.shots h3 { margin: 0; font: 700 clamp(30px, 3.6vw, 52px)/1 var(--serif); font-variation-settings: 'opsz' 144, 'SOFT' 40; letter-spacing: -.035em; }
+.shots h3 em { font-style: italic; font-weight: 400; font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1; }
+.cap { display: flex; gap: 14px; align-items: baseline; padding: 18px 2px 0; color: var(--muted); font-size: 15px; }
+.cap .sn { margin: 0; flex: none; }
+.cap b { color: var(--paper); font-weight: 600; }
+.zm { cursor: zoom-in; }
+
+.studio { margin: 0 0 clamp(90px, 11vw, 160px); }
+.studio-set, .studio-bg { grid-area: 1 / 1; }
+.studio { display: grid; }
+.studio-bg { position: relative; border-radius: 28px; overflow: hidden; aspect-ratio: 16 / 9.6; isolation: isolate; }
+.studio-bg img { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.12) translateY(var(--py, 0px)); filter: blur(3px) saturate(1.1) brightness(.62); }
+.studio-bg::after { content: ''; position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 40%, transparent 30%, rgba(6,7,13,.75)), linear-gradient(transparent 55%, rgba(6,7,13,.55)); }
+.studio-set { position: relative; z-index: 1; perspective: 2200px; display: grid; place-items: center; padding: 5% 14% 6% 7%; pointer-events: none; }
+.studio-set > * { pointer-events: auto; }
+.lap { width: 100%; display: block; border-radius: 14px; transform: rotateY(var(--ry, 9deg)) rotateX(4deg) translateZ(0); transform-origin: 60% 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.09), 0 60px 120px -30px rgba(0,0,0,.9), 0 30px 90px -40px rgba(var(--acc-rgb), .6); transition: transform .3s linear; }
+.phone { position: absolute; right: 4.5%; bottom: 4%; width: 22%; aspect-ratio: 780 / 1688; padding: .6%; border-radius: 13% / 6%; background: linear-gradient(150deg, #3a3e50, #11131c 40%, #252836); box-shadow: 0 0 0 1px rgba(255,255,255,.1) inset, 0 50px 90px -20px #000, 0 0 70px -10px rgba(var(--acc-rgb), .45); transform: rotateY(-14deg) rotateZ(2deg) translateY(var(--pp, 0px)); transition: transform .3s linear; }
+.phone img { width: 100%; height: 100%; display: block; border-radius: 11.5% / 5.3%; object-fit: cover; }
+
+.looks { margin: 0 0 clamp(90px, 11vw, 160px); }
+.looks-h { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; margin-bottom: 26px; }
+.looks-h p { color: var(--muted); margin: 14px 0 0; max-width: 520px; }
+.looks-tabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line2); border-radius: 999px; }
+.looks-tabs button { height: 40px; padding: 0 18px; border-radius: 999px; font: italic 600 17px var(--serif); font-variation-settings: 'SOFT' 100; color: var(--muted); transition: background .25s, color .25s; }
+.looks-tabs button.on { background: var(--paper); color: var(--bg); }
+.looks-stage { position: relative; aspect-ratio: 16 / 10; border-radius: 18px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 60px 120px -50px rgba(var(--acc-rgb), .7); background: #000; }
+.looks-stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; clip-path: circle(0% at var(--cx, 50%) var(--cy, 50%)); transition: clip-path 1.1s cubic-bezier(.7,0,.2,1); }
+.looks-stage img.on { clip-path: circle(150% at var(--cx, 50%) var(--cy, 50%)); z-index: 1; }
+.looks-stage img.prev { clip-path: circle(150% at 50% 50%); transition: none; z-index: 0; }
+.looks-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 3; background: rgba(255,255,255,.08); }
+.looks-bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+
+.sheet { margin: 0 calc(var(--gut) * -1) clamp(90px, 11vw, 160px); }
+.sheet-h { padding: 0 var(--gut); margin-bottom: 26px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 0 24px; }
+.sheet-h .sn { display: block; width: fit-content; grid-column: 1; }
+.sheet-h h3 { grid-column: 1; }
+.sheet-h .drag { grid-column: 2; grid-row: 2; }
+.sheet-h .drag { margin: 0; }
+.film { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; cursor: grab; scroll-snap-type: x proximity; padding: 0 var(--gut); }
+.film::-webkit-scrollbar { display: none; }
+.film.dragging { cursor: grabbing; scroll-snap-type: none; }
+.strip { position: relative; display: flex; gap: 22px; width: max-content; padding: 34px 26px; border-radius: 6px; background:
+  radial-gradient(circle at 50% 50%, var(--bg) 0 4px, transparent 4.5px) 0 9px / 26px 18px repeat-x,
+  radial-gradient(circle at 50% 50%, var(--bg) 0 4px, transparent 4.5px) 0 calc(100% - 9px) / 26px 18px repeat-x,
+  linear-gradient(#17130f, #120f0c); box-shadow: 0 40px 80px -40px #000; }
+.strip::before, .strip::after { position: absolute; left: 30px; font: 500 10px var(--mono); letter-spacing: .3em; color: #c9873f; opacity: .75; }
+.strip::before { content: 'STREYN 400  ·  SAFETY FILM  ·  STREYN 400  ·  SAFETY FILM  ·  STREYN 400  ·  SAFETY FILM'; top: 13px; left: 60px; white-space: pre; }
+.strip::after { content: ''; }
+.fr { margin: 0; flex: none; width: clamp(200px, 19vw, 270px); scroll-snap-align: center; }
+.fr img { width: 100%; aspect-ratio: 780 / 1688; object-fit: cover; display: block; border-radius: 20px; box-shadow: 0 0 0 1px rgba(255,255,255,.06); transition: transform .5s cubic-bezier(.2,.9,.2,1); user-select: none; -webkit-user-drag: none; }
+.fr:hover img { transform: translateY(-6px); }
+.fr figcaption { display: flex; gap: 10px; align-items: baseline; margin-top: 14px; font-size: 14px; color: #b9ab98; }
+.fr figcaption b { font: 500 12px var(--mono); color: #c9873f; letter-spacing: .1em; }
+
+.details { display: grid; grid-template-columns: repeat(12, 1fr); gap: clamp(20px, 3vw, 40px); margin: 0 0 clamp(90px, 11vw, 160px); align-items: start; }
+.dt { margin: 0; }
+.dt img { width: 100%; display: block; border-radius: 16px; box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 40px 90px -45px rgba(var(--acc-rgb), .7), 0 20px 50px -30px #000; transition: transform .6s cubic-bezier(.2,.9,.2,1); }
+.dt:hover img { transform: translateY(-6px); }
+.dt figcaption { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; padding: 18px 2px 0; font-size: 15px; color: var(--muted); }
+.dt figcaption .sn { grid-row: span 2; margin: 2px 0 0; height: fit-content; }
+.dt figcaption b { color: var(--paper); font: italic 600 21px/1.2 var(--serif); font-variation-settings: 'SOFT' 100; }
+.dt.a { grid-column: 1 / 8; }
+.dt.b { grid-column: 8 / 13; margin-top: 18%; }
+.dt.c { grid-column: 1 / 6; margin-top: -4%; }
+.dt.d { grid-column: 6 / 13; margin-top: 6%; }
+
+.reel { margin: 0; }
+.reel-frame { position: relative; aspect-ratio: 2.39 / 1; border-radius: 6px; overflow: hidden; background: #000; box-shadow: 0 60px 120px -50px #000; }
+.reel-frame::before, .reel-frame::after { content: ''; position: absolute; left: 0; right: 0; height: 7%; background: #000; z-index: 3; }
+.reel-frame::before { top: 0; } .reel-frame::after { bottom: 0; }
+.reel-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 1.6s ease; transform-origin: var(--o, 50% 50%); }
+.reel-frame img.on { opacity: 1; animation: kb 7.5s linear forwards; }
+@keyframes kb { from { transform: scale(1.02) translate(0, 0); } to { transform: scale(1.14) translate(var(--kx, -2%), var(--ky, -1%)); } }
+.reel-ui { position: absolute; z-index: 4; left: 0; right: 0; top: 9%; padding: 0 3%; display: flex; gap: 22px; font: 500 12px var(--mono); letter-spacing: .12em; color: rgba(255,255,255,.75); text-shadow: 0 1px 6px #000; }
+.reel-ui .rec::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ff4d4d; margin-right: 8px; vertical-align: 1px; animation: blink 1.2s steps(2) infinite; }
+.reel-ui .fmt { margin-left: auto; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .reel-frame img.on { animation: none; } .reel-ui .rec::before { animation: none; } }
+@media (max-width: 1000px) {
+  .studio-bg { aspect-ratio: 4 / 4.2; border-radius: 20px; }
+  .studio-set { padding: 9% 5% 36%; place-items: start center; }
+  .lap { width: 100%; }
+  .phone { width: 42%; right: 6%; bottom: 5%; }
+  .sheet-h { grid-template-columns: 1fr; }
+  .sheet-h .drag { grid-column: 1; grid-row: auto; margin-top: 10px; text-align: left; }
+  .details { grid-template-columns: 1fr; }
+  .dt.a, .dt.b, .dt.c, .dt.d { grid-column: auto; margin-top: 0; }
+  .reel-frame { aspect-ratio: 16 / 10; }
+  .reel-ui .fmt { display: none; }
+}
+@media (max-width: 640px) {
+  .looks-tabs { width: 100%; }
+  .looks-tabs button { flex: 1; padding: 0 6px; font-size: 15px; }
+  .looks-stage { border-radius: 12px; }
+  .strip { gap: 14px; padding: 30px 16px; }
+  .fr { width: 62vw; }
+}
+
+.rv { opacity: 0; transform: translateY(28px); transition: opacity .9s, transform .9s cubic-bezier(.2,.9,.2,1); }
+.rv.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .rv { opacity: 1; transform: none; } .marq div, .chain::before { animation: none; } html { scroll-behavior: auto; } }
+
+@media (max-width: 1000px) {
+  .hero { grid-template-columns: 1fr; padding-top: 96px; padding-bottom: 120px; min-height: 0; }
+  .stage { position: relative; left: auto; grid-row: 1; height: min(112vw, 600px); margin: -40px calc(var(--gut) * -1) 0; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+  .deck { width: 78vw; right: 11vw; }
+  .wash.a { width: 90vw; height: 90vw; right: -10%; top: 0; }
+  .wash.b { width: 60vw; height: 60vw; top: 30%; }
+  .th { grid-template-columns: 1fr; gap: 6px; }
+  .th .no { padding: 0; }
+  .body { margin-left: 0; }
+  .chain { grid-template-columns: 1fr; }
+  .st + .st { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); }
+  .chain::before { display: none; }
+  .mix, .pane { grid-template-columns: 1fr; }
+}
+@media (max-width: 1000px) {
+  .htxt { grid-row: 3; margin-top: 26px; }
+  .hero::before { display: none; }
+  .np { position: relative; right: auto; bottom: auto; margin: -70px auto 0; grid-row: 2; justify-self: center; min-width: 0; width: min(100%, 360px); }
+  .screens { grid-template-columns: 1fr; }
+  .ring { height: 520px; }
+  .ph { width: 200px; height: 433px; left: -100px; border-radius: 28px; }
+  .ph img { border-radius: 22px; }
+}
+@media (max-width: 640px) {
+  .bar { gap: 6px; }
+  .bar nav { gap: 0; }
+  .cbtn { padding: 0 7px 0 9px; font-size: 12px; gap: 4px; }
+  .wp { padding: 0 11px; }
+  .wp span { display: none; }
+  .word { font-size: 0; gap: 0; }
+  .word .wm { display: none; }
+  .menu { position: fixed; left: var(--gut); right: var(--gut); top: 64px; min-width: 0; }
+  .dl { grid-template-columns: 1fr auto; gap: 12px 16px; padding: 26px 16px; }
+  .dl .d { grid-column: 1 / -1; grid-row: 2; }
+  .dl .go { width: 56px; height: 56px; margin: 0; }
+  .wt { grid-template-columns: 80px 1fr; }
+  .wt .v { font-size: 22px; }
+  .song { grid-template-columns: 26px 1fr auto; gap: 8px; }
+  .song .meter { left: 26px; }
+  .song .t small { display: none; }
+  .song .why { font-size: 12px; }
+  .song .acts button { width: 32px; }
+  .tabs { gap: 18px; }
+  .tabs button { font-size: 20px; }
+}
+
+/* image viewer for the screenshots */
+.lb { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgba(4,5,10,.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); opacity: 0; transition: opacity .25s; touch-action: none; }
+.lb.open { opacity: 1; }
+.lb .lb-stage { width: 100vw; height: 100vh; display: grid; place-items: center; overflow: hidden; }
+.lb img { max-width: min(92vw, 1500px); max-height: 86vh; border-radius: 14px; box-shadow: 0 30px 90px -20px #000; transition: transform .3s cubic-bezier(.2,.8,.2,1); cursor: zoom-in; user-select: none; -webkit-user-drag: none; }
+.lb.zoom img { cursor: grab; transition: none; }
+.lb.zoom.anim img { transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+.lb button { position: absolute; width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,.14); background: rgba(16,18,28,.7); color: #fff; display: grid; place-items: center; cursor: pointer; font: 500 22px/1 system-ui; }
+.lb button:hover { background: rgba(40,44,64,.9); }
+.lb .lb-x { top: 18px; right: 18px; }
+.lb .lb-p { left: 18px; top: 50%; transform: translateY(-50%); }
+.lb .lb-n { right: 18px; top: 50%; transform: translateY(-50%); }
+.lb .lb-c { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); font: 500 12px var(--mono, monospace); color: rgba(255,255,255,.6); letter-spacing: .1em; }
+.ph img, .scr img { cursor: zoom-in; }
+@media (max-width: 700px) { .lb .lb-p, .lb .lb-n { display: none; } }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <button class="gear" id="gear" aria-label="Einstellungen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+  <a class="word" href="#" aria-label="Streyn"><span class="disc mark" aria-hidden="true"></span><span class="wm" aria-hidden="true"></span></a>
+  <nav class="cats">
+    <div class="cat"><button class="cbtn" aria-expanded="false"><span data-t="catA"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="menu"><a href="#a1"><b data-t="nav1"></b><small data-t="navd1"></small></a><a href="#player"><b data-t="navP"></b><small data-t="navdP"></small></a><a href="#shots"><b data-t="navS"></b><small data-t="navdS"></small></a><a href="#a2"><b data-t="nav2"></b><small data-t="navd2"></small></a></div></div>
+    <div class="cat"><button class="cbtn" aria-expanded="false"><span data-t="catB"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="menu"><a href="#b2"><b data-t="nav3"></b><small data-t="navd3"></small></a><a href="#b1"><b data-t="nav4"></b><small data-t="navd4"></small></a><a href="docs.html"><b>Docs</b><small data-t="navdD"></small></a></div></div>
+  </nav>
+  <a class="dc" data-discord href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener" aria-label="Discord"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.3 5.4A16.6 16.6 0 0 0 15.2 4l-.5 1a15.4 15.4 0 0 0-5.4 0l-.5-1a16.6 16.6 0 0 0-4.1 1.4C2.1 9.3 1.4 13.1 1.7 16.8a16.7 16.7 0 0 0 5 2.6l1.1-1.7c-.6-.2-1.2-.5-1.7-.8l.4-.3a11.9 11.9 0 0 0 11 0l.4.3c-.5.3-1.1.6-1.7.8l1.1 1.7a16.6 16.6 0 0 0 5-2.6c.4-4.3-.7-8.1-3-11.4zM8.6 14.6c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2zm6.8 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2z"/></svg><span>Discord</span></a>
+  <button class="wp" id="wp" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><span data-t="wp"></span></button>
+</header>
+<div class="wpop" id="wpop" role="dialog" aria-labelledby="wph">
+  <h4 id="wph" data-t="wpH"></h4>
+  <p data-t="wpP"></p>
+  <form id="wpf"><label for="wpi" data-t="wpL"></label><input id="wpi" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="192.168.1.20:8484">
+  <div class="row"><button class="go" data-t="wpGo"></button></div></form>
+  <small data-h="wpS"></small>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="panel" id="panel">
+  <div class="panel-h"><h3 data-t="settings"></h3><button class="x" id="close" aria-label="Schließen"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="opt"><div class="lbl" data-t="lang"></div><div class="choice"><button data-l="de">Deutsch</button><button data-l="en">English</button></div></div>
+  <div class="opt"><div class="lbl" data-t="accent"></div><div class="choice">
+    <button data-a="blue"><i style="background:#4c8dff"></i><span data-t="blue"></span></button>
+    <button data-a="green"><i style="background:#3dbb7a"></i><span data-t="green"></span></button>
+    <button data-a="purple"><i style="background:#9b7bff"></i><span data-t="purple"></span></button>
+    <button data-dyn><i class="dynsw"></i><span data-t="dynColor"></span></button>
+  </div></div>
+  <small>Streyn · LabtosoStudios</small>
+</aside>
+
+<section class="hero" id="hero">
+  <div class="glowbg" id="glowbg"><div class="wash a"></div><div class="wash b"></div></div>
+  <div class="htxt">
+    <h1 data-h="h1"></h1>
+    <p class="lead" data-h="lead"></p>
+    <div class="ctas">
+      <a class="btn solid" id="main-dl" href="#b1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></svg><span></span></a>
+      <button class="btn listen" id="listen"><svg class="ic-play" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15L19.5 12z"/></svg><svg class="ic-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/></svg><span data-t="listen"></span></button>
+      <a class="btn dcb" data-discord href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.3 5.4A16.6 16.6 0 0 0 15.2 4l-.5 1a15.4 15.4 0 0 0-5.4 0l-.5-1a16.6 16.6 0 0 0-4.1 1.4C2.1 9.3 1.4 13.1 1.7 16.8a16.7 16.7 0 0 0 5 2.6l1.1-1.7c-.6-.2-1.2-.5-1.7-.8l.4-.3a11.9 11.9 0 0 0 11 0l.4.3c-.5.3-1.1.6-1.7.8l1.1 1.7a16.6 16.6 0 0 0 5-2.6c.4-4.3-.7-8.1-3-11.4zM8.6 14.6c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2zm6.8 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2z"/></svg><span>Discord</span></a>
+    </div>
+    <div class="meta" id="meta"></div>
+  </div>
+  <div class="stage" aria-hidden="true">
+    <canvas id="tt"></canvas>
+    <div class="deck" aria-hidden="true">
+      <div class="record"></div>
+      <div class="label"><span>Streyn</span><small>Side A · 33⅓</small></div>
+      <div class="sheen"></div>
+      <svg class="arm" viewBox="0 0 120 280" fill="none">
+        <circle cx="94" cy="28" r="22" fill="#24221f" stroke="#3a3733"/>
+        <circle cx="94" cy="28" r="8" fill="#55514b"/>
+        <path d="M94 28 L92 190 Q91 222 64 240" stroke="#bdb6aa" stroke-width="5" stroke-linecap="round"/>
+        <rect x="44" y="232" width="30" height="22" rx="3" transform="rotate(-38 59 243)" fill="#d8d1c4"/>
+      </svg>
+    </div>
+  </div>
+  <div class="np" id="np" aria-live="polite">
+    <img id="npc" alt="">
+    <div class="npx"><small data-t="nowPlaying"></small><b id="npt"></b><span id="npa"></span><div class="npbar"><i id="npbar"></i></div></div>
+    <div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+  <canvas class="hz" id="hz"></canvas>
+</section>
+
+<div class="marq" aria-hidden="true"><div id="marq"></div></div>
+
+<section class="track" id="a1">
+  <div class="th rv"><div class="no"><b>A1</b>0:00 – 2:14</div><div><h2 data-h="a1h"></h2><p data-t="a1p"></p></div></div>
+  <div class="body chain rv">
+    <div class="st"><div class="t">IN</div><h3 data-t="s1"></h3><p data-t="s1p"></p><dl><div><dt data-t="s1a"></dt><dd>NAS / Host</dd></div><div><dt data-t="s1b"></dt><dd>Upload</dd></div><div><dt>MP3 · FLAC · M4A · OGG</dt><dd>Tags</dd></div></dl></div>
+    <div class="st core"><div class="t">CORE</div><h3 data-t="s2"></h3><p data-t="s2p"></p><dl><div><dt data-t="s2a"></dt><dd>LXC</dd></div><div><dt data-t="s2b"></dt><dd>Rust</dd></div><div><dt data-t="s2c"></dt><dd>SQLite</dd></div></dl></div>
+    <div class="st"><div class="t">OUT</div><h3 data-t="s3"></h3><p data-t="s3p"></p><dl><div><dt>Android</dt><dd>APK</dd></div><div><dt>Windows · Linux</dt><dd>Tauri</dd></div><div><dt data-t="browser"></dt><dd>Web</dd></div></dl></div>
+  </div>
+</section>
+
+<section class="track gal" id="player">
+  <div class="th rv"><div class="no"><b>A2</b>2:14 – 5:02</div><div><h2 data-h="gh"></h2><p data-t="gp"></p></div></div>
+  <div class="ring rv" id="ring" aria-label="Screenshots">
+    <div class="carousel" id="carousel">
+      <figure class="ph"><img src="shots/v2/m-fs.webp" alt="" loading="lazy" decoding="async"></figure>
+      <figure class="ph"><img src="shots/v2/m-home.webp" alt="" loading="lazy" decoding="async"></figure>
+      <figure class="ph"><img src="shots/v2/m-artist.webp" alt="" loading="lazy" decoding="async"></figure>
+      <figure class="ph"><img src="shots/v2/m-album.webp" alt="" loading="lazy" decoding="async"></figure>
+      <figure class="ph"><img src="shots/v2/m-queue.webp" alt="" loading="lazy" decoding="async"></figure>
+      <figure class="ph"><img src="shots/v2/m-green-fs.webp" alt="" loading="lazy" decoding="async"></figure>
+      <figure class="ph"><img src="shots/v2/m-lib.webp" alt="" loading="lazy" decoding="async"></figure>
+      <figure class="ph"><img src="shots/v2/m-glass.webp" alt="" loading="lazy" decoding="async"></figure>
+    </div>
+    <div class="ring-floor"></div>
+  </div>
+  <p class="drag mono" data-t="drag"></p>
+  <div class="screens body">
+    <figure class="scr rv"><img src="shots/v2/d-home.webp" alt="" loading="lazy"><figcaption data-t="c1"></figcaption></figure>
+    <figure class="scr rv"><img src="shots/v2/d-artist.webp" alt="" loading="lazy"><figcaption data-t="c2"></figcaption></figure>
+    <figure class="scr rv"><img src="shots/v2/d-album.webp" alt="" loading="lazy"><figcaption data-t="c3"></figcaption></figure>
+  </div>
+</section>
+
+<section class="track shots" id="shots">
+  <div class="th rv"><div class="no"><b>A3</b>5:02 – 7:36</div><div><h2 data-h="shH"></h2><p data-t="shP"></p></div></div>
+
+  <figure class="studio rv" id="studio">
+    <div class="studio-bg" aria-hidden="true"><img src="shots/v2/c-room.webp" alt="" loading="lazy" decoding="async"></div>
+    <div class="studio-set">
+      <img class="lap zm" src="shots/v2/d-home.webp" alt="" loading="lazy" decoding="async">
+      <div class="phone"><img class="zm" src="shots/v2/m-fs.webp" alt="" loading="lazy" decoding="async"></div>
+    </div>
+    <figcaption class="cap"><span class="sn">01</span><span data-t="sh1"></span></figcaption>
+  </figure>
+
+  <div class="looks rv">
+    <div class="looks-h">
+      <div><span class="sn">02</span><h3 data-h="lkH"></h3><p data-t="lkP"></p></div>
+      <div class="looks-tabs" role="tablist"><button data-look="0" class="on">Standard</button><button data-look="1">Liquid Glass</button><button data-look="2">Green</button></div>
+    </div>
+    <div class="looks-stage" id="looks">
+      <img class="zm on" src="shots/v2/d-home.webp" alt="" loading="lazy" decoding="async">
+      <img class="zm" src="shots/v2/d-glass.webp" alt="" loading="lazy" decoding="async">
+      <img class="zm" src="shots/v2/d-green.webp" alt="" loading="lazy" decoding="async">
+      <div class="looks-bar"><i id="lookbar"></i></div>
+    </div>
+  </div>
+
+  <div class="sheet rv">
+    <div class="sheet-h"><span class="sn">03–10</span><h3 data-h="ctH"></h3><p class="drag mono" data-t="ctDrag"></p></div>
+    <div class="film" id="film"><div class="strip">
+      <figure class="fr"><img class="zm" src="shots/v2/m-home.webp" alt="" loading="lazy" decoding="async"><figcaption><b>03</b><span data-t="f1"></span></figcaption></figure>
+      <figure class="fr"><img class="zm" src="shots/v2/m-fs.webp" alt="" loading="lazy" decoding="async"><figcaption><b>04</b><span data-t="f2"></span></figcaption></figure>
+      <figure class="fr"><img class="zm" src="shots/v2/m-artist.webp" alt="" loading="lazy" decoding="async"><figcaption><b>05</b><span data-t="f3"></span></figcaption></figure>
+      <figure class="fr"><img class="zm" src="shots/v2/m-album.webp" alt="" loading="lazy" decoding="async"><figcaption><b>06</b><span data-t="f4"></span></figcaption></figure>
+      <figure class="fr"><img class="zm" src="shots/v2/m-queue.webp" alt="" loading="lazy" decoding="async"><figcaption><b>07</b><span data-t="f5"></span></figcaption></figure>
+      <figure class="fr"><img class="zm" src="shots/v2/m-lib.webp" alt="" loading="lazy" decoding="async"><figcaption><b>08</b><span data-t="f6"></span></figcaption></figure>
+      <figure class="fr"><img class="zm" src="shots/v2/m-green-fs.webp" alt="" loading="lazy" decoding="async"><figcaption><b>09</b><span data-t="f7"></span></figcaption></figure>
+      <figure class="fr"><img class="zm" src="shots/v2/m-glass.webp" alt="" loading="lazy" decoding="async"><figcaption><b>10</b><span data-t="f8"></span></figcaption></figure>
+    </div></div>
+  </div>
+
+  <div class="details">
+    <figure class="dt a rv"><img class="zm" src="shots/v2/x-artist.webp" alt="" loading="lazy" decoding="async"><figcaption><span class="sn">11</span><b data-t="d1"></b><span data-t="d1p"></span></figcaption></figure>
+    <figure class="dt b rv"><img class="zm" src="shots/v2/x-settings.webp" alt="" loading="lazy" decoding="async"><figcaption><span class="sn">12</span><b data-t="d2"></b><span data-t="d2p"></span></figcaption></figure>
+    <figure class="dt c rv"><img class="zm" src="shots/v2/x-search.webp" alt="" loading="lazy" decoding="async"><figcaption><span class="sn">13</span><b data-t="d3"></b><span data-t="d3p"></span></figcaption></figure>
+    <figure class="dt d rv"><img class="zm" src="shots/v2/x-welcome.webp" alt="" loading="lazy" decoding="async"><figcaption><span class="sn">14</span><b data-t="d4"></b><span data-t="d4p"></span></figcaption></figure>
+  </div>
+
+  <figure class="reel rv" id="reel">
+    <div class="reel-frame">
+      <img class="on" src="shots/v2/c-shot1.webp" alt="" loading="lazy" decoding="async">
+      <img src="shots/v2/c-room.webp" alt="" loading="lazy" decoding="async">
+      <img src="shots/v2/c-shot2.webp" alt="" loading="lazy" decoding="async">
+      <img src="shots/v2/c-chair.webp" alt="" loading="lazy" decoding="async">
+      <img src="shots/v2/c-shot3.webp" alt="" loading="lazy" decoding="async">
+      <img src="shots/v2/c-shot4.webp" alt="" loading="lazy" decoding="async">
+      <div class="reel-ui" aria-hidden="true"><span class="rec">REC</span><span id="tc">00:00:00:00</span><span class="fmt">2.39 : 1</span></div>
+    </div>
+    <figcaption class="cap"><span class="sn">15</span><span><b data-t="rlH"></b> <span data-t="rlP"></span></span></figcaption>
+  </figure>
+</section>
+
+<section class="track" id="a2">
+  <div class="th rv"><div class="no"><b>A4</b>7:36 – 10:44</div><div><h2 data-h="a2h"></h2><p data-t="a2p"></p></div></div>
+  <div class="body mix">
+    <div class="rv">
+      <div class="weights">
+        <div class="wt"><div class="v p">+3</div><div><b data-t="w1"></b><span data-t="w1d"></span></div></div>
+        <div class="wt"><div class="v p">+1</div><div><b data-t="w2"></b><span data-t="w2d"></span></div></div>
+        <div class="wt"><div class="v p">+½</div><div><b data-t="w3"></b><span data-t="w3d"></span></div></div>
+        <div class="wt"><div class="v n">−0,3</div><div><b data-t="w4"></b><span data-t="w4d"></span></div></div>
+        <div class="wt"><div class="v n">−1</div><div><b data-t="w5"></b><span data-t="w5d"></span></div></div>
+      </div>
+      <p class="fine" data-t="fine"></p>
+    </div>
+    <div class="demo rv">
+      <div class="dh"><h3 data-t="demoH"></h3><button id="reset" data-t="reset"></button></div>
+      <p class="hint" data-t="hint"></p>
+      <div class="list" id="list"></div>
+      <div class="keys">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>+3</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>+1</span>
+        <span><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>−1</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="track" id="b1">
+  <div class="th rv"><div class="no"><b>B1</b>10:44 – 12:18</div><div><h2 data-h="b1h"></h2><p data-t="b1p"></p></div></div>
+  <div class="body rv">
+    <div class="dls">
+      <a class="dl" data-os="android" href="https://github.com/Labtoso/Musik/releases/latest/download/Streyn.apk"><div class="n">Android</div><div class="d"><p data-t="android"></p><small>Streyn.apk · Android 8+</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
+      <a class="dl" data-os="windows" href="https://github.com/Labtoso/Musik/releases/latest/download/Streyn.exe"><div class="n">Windows</div><div class="d"><p data-t="windows"></p><small>Streyn.exe · Windows 10 / 11</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
+      <a class="dl" data-os="linux" href="https://github.com/Labtoso/Musik/releases/latest/download/Streyn.AppImage"><div class="n">Linux</div><div class="d"><p data-t="linux"></p><small>Streyn.AppImage · x64</small></div><div class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div></a>
+    </div>
+    <div class="binr"><span data-t="bins"></span><a href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-linux-x64">linux-x64</a><a href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-linux-arm64">linux-arm64</a><a href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe">windows-x64.exe</a></div>
+  </div>
+</section>
+
+<section class="track" id="b2">
+  <div class="th rv"><div class="no"><b>B2</b>12:18 – 13:14</div><div><h2 data-h="b2h"></h2><p data-t="b2p"></p></div></div>
+  <div class="body rv">
+    <div class="tabs"><button data-tab="px" class="on">Proxmox</button><button data-tab="deb">Debian</button><button data-tab="zima">ZimaOS</button><button data-tab="dock">Docker</button><button data-tab="win">Windows</button></div>
+    <div class="pane on" data-pane="px">
+      <div class="term"><div class="term-h">root@pve<button data-copy="px" data-t="copy"></button></div>
+<pre><span class="p">#</span> <span data-cmd="px">bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</span>
+<span class="o">==> Creating container 120 (Debian 12)
+==> Installing Streyn server
+==> Done
+
+    http://192.168.1.50:8484</span></pre></div>
+      <ol class="steps"><li data-h="px1"></li><li data-h="px2"></li><li data-h="px3"></li></ol>
+    </div>
+    <div class="pane" data-pane="deb">
+      <div class="term"><div class="term-h">bash<button data-copy="deb" data-t="copy"></button></div>
+<pre><span class="p">$</span> <span data-cmd="deb">curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash</span></pre></div>
+      <ol class="steps"><li data-h="deb1"></li><li data-h="deb2"></li><li data-h="deb3"></li></ol>
+    </div>
+    <div class="pane" data-pane="zima">
+      <div class="term"><div class="term-h">ZimaOS<button data-copy="zima" data-t="copy"></button></div>
+<pre><span class="p">$</span> <span data-cmd="zima">curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash</span></pre></div>
+      <ol class="steps"><li data-h="zima1"></li><li data-h="zima2"></li><li data-h="zima3"></li></ol>
+    </div>
+    <div class="pane" data-pane="dock">
+      <div class="term"><div class="term-h">bash<button data-copy="dock" data-t="copy"></button></div>
+<pre><span class="p">$</span> <span data-cmd="dock">git clone https://github.com/Labtoso/Musik.git &amp;&amp; cd Musik &amp;&amp; docker compose up -d --build</span></pre></div>
+      <ol class="steps"><li data-h="dock1"></li><li data-h="dock2"></li></ol>
+    </div>
+    <div class="pane" data-pane="win">
+      <div class="term"><div class="term-h">PowerShell<button data-copy="win" data-t="copy"></button></div>
+<pre><span class="p">&gt;</span> <span data-cmd="win">Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.exe; .\streyn-server.exe</span></pre></div>
+      <a class="windl" href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe"><span data-t="winDl"></span> <b data-winver>latest</b></a>
+      <ol class="steps"><li data-h="win1"></li><li data-h="win2"></li></ol>
+    </div>
+  </div>
+</section>
+
+<section class="track" id="b3">
+  <div class="th rv"><div class="no"><b>B3</b>13:14 – ∞</div><div><h2 data-h="b3h"></h2></div></div>
+  <div class="body notes rv">
+    <div><h4 data-t="q1"></h4><p data-h="a1"></p></div>
+    <div><h4 data-t="q2"></h4><p data-h="a2"></p></div>
+    <div><h4 data-t="q3"></h4><p data-h="a3"></p></div>
+    <div><h4 data-t="q4"></h4><p data-h="a4"></p></div>
+    <div><h4 data-t="q5"></h4><p data-h="a5"></p></div>
+    <div><h4 data-t="q6"></h4><p data-h="a6"></p></div>
+    <div><h4 data-t="q7"></h4><p data-h="a7"></p></div>
+    <div><h4 data-t="q8"></h4><p data-h="a8"></p></div>
+  </div>
+</section>
+
+<footer>
+  <div class="fl"><span>© LabtosoStudios</span><span><a data-discord href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Discord</a> &nbsp;/&nbsp; <a href="https://github.com/Labtoso/Musik">GitHub</a> &nbsp;/&nbsp; <a href="https://github.com/Labtoso/Musik/releases" data-t="all"></a></span></div>
+  <div class="big" role="img" aria-label="Streyn"></div>
+</footer>
+
+<script>
+const T = {
+  de: {
+    shH: 'Jede Ecke,<br><em>ganz nah.</em>', shP: 'Fünfzehn Bilder direkt aus der App, mit echter Bibliothek dahinter. Keine Mockups, die besser aussehen als das Original: so sieht es bei dir aus.', sh1: 'Startseite am PC, der Vollbild-Player am Handy. Ein Server, ein Mix, alles synchron.', lkH: 'Drei Looks,<br><em>eine App.</em>', lkP: 'Standard, Liquid Glass mit echter Lichtbrechung und Green. Jederzeit in den Einstellungen umschaltbar, jedes Gerät merkt sich seinen.', ctH: 'Ein Film voller<br><em>Handy-Bilder.</em>', ctDrag: '← Film ziehen →', f1: 'Start mit deinem Mix', f2: 'Player mit Visualizer', f3: 'Künstlerseite', f4: 'Album', f5: 'Warteschlange', f6: 'Bibliothek nach Alben', f7: 'Player in Green', f8: 'Start in Liquid Glass', d1: 'Künstlerseiten', d1p: 'Beliebte Songs, jede Veröffentlichung, Radio und Folgen, wie du es kennst.', d2: 'Einstellungen, die sich erklären', d2p: 'Durchsuchbar, und jeder Schalter sagt, was er tut.', d3: 'Stöbern nach Farbe', d3p: 'Deine Alben als Kacheln, dazu Spotify und YouTube Music in einer Suche.', d4: 'Ein Start in einer Minute', d4p: 'Sechs kurze Fragen beim ersten Start, danach passt alles.', rlH: 'Chillscreen.', rlP: 'Deine Musik als gemütlicher Raum: die Platte dreht sich, das Licht folgt dem Cover, die Kamera lässt sich Zeit.', navS: 'Bilder', navdS: 'Jeder Screen ganz nah',
+        nav1: 'Aufbau', navP: 'Player', nav2: 'Der Mix', nowPlaying: 'Läuft gerade', dynColor: 'Aus dem Cover', drag: '← ziehen zum Drehen →', gh: 'So sieht’s<br><em>aus.</em>', gp: 'Echte Bilder aus der App, mit echter Musik. Dein Mix, deine Alben, der Player im Vollbild. Auf dem Handy wie am PC.', c1: 'Start mit „Mix für dich“, sortiert nach deinem Geschmack', c2: 'Album-Ansicht mit Cover, Jahr und Laufzeit', c3: 'Deine Bibliothek, sortiert nach Alben', nav3: 'Server', nav4: 'Download',
+    settings: 'Einstellungen', lang: 'Sprache', accent: 'Akzentfarbe', blue: 'Blau', green: 'Grün', purple: 'Lila',
+    h1: 'Deine Musik,<br><em>zuhause</em><br>gehostet.',
+    lead: 'Ein Server in deinem Proxmox, Apps für <b>Android, Windows und Linux</b>. Kein Abo, keine Werbung, keine fremde Cloud. Dafür ein Mix, der mitbekommt, was du wirklich hörst.',
+    dlFor: 'Für {os} laden', dlAll: 'Apps laden', listen: 'Reinhören', listenStop: 'Stopp',
+    metaVer: 'Version', metaFree: 'Kostenlos', metaOs: 'Quellcode einsehbar',
+    marq: ['Proxmox', 'FLAC', 'Android', 'Rust', 'OGG', 'Windows', 'Playlists', 'Linux', 'MP3', 'Radio', 'Mehrere Nutzer', 'Hintergrund-Wiedergabe', 'Equalizer', 'Songtexte', 'Teilen', 'Spotify-Import'],
+    a1h: 'Drei Teile.<br><em>Ein Signal.</em>', a1p: 'Deine Dateien bleiben bei dir. Der Server liest sie ein, merkt sich, was du hörst, und streamt an jede App, die du verbindest.',
+    s1: 'Deine Musik', s1p: 'Ein Ordner voller Songs. Cover und Tags liest der Server selbst aus.', s1a: 'Ordner einbinden', s1b: 'Oder in der App hochladen',
+    s2: 'Der Server', s2p: 'Ein kleines Programm in Rust, als Container in Proxmox. Braucht kaum Speicher und hält alles zusammen.', s2a: 'Proxmox-Container', s2b: 'Mix-Algorithmus', s2c: 'Nutzer, Playlists, Likes',
+    s3: 'Deine Apps', s3p: 'Adresse eintragen, anmelden, hören. Playlists und Likes sind auf jedem Gerät gleich.', browser: 'Browser',
+    a2h: 'Ein Mix,<br>der <em>zuhört.</em>', a2p: 'Jedes Abspielen ist ein kleines Signal. Der Server zählt sie zusammen, für den Song, den Künstler, das Album und das Genre.',
+    w1: 'Like', w1d: 'Das stärkste Signal. Song und Künstler rücken nach vorne.',
+    w2: 'Ganz gehört', w2d: 'Bis zum Ende dabei geblieben: passt.',
+    w3: 'Halb gehört', w3d: 'Zählt genau so viel, wie du gehört hast.',
+    w4: 'Spät übersprungen', w4d: 'Nach der Hälfte weiter: ein kleiner Abzug.',
+    w5: 'Früh übersprungen', w5d: 'In den ersten Sekunden weg: ein klares Nein.',
+    fine: 'Alte Signale verblassen mit einer Halbwertszeit von 30 Tagen. Songs, die andere Nutzer oft hintereinander hören, werden verknüpft. Das gilt auch für Songs von Spotify und Deezer: daraus werden Streyn Mixes (täglich, pro Genre und pro Künstler, jeder mit eigenem Cover), eine Top-Songs-Playlist für jedes Jahr, jede Woche neue Künstler und ein Autoplay, das nach der Playlist im selben Stil weiterspielt. Nie derselbe Künstler zweimal am Stück, kein Song doppelt.',
+    demoH: 'Probier’s aus', reset: 'Zurücksetzen', hint: 'Like, hör ganz oder überspring einen Song. Die Liste sortiert sich, wie der Server es tun würde.',
+    whyStart: 'Beliebt auf dem Server', whyLike: 'Du magst diesen Song', whyArtist: 'Du hörst gern {a}', whyGenre: 'Weil du {g} hörst', whySkip: 'Oft übersprungen', whyFull: 'Passt zu dir',
+    b1h: 'Hol dir<br><em>die Apps.</em>', b1p: 'Jede App verbindet sich mit deinem Server. Erst den Server einrichten, dann die Adresse in der App eintragen.',
+    android: 'Spielt im Hintergrund weiter. Steuerung im Sperrbildschirm und in der Benachrichtigung.',
+    windows: 'Setup ohne Admin-Rechte. Die Medientasten der Tastatur funktionieren.',
+    linux: 'AppImage. Ausführbar machen, starten, fertig.',
+    yours: 'Dein Gerät', bins: 'Nur der Server →',
+    b2h: 'Server in<br><em>einer Minute.</em>', b2p: 'Ein Befehl richtet alles ein. Den gleichen Befehl später noch mal ausführen bringt den Server auf die neueste Version.',
+    copy: 'Markieren', copied: 'Kopiert', marked: 'Markiert · Strg+C', markedTouch: 'Markiert · Kopieren tippen',
+    px1: 'In Proxmox die Node anklicken und <b>Shell</b> öffnen. Befehl einfügen, Enter. Der Installer fragt, ob du Streyn auch unterwegs nutzen willst (mit Tailscale) oder nur zuhause.',
+    px2: 'Liegt deine Musik schon auf dem Host, schreib den Ordner davor: <code>MUSIC_HOST_DIR=/mnt/nas/music</code>. Sonst lädst du Songs in der App hoch.',
+    px3: 'Am Ende steht die Adresse. Die trägst du in der App ein und legst beim ersten Start deinen Account an.',
+    deb1: 'Installiert den Server nach <code>/opt/streyn</code> und startet ihn als Dienst.',
+    deb2: 'Musik nach <code>/srv/streyn</code> legen oder <code>MUSIC_DIRS</code> in <code>/etc/streyn.env</code> ändern.',
+    deb3: 'Update später mit <code>sudo streyn-update</code>.',
+    zima1: 'In ZimaOS oder CasaOS das <b>Terminal</b> öffnen (oder per SSH verbinden), Befehl einfügen, Enter. Streyn erscheint danach als App im Dashboard.',
+    zima2: 'Songs in den Ordner <code>Media/Music</code> legen. Ohne Terminal geht es auch: im App Store <b>Eigene App installieren</b> → <b>Import</b> und die Datei <code>deploy/zimaos.yml</code> einfügen.',
+    zima3: 'Aktualisieren: die App im Dashboard neu starten, sie holt beim Start die neueste Version.',
+    dock1: 'Musik in den Ordner <code>music/</code> neben der <code>docker-compose.yml</code> legen.',
+    dock2: 'Der Server läuft dann auf Port <code>8484</code>.',
+    win1: 'Der Befehl lädt immer den neuesten Server und startet ihn. Er nimmt deinen Musik-Ordner. Zum Updaten einfach noch mal ausführen.',
+    winDl: 'Oder direkt laden: streyn-server-windows-x64.exe',
+    win2: 'Andere Ordner kommen in eine <code>.env</code> neben der exe: <code>MUSIC_DIRS=D:\\Musik</code>.',
+    b3h: 'Liner <em>Notes.</em>',
+    q1: 'Wo liegt meine Musik?', a1: 'Deine Dateien nur auf deinem Server, die Apps streamen direkt von dir. Andere Plattformen kommen nur dazu, wenn du sie einschaltest.',
+    q2: 'Geht das unterwegs?', a2: 'Ja, über Tailscale. Der Installer fragt beim Einrichten, ob du das willst, und erklärt kurz, was es macht. Keine Portfreigabe nötig. Unterwegs wechselt die App von selbst auf die Tailscale-Adresse. <a href="https://github.com/Labtoso/Musik/blob/main/docs/tailscale.md">Anleitung</a>',
+    q3: 'Wie viele Leute?', a3: 'So viele du willst. Der erste Account ist Admin und legt weitere an. Jeder hat eigene Playlists, Likes und einen eigenen Mix.',
+    q4: 'Wie kommen neue Songs rein?', a4: 'Datei in den Ordner legen oder in der App hochladen. Der Server schaut alle 30 Minuten nach, oder sofort mit „Bibliothek neu einlesen“.',
+    q5: 'Was braucht der Server?', a5: 'Wenig. Zwei Kerne und 1 bis 2 GB RAM sind bequem. Läuft auf x64 und ARM, also auch auf einem Raspberry Pi.',
+    q6: 'Und Updates?', a6: 'Installationsbefehl erneut ausführen. Deine Daten, Playlists und Likes bleiben. Neue Apps gibt es immer hier.',
+    q7: 'Geht auch Spotify oder YouTube?', a7: 'Ja, wenn du willst. Beim ersten Start wählst du, woher Songs kommen dürfen: lokal, YouTube, YouTube Music, Spotify, SoundCloud. Playlists holst du per Link oder Datei rein, Deezer und Exportify-CSV gehen auch. Was du selbst hast, spielt immer lokal. Der Rest läuft über die offiziellen Player der Plattform.',
+    q8: 'Teilen, Equalizer, Songtexte?', a8: 'Alles drin. Songs, Alben und Playlists teilst du per Link, auch an Leute ohne Konto. Wer die App hat, speichert sie mit einem Tipp. Dazu ein 10-Band-Equalizer und Songtexte, die beim Hören mitlaufen.',
+    catA: 'Entdecken', catB: 'Loslegen', navd1: 'Wie Server und Apps zusammenspielen', navdP: 'So sieht die App aus', navd2: 'Wie der Mix deinen Geschmack lernt', navd3: 'In Proxmox, ZimaOS, Debian, Docker oder Windows', navd4: 'Apps für Android, Windows, Linux', navdD: 'Die ganze Anleitung zum Nachlesen',
+    wp: 'Webplayer', wpH: 'Webplayer öffnen', wpP: 'Der Webplayer läuft auf deinem eigenen Server. Gib einmal seine Adresse ein, beim nächsten Mal geht es mit einem Klick.', wpL: 'Adresse deines Servers', wpGo: 'Öffnen', wpS: 'Noch kein Server? <a href="#b2">So richtest du ihn ein</a>. Unterwegs geht die Tailscale-Adresse.', wpBad: 'Diese Adresse passt nicht.',
+    all: 'Alle Versionen'
+  },
+  en: {
+    shH: 'Every corner,<br><em>up close.</em>', shP: 'Fifteen shots straight from the app, with a real library behind them. No mockups that look better than the real thing: this is what you get.', sh1: 'Home on the PC, the full-screen player on the phone. One server, one mix, in sync.', lkH: 'Three looks,<br><em>one app.</em>', lkP: 'Standard, Liquid Glass with real light refraction, and Green. Switch any time in the settings, every device keeps its own.', ctH: 'A roll of<br><em>phone shots.</em>', ctDrag: '← drag the film →', f1: 'Home with your mix', f2: 'Player with visualizer', f3: 'Artist page', f4: 'Album', f5: 'Queue', f6: 'Library by album', f7: 'Player in Green', f8: 'Home in Liquid Glass', d1: 'Artist pages', d1p: 'Popular songs, every release, radio and follow, the way you know it.', d2: 'Settings that explain themselves', d2p: 'Searchable, and every switch says what it does.', d3: 'Browse by colour', d3p: 'Your albums as tiles, plus Spotify and YouTube Music in one search.', d4: 'A start that takes a minute', d4p: 'Six short questions on first launch, then everything fits.', rlH: 'Chillscreen.', rlP: 'Your music as a cozy room: the record spins, the light follows the cover, the camera takes its time.', navS: 'Shots', navdS: 'Every screen, up close',
+        nav1: 'Setup', navP: 'Player', nav2: 'The mix', nowPlaying: 'Now playing', dynColor: 'From the cover', drag: '← drag to spin →', gh: 'Here’s how<br>it <em>looks.</em>', gp: 'Real shots from the app with real music. Your mix, your albums, the full-screen player. On the phone and on the PC.', c1: 'Home with “Your mix”, sorted by your taste', c2: 'Album view with cover, year and length', c3: 'Your library, sorted by album', nav3: 'Server', nav4: 'Download',
+    settings: 'Settings', lang: 'Language', accent: 'Accent colour', blue: 'Blue', green: 'Green', purple: 'Purple',
+    h1: 'Your music,<br><em>hosted</em><br>at home.',
+    lead: 'A server in your Proxmox, apps for <b>Android, Windows and Linux</b>. No subscription, no ads, no one else’s cloud. Instead, a mix that notices what you actually listen to.',
+    dlFor: 'Get it for {os}', dlAll: 'Get the apps', listen: 'Listen', listenStop: 'Stop',
+    metaVer: 'Version', metaFree: 'Free', metaOs: 'Source available',
+    marq: ['Proxmox', 'FLAC', 'Android', 'Rust', 'OGG', 'Windows', 'Playlists', 'Linux', 'MP3', 'Radio', 'Several users', 'Background playback', 'Equalizer', 'Lyrics', 'Sharing', 'Spotify import'],
+    a1h: 'Three parts.<br><em>One signal.</em>', a1p: 'Your files stay with you. The server reads them in, remembers what you play and streams to every app you connect.',
+    s1: 'Your music', s1p: 'A folder full of songs. The server reads covers and tags on its own.', s1a: 'Mount a folder', s1b: 'Or upload in the app',
+    s2: 'The server', s2p: 'A small program written in Rust, running as a container in Proxmox. Uses hardly any memory and ties it all together.', s2a: 'Proxmox container', s2b: 'Mix algorithm', s2c: 'Users, playlists, likes',
+    s3: 'Your apps', s3p: 'Enter the address, sign in, listen. Playlists and likes are the same on every device.', browser: 'Browser',
+    a2h: 'A mix that<br><em>listens.</em>', a2p: 'Every play is a small signal. The server adds them up for the song, the artist, the album and the genre.',
+    w1: 'Like', w1d: 'The strongest signal. Song and artist move up.',
+    w2: 'Played through', w2d: 'Stayed until the end: it fits.',
+    w3: 'Half played', w3d: 'Counts exactly as much as you heard.',
+    w4: 'Skipped late', w4d: 'Skipped after the halfway point: a small minus.',
+    w5: 'Skipped early', w5d: 'Gone within seconds: a clear no.',
+    fine: 'Old signals fade with a half-life of 30 days. Songs other users often play back to back get linked. The same goes for songs from Spotify and Deezer: they turn into Streyn Mixes (daily, per genre and per artist, each with its own cover), a Your Top Songs playlist for every year, new artists every week and an autoplay that keeps going in the same style after a playlist ends. Never the same artist twice in a row, no song twice.',
+    demoH: 'Try it', reset: 'Reset', hint: 'Like a song, play it through or skip it. The list re-sorts the way the server would.',
+    whyStart: 'Popular on the server', whyLike: 'You like this song', whyArtist: 'You like {a}', whyGenre: 'Because you play {g}', whySkip: 'Often skipped', whyFull: 'Fits your taste',
+    b1h: 'Get<br><em>the apps.</em>', b1p: 'Every app connects to your server. Set up the server first, then enter its address in the app.',
+    android: 'Keeps playing in the background. Controls on the lock screen and in the notification.',
+    windows: 'Setup without admin rights. Keyboard media keys work.',
+    linux: 'AppImage. Make it executable, run it, done.',
+    yours: 'Your device', bins: 'Server only →',
+    b2h: 'A server in<br><em>one minute.</em>', b2p: 'One command sets everything up. Running it again later updates the server to the newest version.',
+    copy: 'Select', copied: 'Copied', marked: 'Selected · Ctrl+C', markedTouch: 'Selected · tap Copy',
+    px1: 'In Proxmox click the node and open <b>Shell</b>. Paste the command, hit Enter. The installer asks whether you want Streyn on the go too (with Tailscale) or only at home.',
+    px2: 'If your music is already on the host, put the folder in front: <code>MUSIC_HOST_DIR=/mnt/nas/music</code>. Otherwise upload songs in the app.',
+    px3: 'At the end it prints the address. Enter it in the app and create your account on first launch.',
+    deb1: 'Installs the server to <code>/opt/streyn</code> and starts it as a service.',
+    deb2: 'Put music in <code>/srv/streyn</code> or change <code>MUSIC_DIRS</code> in <code>/etc/streyn.env</code>.',
+    deb3: 'Update later with <code>sudo streyn-update</code>.',
+    zima1: 'Open the <b>terminal</b> in ZimaOS or CasaOS (or connect over SSH), paste the command, hit Enter. Streyn then shows up as an app on the dashboard.',
+    zima2: 'Put your songs into <code>Media/Music</code>. It works without a terminal too: in the app store pick <b>Install a customized app</b> → <b>Import</b> and paste the file <code>deploy/zimaos.yml</code>.',
+    zima3: 'Updating: restart the app on the dashboard, it fetches the newest version on start.',
+    dock1: 'Put your music into <code>music/</code> next to <code>docker-compose.yml</code>.',
+    dock2: 'The server then runs on port <code>8484</code>.',
+    win1: 'The command always downloads the newest server and starts it. It uses your Music folder. Run it again to update.',
+    winDl: 'Or download it directly: streyn-server-windows-x64.exe',
+    win2: 'Other folders go into a <code>.env</code> next to the exe: <code>MUSIC_DIRS=D:\\Music</code>.',
+    b3h: 'Liner <em>notes.</em>',
+    q1: 'Where is my music?', a1: 'Your files stay on your server, the apps stream straight from you. Other platforms only join in when you switch them on.',
+    q2: 'Does it work on the go?', a2: 'Yes, over Tailscale. The installer asks whether you want it and briefly explains what it does. No port forwarding. Away from home the app switches to the Tailscale address by itself. <a href="https://github.com/Labtoso/Musik/blob/main/docs/tailscale.md">Guide (German)</a>',
+    q3: 'How many people?', a3: 'As many as you like. The first account is admin and adds others. Everyone gets their own playlists, likes and mix.',
+    q4: 'How do new songs get in?', a4: 'Drop files into the folder or upload them in the app. The server checks every 30 minutes, or right away with “Rescan library”.',
+    q5: 'What does the server need?', a5: 'Little. Two cores and 1 to 2 GB RAM are comfortable. Runs on x64 and ARM, so a Raspberry Pi works too.',
+    q6: 'And updates?', a6: 'Run the install command again. Your data, playlists and likes stay. New apps are always here.',
+    q7: 'Does Spotify or YouTube work too?', a7: 'Yes, if you want. On first start you pick where songs may come from: local, YouTube, YouTube Music, Spotify, SoundCloud. Bring playlists in by link or file, Deezer and Exportify CSV work too. Whatever you own plays locally. The rest runs through each platform’s official player.',
+    q8: 'Sharing, equalizer, lyrics?', a8: 'All in. Share songs, albums and playlists by link, even with people without an account. Anyone with the app saves them with one tap. Plus a 10-band equalizer and lyrics that follow along.',
+    catA: 'Explore', catB: 'Get started', navd1: 'How server and apps work together', navdP: 'What the app looks like', navd2: 'How the mix learns your taste', navd3: 'On Proxmox, Debian, Docker or Windows', navd4: 'Apps for Android, Windows, Linux', navdD: 'The full guide to read up on',
+    wp: 'Web player', wpH: 'Open the web player', wpP: 'The web player runs on your own server. Enter its address once, next time it is one click.', wpL: 'Your server address', wpGo: 'Open', wpS: 'No server yet? <a href="#b2">Here is how to set one up</a>. On the go, use the Tailscale address.', wpBad: 'That address does not work.',
+    all: 'All versions'
+  }
+};
+
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return v; };
+let lang = store('musik.site.lang') === 'de' ? 'de' : 'en';
+let accent = store('musik.site.accent') || 'blue';
+let dyn = store('musik.site.dyn') !== '0';
+window.siteDyn = () => dyn;
+const ua = navigator.userAgent;
+const os = /Android/i.test(ua) ? 'android' : /Windows/i.test(ua) ? 'windows' : (/Linux/i.test(ua) && !/CrOS/i.test(ua)) ? 'linux' : null;
+const names = { android: 'Android', windows: 'Windows', linux: 'Linux' };
+const files = { android: 'Streyn.apk', windows: 'Streyn.exe', linux: 'Streyn.AppImage' };
+let release = null;
+
+/* ── sound: a small generated loop, analysed for the visuals ── */
+let ctx, analyser, master, timer, step = 0, nextT = 0, playing = false, noiseBuf;
+const BPM = 96, SPB = 60 / BPM / 4;
+const CH = [[57, 60, 64, 67], [53, 57, 60, 64], [48, 52, 55, 59], [55, 59, 62, 65]];
+const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+function voice(type, f, t, dur, vol, cut) {
+  const o = ctx.createOscillator(), g = ctx.createGain(), fl = ctx.createBiquadFilter();
+  o.type = type; o.frequency.value = f; fl.type = 'lowpass'; fl.frequency.value = cut;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .01); g.gain.exponentialRampToValueAtTime(.0005, t + dur);
+  o.connect(fl).connect(g).connect(master); o.start(t); o.stop(t + dur + .05);
+}
+function kick(t) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(42, t + .14);
+  g.gain.setValueAtTime(.9, t); g.gain.exponentialRampToValueAtTime(.001, t + .38);
+  o.connect(g).connect(master); o.start(t); o.stop(t + .4);
+}
+function hat(t, v) {
+  const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  s.buffer = noiseBuf; f.type = 'highpass'; f.frequency.value = 8000;
+  g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.001, t + .05);
+  s.connect(f).connect(g).connect(master); s.start(t); s.stop(t + .06);
+}
+function tick() {
+  while (nextT < ctx.currentTime + .12) {
+    const bar = Math.floor(step / 16) % 4, s = step % 16, ch = CH[bar];
+    if (s === 0) ch.forEach((n) => voice('sawtooth', hz(n), nextT, SPB * 16, .035, 1400));
+    if (s % 4 === 0) kick(nextT);
+    if (s % 2 === 1) hat(nextT, s % 4 === 3 ? .09 : .04);
+    if (s === 0 || s === 7 || s === 10) voice('triangle', hz(ch[0] - 24), nextT, SPB * 3, .32, 500);
+    const arp = [0, 2, 1, 3, 2, 1, 3, 0];
+    if (s % 2 === 0) voice('square', hz(ch[arp[(s / 2) | 0]] + 12), nextT, SPB * 1.6, .045, 2600);
+    nextT += SPB; step++;
+  }
+}
+function toggleSound() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain(); master.gain.value = .5;
+    const comp = ctx.createDynamicsCompressor();
+    analyser = ctx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = .8;
+    master.connect(comp).connect(analyser).connect(ctx.destination);
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate * .1, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  playing = !playing;
+  document.body.classList.toggle('playing', playing);
+  $('#listen span').textContent = playing ? T[lang].listenStop : T[lang].listen;
+  if (playing) {
+    ctx.resume(); master.gain.cancelScheduledValues(ctx.currentTime); master.gain.setTargetAtTime(.5, ctx.currentTime, .05);
+    nextT = ctx.currentTime + .6; timer = setInterval(tick, 25);
+  } else {
+    clearInterval(timer); master.gain.setTargetAtTime(0, ctx.currentTime, .08);
+  }
+}
+$('#listen').addEventListener('click', toggleSound);
+
+/* spectrum horizon */
+const cv = $('#hz'), g2 = cv.getContext('2d');
+const bins = new Uint8Array(128);
+let idle = 0;
+function size() { const r = cv.getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio; }
+addEventListener('resize', size); size();
+function draw() {
+  const W = cv.width, H = cv.height, n = 64, bw = W / n;
+  g2.clearRect(0, 0, W, H);
+  if (analyser && playing) analyser.getByteFrequencyData(bins);
+  idle += .02;
+  const col = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  let energy = 0;
+  for (let i = 0; i < n; i++) {
+    const live = playing ? bins[Math.min(127, 1 + Math.floor(Math.pow(i / n, 1.5) * 80))] / 255 : 0;
+    const v = Math.max(.06 + .04 * Math.sin(idle + i * .35), live);
+    energy += live;
+    const h = v * H;
+    g2.fillStyle = col; g2.globalAlpha = .15 + v * .7;
+    g2.fillRect(i * bw + bw * .2, H - h, bw * .6, h);
+  }
+  g2.globalAlpha = 1;
+  $('#glowbg').style.opacity = playing ? (.45 + energy / n * 1.4).toFixed(2) : .5;
+  if (window.__tt) window.__tt.setEnergy(playing ? energy / n : 0);
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+/* ── mix demo: same weights as the server ── */
+const SONGS = [
+  { id: 1, t: 'Nightdrive', a: 'Neon Coast', g: 'Synthwave', pop: 1.2 },
+  { id: 2, t: 'Paper Planes', a: 'Juno Park', g: 'Indie', pop: 1.0 },
+  { id: 3, t: 'Low Tide', a: 'Neon Coast', g: 'Synthwave', pop: .5 },
+  { id: 4, t: 'Weekend Tapes', a: 'The Lanterns', g: 'Indie', pop: .9 },
+  { id: 5, t: 'Glass City', a: 'Oktav', g: 'Electronic', pop: .8 },
+  { id: 6, t: 'Slow Burn', a: 'Juno Park', g: 'Indie', pop: .4 }
+];
+let aff, last;
+const score = (s) => s.pop * .35 + (aff.track[s.id] || 0) + (aff.artist[s.a] || 0) * .6 + (aff.genre[s.g] || 0) * .3;
+function resetDemo() { aff = { track: {}, artist: {}, genre: {} }; last = {}; drawList(); }
+function act(id, w) {
+  const s = SONGS.find((x) => x.id === id);
+  aff.track[id] = (aff.track[id] || 0) + w; aff.artist[s.a] = (aff.artist[s.a] || 0) + w; aff.genre[s.g] = (aff.genre[s.g] || 0) + w;
+  last[id] = w; drawList();
+  const el = list.querySelector(`[data-id="${id}"]`); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+}
+function why(s) {
+  const d = T[lang];
+  const p = [[aff.track[s.id] || 0, 'track'], [(aff.artist[s.a] || 0) * .6, 'artist'], [(aff.genre[s.g] || 0) * .3, 'genre']].sort((x, y) => Math.abs(y[0]) - Math.abs(x[0]));
+  const [v, k] = p[0];
+  if (Math.abs(v) < .05) return [d.whyStart, false];
+  if (v < 0) return [d.whySkip, false];
+  if (k === 'track') return [last[s.id] >= 3 ? d.whyLike : d.whyFull, true];
+  if (k === 'artist') return [d.whyArtist.replace('{a}', s.a), true];
+  return [d.whyGenre.replace('{g}', s.g), true];
+}
+function diversify(arr) {
+  const rest = [...arr], out = [];
+  while (rest.length) { const prev = out[out.length - 1]; let i = rest.findIndex((s) => !prev || s.a !== prev.a); if (i < 0) i = 0; out.push(rest.splice(i, 1)[0]); }
+  return out;
+}
+const IC = {
+  like: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>',
+  full: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>',
+  skip: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>'
+};
+const list = $('#list');
+SONGS.forEach((s) => {
+  const el = document.createElement('div');
+  el.className = 'song'; el.dataset.id = s.id;
+  el.innerHTML = `<div class="i"></div><div style="min-width:0"><div class="t">${s.t}<small>${s.a}</small></div><div class="why"></div></div>
+    <div class="acts"><button data-w="3" aria-label="Like">${IC.like}</button><button data-w="1" aria-label="Played">${IC.full}</button><button data-w="-1" aria-label="Skip">${IC.skip}</button></div><div class="meter"></div>`;
+  list.appendChild(el);
+});
+list.style.height = SONGS.length * 68 + 'px';
+list.addEventListener('click', (e) => { const b = e.target.closest('[data-w]'); if (b) act(+b.closest('.song').dataset.id, +b.dataset.w); });
+function drawList() {
+  const ranked = diversify([...SONGS].sort((x, y) => score(y) - score(x)));
+  const sc = SONGS.map(score), max = Math.max(...sc), min = Math.min(...sc);
+  ranked.forEach((s, i) => {
+    const el = list.querySelector(`[data-id="${s.id}"]`);
+    el.style.transform = `translateY(${i * 68}px)`;
+    $('.i', el).textContent = String(i + 1).padStart(2, '0');
+    const [w, up] = why(s); const wy = $('.why', el); wy.textContent = w; wy.classList.toggle('up', up);
+    $('.meter', el).style.width = `calc((100% - 34px) * ${(Math.max(.03, (score(s) - min) / (max - min || 1))).toFixed(3)})`;
+  });
+}
+$('#reset').addEventListener('click', resetDemo);
+
+/* ── ui ── */
+$$('.tabs button').forEach((b) => b.addEventListener('click', () => {
+  $$('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  $$('.pane').forEach((p) => p.classList.toggle('on', p.dataset.pane === b.dataset.tab));
+}));
+$$('[data-copy]').forEach((b) => b.addEventListener('click', () => {
+  const el = $(`[data-cmd="${b.dataset.copy}"]`);
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+  b.textContent = matchMedia('(hover: none)').matches ? T[lang].markedTouch : T[lang].marked;
+  clearTimeout(b._t);
+  b._t = setTimeout(() => (b.textContent = T[lang].copy), 3500);
+}));
+const openSet = (v) => document.body.classList.toggle('set-open', v);
+$('#gear').addEventListener('click', () => openSet(true));
+$('#close').addEventListener('click', () => openSet(false));
+$('#scrim').addEventListener('click', () => openSet(false));
+addEventListener('keydown', (e) => { if (e.key === 'Escape') openSet(false); });
+$$('[data-l]').forEach((b) => b.addEventListener('click', () => { lang = b.dataset.l; store('musik.site.lang', lang); render(); }));
+$('[data-dyn]').addEventListener('click', () => { dyn = !dyn; store('musik.site.dyn', dyn ? '1' : '0'); render(); window.__dynApply && window.__dynApply(); });
+$$('[data-a]').forEach((b) => b.addEventListener('click', () => { accent = b.dataset.a; dyn = false; store('musik.site.dyn', '0'); store('musik.site.accent', accent); render(); window.__dynApply && window.__dynApply(); if (window.__tt) window.__tt.setAccent(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()); }));
+
+// header categories: click opens, outside click / Escape / a jump closes
+const closeCats = () => $$('.cat').forEach((c) => { c.classList.remove('open'); $('.cbtn', c).setAttribute('aria-expanded', 'false'); });
+$$('.cat').forEach((c) => {
+  const b = $('.cbtn', c);
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = !c.classList.contains('open');
+    closeCats();
+    if (open) { c.classList.add('open'); b.setAttribute('aria-expanded', 'true'); $('#wpop').classList.remove('open'); }
+  });
+  $$('.menu a', c).forEach((a) => a.addEventListener('click', closeCats));
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('.cat')) closeCats(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCats(); });
+
+// web player: lives on the user's own server, so remember its address and open it
+const wpop = $('#wpop'), wpi = $('#wpi');
+wpi.value = store('musik.site.server') || '';
+function wpOpen(on) {
+  wpop.classList.toggle('open', on);
+  if (on) setTimeout(() => wpi.focus(), 60);
+}
+function wpUrl(v) {
+  v = v.trim().replace(/\/+$/, '');
+  if (!v) return null;
+  if (!/^https?:\/\//i.test(v)) v = (/\.ts\.net$/i.test(v.split('/')[0]) ? 'https://' : 'http://') + v;
+  try {
+    const u = new URL(v);
+    if (u.protocol === 'http:' && !u.port && /^(\d+\.){3}\d+$|^localhost$/.test(u.hostname)) u.port = '8484';
+    return u.origin + '/';
+  } catch { return null; }
+}
+$('#wp').addEventListener('click', (e) => { e.stopPropagation(); closeCats(); wpOpen(!wpop.classList.contains('open')); });
+$('#wpf').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const url = wpUrl(wpi.value);
+  if (!url) { wpi.setCustomValidity(T[lang].wpBad); wpi.reportValidity(); return; }
+  wpi.setCustomValidity('');
+  store('musik.site.server', url.replace(/\/$/, ''));
+  window.open(url, '_blank', 'noopener');
+  wpOpen(false);
+});
+wpi.addEventListener('input', () => wpi.setCustomValidity(''));
+document.addEventListener('click', (e) => { if (wpop.classList.contains('open') && !wpop.contains(e.target)) wpOpen(false); });
+wpop.addEventListener('click', (e) => { if (e.target.closest('a[href^="#"]')) wpOpen(false); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') wpOpen(false); });
+
+function render() {
+  const d = T[lang];
+  document.documentElement.lang = lang;
+  document.documentElement.dataset.accent = accent;
+  $$('[data-t]').forEach((el) => (el.textContent = d[el.dataset.t] ?? ''));
+  $$('[data-h]').forEach((el) => (el.innerHTML = d[el.dataset.h] ?? ''));
+  $$('[data-l]').forEach((b) => b.classList.toggle('on', b.dataset.l === lang));
+  $$('[data-a]').forEach((b) => b.classList.toggle('on', !dyn && b.dataset.a === accent));
+  $('[data-dyn]').classList.toggle('on', dyn);
+  $('#listen span').textContent = playing ? d.listenStop : d.listen;
+  const main = $('#main-dl');
+  if (os) {
+    $('span', main).textContent = d.dlFor.replace('{os}', names[os]);
+    main.href = 'https://github.com/Labtoso/Musik/releases/latest/download/' + files[os];
+    $(`[data-os=${os}] .n`).innerHTML = names[os] + `<span class="yours">${d.yours}</span>`;
+  } else $('span', main).textContent = d.dlAll;
+  const m = [`<span>${d.metaOs}</span>`, `<span>${d.metaFree}</span>`, '<span>LabtosoStudios</span>'];
+  if (release) m.unshift(`<a href="https://github.com/Labtoso/Musik/releases/tag/${release.tag_name}" target="_blank" rel="noopener">${d.metaVer} <b>${release.tag_name.replace(/^v/, '')}</b></a>`);
+  $('#meta').innerHTML = m.join('');
+  const words = d.marq.map((w) => `<span>${w}</span><span class="d">/</span>`).join('');
+  $('#marq').innerHTML = words + words;
+  drawList();
+}
+
+resetDemo(); render();
+
+/* 3D carousel of phone shots */
+(() => {
+  const ring = $('#ring'), car = $('#carousel'), items = $$('.ph', car), n = items.length;
+  let rot = 0, vel = 0, drag = null, R = 0;
+  const layout = () => { const w = items[0].offsetWidth; R = Math.round((w + 46) / (2 * Math.tan(Math.PI / n))); items.forEach((el, i) => (el.style.transform = `rotateY(${i * 360 / n}deg) translateZ(${R}px)`)); };
+  layout(); addEventListener('resize', layout);
+  ring.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, r: rot }; vel = 0; ring.setPointerCapture(e.pointerId); });
+  ring.addEventListener('pointermove', (e) => { if (!drag) return; const nr = drag.r + (e.clientX - drag.x) * 0.25; vel = nr - rot; rot = nr; });
+  const end = () => (drag = null);
+  ring.addEventListener('pointerup', end); ring.addEventListener('pointercancel', end);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  (function loop() {
+    if (!drag) { vel *= 0.95; rot += vel + (reduce ? 0 : -0.12); }
+    car.style.transform = `translateZ(${-R}px) rotateX(-6deg) rotateY(${rot}deg)`;
+    items.forEach((el, i) => { const a = (((i * 360 / n + rot) % 360) + 360) % 360; const f = Math.cos(a * Math.PI / 180); el.style.filter = `brightness(${(0.45 + 0.55 * Math.max(0, f)).toFixed(2)})`; });
+    requestAnimationFrame(loop);
+  })();
+  const scr = $$('.scr');
+  const onScroll = () => scr.forEach((el, i) => {
+    const r = el.getBoundingClientRect(), p = Math.min(1, Math.max(0, (innerHeight - r.top) / (innerHeight * 0.7) - i * 0.08));
+    el.style.setProperty('--sc', (0.96 + 0.04 * p).toFixed(3)); el.style.setProperty('--ty', (40 * (1 - p)).toFixed(1) + 'px');
+  });
+  addEventListener('scroll', onScroll, { passive: true }); onScroll();
+})();
+/* A3 shots: studio parallax, theme reveal, film roll, chillscreen reel */
+(() => {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const studio = $('#studio'), lap = $('.lap', studio), phone = $('.phone', studio), bg = $('.studio-bg img', studio);
+  const par = () => {
+    if (reduce) return;
+    const r = studio.getBoundingClientRect(), k = Math.max(-1, Math.min(1, (r.top + r.height / 2 - innerHeight / 2) / innerHeight));
+    lap.style.setProperty('--ry', (9 + k * 7).toFixed(2) + 'deg');
+    phone.style.setProperty('--pp', (k * 60).toFixed(1) + 'px');
+    bg.style.setProperty('--py', (k * -30).toFixed(1) + 'px');
+  };
+  addEventListener('scroll', par, { passive: true }); par();
+
+  // three looks: the next theme opens as a circle, on its own every few seconds while in view
+  const stage = $('#looks'), imgs = $$('img', stage), tabs = $$('[data-look]'), bar = $('#lookbar');
+  let cur = 0, timer = 0, seen = false;
+  const D = 5200;
+  const run = () => {
+    clearTimeout(timer); bar.style.transition = 'none'; bar.style.width = '0';
+    if (reduce || !seen) return;
+    void bar.offsetWidth; bar.style.transition = `width ${D}ms linear`; bar.style.width = '100%';
+    timer = setTimeout(() => show((cur + 1) % imgs.length), D);
+  };
+  const show = (i, x, y) => {
+    if (i === cur) return;
+    imgs.forEach((im) => im.classList.toggle('prev', im === imgs[cur]));
+    imgs[cur].classList.remove('on');
+    stage.style.setProperty('--cx', x || (i > cur ? '100%' : '0%'));
+    stage.style.setProperty('--cy', y || '50%');
+    void imgs[i].offsetWidth;
+    imgs[i].classList.add('on');
+    cur = i; tabs.forEach((t, k) => t.classList.toggle('on', k === i));
+    run();
+  };
+  tabs.forEach((t) => t.addEventListener('click', () => show(+t.dataset.look, '50%', '100%')));
+  new IntersectionObserver((es) => es.forEach((e) => { seen = e.isIntersecting; run(); }), { threshold: .35 }).observe(stage);
+
+  // film roll: drag with the mouse, touch scrolls natively
+  const film = $('#film');
+  let fd = null;
+  film.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse') fd = { x: e.clientX, l: film.scrollLeft }; });
+  addEventListener('pointermove', (e) => { if (!fd) return; const dx = e.clientX - fd.x; if (Math.abs(dx) > 4) film.classList.add('dragging'); film.scrollLeft = fd.l - dx; });
+  addEventListener('pointerup', () => { fd = null; film.classList.remove('dragging'); });
+
+  // chillscreen reel: slow crossfades with a running timecode
+  const reel = $('#reel'), frames = $$('.reel-frame img', reel), tc = $('#tc');
+  let fi = 0, rt = 0, t0 = 0, on = false;
+  const next = () => {
+    frames[fi].classList.remove('on');
+    fi = (fi + 1) % frames.length;
+    const f = frames[fi];
+    f.style.setProperty('--kx', (Math.random() * 6 - 3).toFixed(1) + '%');
+    f.style.setProperty('--ky', (Math.random() * 4 - 2).toFixed(1) + '%');
+    void f.offsetWidth; f.classList.add('on');
+    rt = setTimeout(next, 6200);
+  };
+  const tick = () => {
+    if (!on) return;
+    const ms = performance.now() - t0, fr = Math.floor(ms / (1000 / 24)) % 24, sec = Math.floor(ms / 1000);
+    tc.textContent = ['00', String(Math.floor(sec / 60) % 60).padStart(2, '0'), String(sec % 60).padStart(2, '0'), String(fr).padStart(2, '0')].join(':');
+    requestAnimationFrame(tick);
+  };
+  new IntersectionObserver((es) => es.forEach((e) => {
+    on = e.isIntersecting; clearTimeout(rt);
+    if (on) { if (!t0) t0 = performance.now(); if (!reduce) rt = setTimeout(next, 6200); tick(); }
+  }), { threshold: .3 }).observe(reel);
+})();
+const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .1 });
+$$('.rv').forEach((el) => io.observe(el));
+// newest version: version.json is written by every release (no limits, no waiting), GitHub's own list as a backup
+const useRelease = (r) => { if (r && r.tag_name && (!release || r.tag_name.localeCompare(release.tag_name, undefined, { numeric: true }) > 0)) { release = r; render(); document.querySelectorAll('[data-winver]').forEach((e) => (e.textContent = r.tag_name)); } };
+// Discord invite: one place for the website, the docs and the apps
+fetch('links.json?' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+  const u = String(j?.discord || '').trim();
+  if (!/^https:\/\//.test(u)) return;
+  document.querySelectorAll('a[data-discord]').forEach((a) => { a.href = u; });
+}).catch(() => {});
+fetch('version.json?' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then(useRelease).catch(() => {});
+fetch('https://api.github.com/repos/Labtoso/Musik/releases/latest', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then(useRelease).catch(() => {});
+</script>
+<script type="module">
+import { createTurntable } from './turntable.js';
+try {
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const TRACKS = [
+    ['Nightdrive', 'Neon Coast', 'nightdrive'], ['Velvet Hours', 'Mira Vale', 'velvet_hours'], ['Glass City', 'Oktav', 'glass_city'],
+    ['Summer Static', 'Fennec', 'summer_static'], ['Afterglow', 'Solace Unit', 'afterglow'], ['Paper Planes', 'Juno Park', 'paper_planes'], ['Weekend Tapes', 'The Lanterns', 'weekend_tapes']
+  ].map(([title, artist, c]) => ({ title, artist, cover: 'shots/covers/' + c + '.webp' }));
+  const np = document.getElementById('np'), bar = document.getElementById('npbar');
+  const root = document.documentElement;
+  const hsl2rgb = (h, s, l) => { const k = (n) => (n + h * 12) % 12, a = s * Math.min(l, 1 - l), f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)); return [f(0), f(8), f(4)].map((v) => Math.round(v * 255)); };
+  function coverColor(img) {
+    const c = document.createElement('canvas'); c.width = c.height = 40;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 40, 40);
+    const px = g.getImageData(0, 0, 40, 40).data, bins = Array.from({ length: 36 }, () => ({ w: 0, h: 0, s: 0 }));
+    for (let i = 0; i < px.length; i += 4) {
+      const r = px[i] / 255, gg = px[i + 1] / 255, b = px[i + 2] / 255, max = Math.max(r, gg, b), min = Math.min(r, gg, b), l = (max + min) / 2;
+      if (max === min) continue;
+      const d = max - min, s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (s < 0.18 || l < 0.08 || l > 0.94) continue;
+      const h = (max === r ? (gg - b) / d + (gg < b ? 6 : 0) : max === gg ? (b - r) / d + 2 : (r - gg) / d + 4) / 6;
+      const w = s * (1 - Math.abs(l - 0.5) * 1.4), bin = bins[Math.floor(h * 36) % 36];
+      bin.w += w; bin.h += h * w; bin.s += s * w;
+    }
+    let best = 0, bw = -1;
+    for (let i = 0; i < 36; i++) { const w = bins[(i + 35) % 36].w * 0.5 + bins[i].w + bins[(i + 1) % 36].w * 0.5; if (w > bw) { bw = w; best = i; } }
+    const bn = bins[best]; if (bn.w < 12) return null;
+    const h = bn.h / bn.w, s = Math.min(0.85, Math.max(0.5, bn.s / bn.w));
+    return { a: hsl2rgb(h, s, 0.64), a2: hsl2rgb((h + 0.08) % 1, Math.min(0.9, s + 0.05), 0.62), ink: hsl2rgb(h, 0.6, 0.09) };
+  }
+  let lastCol = null;
+  // the page colours glide to the new record's colours at the same pace as the room's light
+  let shownCol = null, tween = 0;
+  const parseRgb = (v) => { const m = String(v).match(/\d+(\.\d+)?/g); if (m && m.length >= 3) return m.slice(0, 3).map(Number); const h = String(v).trim().replace('#', ''); return h.length === 6 ? [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) : [79, 124, 255]; };
+  const paint = (c) => {
+    const rgb = (v) => `rgb(${v.map(Math.round).join(',')})`;
+    root.style.setProperty('--accent', rgb(c.a)); root.style.setProperty('--accent2', rgb(c.a2));
+    root.style.setProperty('--acc-rgb', c.a.map(Math.round).join(',')); root.style.setProperty('--ink', rgb(c.ink));
+  };
+  window.__dynApply = () => {
+    const keys = ['--accent', '--accent2', '--acc-rgb', '--ink'];
+    cancelAnimationFrame(tween);
+    if (!window.siteDyn() || !lastCol) { keys.forEach((k) => root.style.removeProperty(k)); shownCol = null; }
+    else {
+      const cs = getComputedStyle(root);
+      const from = shownCol || { a: parseRgb(cs.getPropertyValue('--accent')), a2: parseRgb(cs.getPropertyValue('--accent2')), ink: parseRgb(cs.getPropertyValue('--ink')) };
+      const to = lastCol, t0 = performance.now(), D = 1800;
+      const step = (now) => {
+        const k = Math.min(1, (now - t0) / D), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+        const mix = (x, y) => x.map((v, i) => v + (y[i] - v) * e);
+        shownCol = { a: mix(from.a, to.a), a2: mix(from.a2, to.a2), ink: mix(from.ink, to.ink) };
+        paint(shownCol);
+        if (k < 1) tween = requestAnimationFrame(step);
+      };
+      tween = requestAnimationFrame(step);
+    }
+    if (window.__tt) window.__tt.setAccent(window.siteDyn() && lastCol ? `rgb(${lastCol.a.join(',')})` : getComputedStyle(root).getPropertyValue('--accent').trim());
+  };
+  const imgs = {};
+  const colorFor = (src) => imgs[src] || (imgs[src] = new Promise((res) => { const im = new Image(); im.onload = () => { try { res(coverColor(im)); } catch { res(null); } }; im.onerror = () => res(null); im.src = src; }));
+  let trackTimer = 0, firstTrack = true;
+  const onTrack = (i) => {
+    // fired once the record is down and spinning, so the song only switches after the whole change
+    clearTimeout(trackTimer);
+    if (firstTrack) { firstTrack = false; return showTrack(i); }
+    trackTimer = setTimeout(() => showTrack(i), 200);
+  };
+  const showTrack = (i) => {
+    const tr = TRACKS[i];
+    np.classList.add('swap');
+    setTimeout(() => {
+      document.getElementById('npc').src = tr.cover;
+      document.getElementById('npt').textContent = tr.title;
+      document.getElementById('npa').textContent = tr.artist;
+      bar.classList.remove('run'); void bar.offsetWidth; bar.classList.add('run');
+      bar.style.animationDuration = (i === 0 ? 48 : 46) + 's';
+      np.classList.remove('swap');
+    }, i === 0 ? 0 : 450);
+    colorFor(tr.cover).then((c) => { lastCol = c; window.__dynApply(); });
+  };
+  window.__tt = createTurntable(document.getElementById('tt'), { tracks: TRACKS, onTrack, accent, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
+  document.body.classList.add('has3d');
+} catch (e) { console.warn('3D off', e); document.body.classList.add('no3d'); }
+</script>
+<script>
+// image viewer: click a screenshot to see it big; click or pinch to zoom, drag to look around, arrows / swipe for the next one
+(() => {
+  let down = null;
+  addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; }, true);
+  document.addEventListener('click', (e) => {
+    const img = e.target.closest('.ph img, .scr img, img.zm');
+    if (!img || (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6)) return;
+    e.preventDefault(); e.stopPropagation();
+    const group = img.closest('.ph') ? [...document.querySelectorAll('.ph img')] : img.closest('.scr') ? [...document.querySelectorAll('.scr img')] : img.closest('.looks-stage') ? [img] : [...document.querySelectorAll('#shots img.zm')].filter((x) => !x.closest('.looks-stage'));
+    open(group, group.indexOf(img));
+  }, true);
+  function open(list, i) {
+    const lb = document.createElement('div');
+    lb.className = 'lb';
+    lb.innerHTML = '<div class="lb-stage"><img alt=""></div><button class="lb-x" aria-label="Close">✕</button><button class="lb-p" aria-label="Previous">‹</button><button class="lb-n" aria-label="Next">›</button><div class="lb-c"></div>';
+    document.body.appendChild(lb);
+    document.documentElement.style.overflow = 'hidden';
+    const im = lb.querySelector('img');
+    let z = 1, tx = 0, ty = 0, drag = null, pts = new Map(), pinch = null, swipe = null;
+    const apply = () => (im.style.transform = `translate(${tx}px, ${ty}px) scale(${z})`);
+    const reset = () => { z = 1; tx = ty = 0; lb.classList.remove('zoom'); apply(); };
+    const show = (k) => { i = (k + list.length) % list.length; im.src = list[i].currentSrc || list[i].src; reset(); lb.querySelector('.lb-c').textContent = `${i + 1} / ${list.length}`; lb.querySelectorAll('.lb-p, .lb-n').forEach((b) => (b.hidden = list.length < 2)); };
+    const zoomAt = (nz, cx, cy) => {
+      const r = im.getBoundingClientRect(), ox = cx - (r.left + r.width / 2), oy = cy - (r.top + r.height / 2);
+      nz = Math.min(5, Math.max(1, nz));
+      const k = nz / z;
+      tx += ox * (1 - k); ty += oy * (1 - k); z = nz;
+      if (z <= 1.01) return reset();
+      lb.classList.add('zoom'); apply();
+    };
+    const close = () => { lb.classList.remove('open'); document.documentElement.style.overflow = ''; removeEventListener('keydown', key); setTimeout(() => lb.remove(), 250); };
+    const key = (e) => { if (e.key === 'Escape') close(); else if (e.key === 'ArrowRight') show(i + 1); else if (e.key === 'ArrowLeft') show(i - 1); };
+    addEventListener('keydown', key);
+    lb.querySelector('.lb-x').onclick = close;
+    lb.querySelector('.lb-p').onclick = () => show(i - 1);
+    lb.querySelector('.lb-n').onclick = () => show(i + 1);
+    lb.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(z * (e.deltaY < 0 ? 1.2 : 1 / 1.2), e.clientX, e.clientY); }, { passive: false });
+    lb.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      lb.setPointerCapture(e.pointerId);
+      if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), z }; drag = swipe = null; }
+      else { drag = { x: e.clientX, y: e.clientY, tx, ty, moved: false }; swipe = z === 1 ? { x: e.clientX, y: e.clientY } : null; }
+    });
+    lb.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; zoomAt(pinch.z * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d, (a.x + b.x) / 2, (a.y + b.y) / 2); return; }
+      if (!drag) return;
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 5) drag.moved = true;
+      if (z > 1) { tx = drag.tx + e.clientX - drag.x; ty = drag.ty + e.clientY - drag.y; apply(); }
+    });
+    const up = (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.delete(e.pointerId);
+      if (pinch) { if (pts.size < 2) pinch = null; return; }
+      const d = drag; drag = null;
+      if (!d) return;
+      if (swipe && Math.abs(e.clientX - swipe.x) > 60 && Math.abs(e.clientX - swipe.x) > Math.abs(e.clientY - swipe.y)) return show(i + (e.clientX < swipe.x ? 1 : -1));
+      if (swipe && e.clientY - swipe.y > 110) return close();
+      if (d.moved) return;
+      const r = im.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) { lb.classList.add('anim'); z > 1 ? reset() : zoomAt(2.4, e.clientX, e.clientY); setTimeout(() => lb.classList.remove('anim'), 320); }
+      else if (z === 1) close();
+    };
+    lb.addEventListener('pointerup', up);
+    lb.addEventListener('pointercancel', up);
+    show(i);
+    requestAnimationFrame(() => lb.classList.add('open'));
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+name: Defender scan
+
+# Scans the Windows files of a release (or of this commit's build artifacts) with Microsoft Defender,
+# so a false alarm shows up here before anyone installs the app.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to scan (empty = latest)
+        required: false
+        default: ''
+
+jobs:
+  scan:
+    runs-on: windows-latest
+    steps:
+      - name: Download
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p scan
+          gh release download ${{ inputs.tag }} -R "$GITHUB_REPOSITORY" -p 'Streyn.exe' -p 'streyn-server-windows-x64.exe' -p 'streyn-desktop-*-windows-x64.exe' -D scan
+          # Streyn.exe is the Rust setup (no archive); the two program files are scanned as release files
+          ls -la scan
+      - name: Defender
+        shell: pwsh
+        run: |
+          Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,AntivirusSignatureVersion,AMEngineVersion | Format-List
+          Update-MpSignature -ErrorAction SilentlyContinue
+          Set-MpPreference -MAPSReporting Advanced -SubmitSamplesConsent NeverSend -CloudBlockLevel High -ErrorAction SilentlyContinue
+          $mp = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+          $found = $false
+          foreach ($f in Get-ChildItem -Recurse -File scan -Include *.exe) {
+            Write-Host "== $($f.FullName)"
+            & $mp -Scan -ScanType 3 -File $f.FullName -DisableRemediation | Out-String | Write-Host
+            if ($LASTEXITCODE -eq 2) { $found = $true; Write-Host "::warning::Defender flags $($f.Name)" }
+          }
+          Get-MpThreatDetection | Format-List | Out-String | Write-Host
+          if ($found) { exit 1 }

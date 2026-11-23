@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streyn Docs</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="robots" content="noindex">
+<style>body { margin: 0; background: #0d1117; color: #c9d1d9; font: 16px system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; } a { color: #79a0ff; }</style>
+<script>
+// the docs moved to docs/; old links like docs.html#de-install keep working
+(() => {
+  const map = { overview: '', ueberblick: '', start: 'start', install: 'install', proxmox: 'install', debian: 'install', docker: 'install', windows: 'install', config: 'config', apps: 'apps', away: 'away', unterwegs: 'away', public: 'share', share: 'share', teilen: 'share', offline: 'offline', platforms: 'sources', plattformen: 'sources', sources: 'sources', music: 'sources', musik: 'sources', import: 'sources', spotify: 'sources', youtube: 'sources', use: 'listen', nutzen: 'listen', mix: 'listen', playlists: 'listen', player: 'player', sound: 'player', eq: 'player', viz: 'player', lyrics: 'player', look: 'look', account: 'look', konto: 'look', update: 'update', help: 'help', hilfe: 'help' };
+  const m = location.hash.match(/^#(de|en)-(.+)$/);
+  let url = 'docs/';
+  if (m) {
+    try { localStorage.setItem('musik.site.lang', m[1]); } catch {}
+    url += '?lang=' + m[1] + '#/' + (map[m[2]] ?? '');
+  }
+  location.replace(url);
+})();
+</script>
+</head>
+<body><p><a href="docs/">Streyn Docs →</a></p></body>
+</html>

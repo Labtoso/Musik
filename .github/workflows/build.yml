@@ -1,0 +1,341 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['site/**', '**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(tr -d ' \n\r' < VERSION)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]] && ! gh release view "v$V" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    name: Server tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Unit tests
+        working-directory: server
+        run: cargo test
+      - name: API tests
+        working-directory: server
+        run: cargo build && node --test tests/api.test.mjs
+
+  server:
+    name: Server ${{ matrix.name }}
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest, target: x86_64-unknown-linux-musl, file: streyn-server-linux-x64 }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, file: streyn-server-linux-arm64 }
+          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, file: streyn-server-windows-x64.exe }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+          key: ${{ matrix.target }}
+      - if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # the web app inside the server is shipped minified with the copyright notice
+      - name: Protect web app
+        shell: bash
+        run: npm ci --prefix tools/protect --no-audit --no-fund && node tools/protect/protect.mjs web
+      - name: Build
+        shell: bash
+        working-directory: server
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
+          cp "target/${{ matrix.target }}/release/streyn-server$ext" "../${{ matrix.file }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.name }}
+          path: ${{ matrix.file }}
+
+  android:
+    name: Android APK
+    needs: [version, server]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # the server for offline mode runs inside the app
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: server-linux-*
+          path: srv
+          merge-multiple: true
+      - name: Server for offline mode
+        run: |
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a android/app/src/main/jniLibs/x86_64
+          cp srv/streyn-server-linux-arm64 android/app/src/main/jniLibs/arm64-v8a/libmusikserver.so
+          cp srv/streyn-server-linux-x64 android/app/src/main/jniLibs/x86_64/libmusikserver.so
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/streyn.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/streyn.jks" >> "$GITHUB_ENV"
+          fi
+      # Without a release key in the secrets the app is signed with a key that is kept between builds,
+      # so every new APK installs over the last one.
+      - name: Signing key kept between builds
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-signing-v1
+      - name: Create the signing key once
+        run: |
+          mkdir -p ~/.android
+          [ -f ~/.android/debug.keystore ] || keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 20000 -dname "CN=Streyn, O=Labtoso"
+          keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -i fingerprint
+          # the build signs with exactly this file unless a release key came from the secrets
+          [ -n "$ANDROID_KEYSTORE_FILE" ] || echo "ANDROID_KEYSTORE_FILE=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
+      - name: Build
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'android' }}
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: ${{ needs.version.outputs.version }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../Streyn.apk
+          # the fingerprint of the finished app, to compare between versions
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs ../Streyn.apk 2>/dev/null | grep -i "SHA-256" | tail -1 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: Streyn.apk
+
+  desktop:
+    name: Desktop ${{ matrix.name }}
+    needs: [version, server]
+    strategy:
+      matrix:
+        include:
+          - { name: windows, os: windows-latest, bundle: none, out: Streyn.exe, srv: server-windows-x64, bin: streyn-server-windows-x64.exe, triple: x86_64-pc-windows-msvc, ext: .exe }
+          - { name: linux, os: ubuntu-22.04, bundle: appimage, out: Streyn.AppImage, srv: server-linux-x64, bin: streyn-server-linux-x64, triple: x86_64-unknown-linux-gnu, ext: '' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # the server for offline mode ships next to the app
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.srv }}
+          path: srv
+      - name: Server for offline mode
+        shell: bash
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          cp "srv/${{ matrix.bin }}" "desktop/src-tauri/binaries/streyn-server-${{ matrix.triple }}${{ matrix.ext }}"
+          chmod +x desktop/src-tauri/binaries/*
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            desktop/src-tauri
+            desktop/setup
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Protect connect page
+        shell: bash
+        run: npm ci --prefix tools/protect --no-audit --no-fund && node tools/protect/protect.mjs desktop/ui
+      # The Windows app file is only rebuilt when the desktop app itself changes (DESKTOP_VERSION).
+      # Otherwise the exact file of the last release goes into the new installer: a file Windows
+      # already knows keeps its reputation, a new unsigned file is checked from scratch every time.
+      - name: Build
+        shell: bash
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DV=$(tr -d ' \n\r' < ../DESKTOP_VERSION)
+          H=$(cd .. && git ls-files -s desktop/src-tauri desktop/ui desktop/package.json desktop/package-lock.json tools/protect DESKTOP_VERSION | git hash-object --stdin | cut -c1-10)
+          RAW="streyn-desktop-$DV-$H-windows-x64.exe"
+          # the offline-mode server inside the installer is pinned the same way (same file until DESKTOP_VERSION changes)
+          SRV="streyn-desktop-server-$DV-windows-x64.exe"
+          SIDECAR="src-tauri/binaries/streyn-server-${{ matrix.triple }}${{ matrix.ext }}"
+          CFG="{\"version\":\"$DV\"}"
+          npm ci
+          reuse=0
+          if [ "${{ matrix.name }}" = windows ]; then
+            names=$(gh release view -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)
+            if grep -qx "$SRV" <<< "$names"; then
+              gh release download -R "$GITHUB_REPOSITORY" -p "$SRV" -D prevsrv && cp "prevsrv/$SRV" "$SIDECAR" && echo "Offline server for $DV unchanged: reusing $SRV"
+            fi
+            if grep -qx "$RAW" <<< "$names"; then
+              gh release download -R "$GITHUB_REPOSITORY" -p "$RAW" -D prev && reuse=1
+            elif grep -q "^streyn-desktop-$DV-" <<< "$names"; then
+              echo "::warning::The desktop app changed but DESKTOP_VERSION is still $DV. Raise DESKTOP_VERSION so installed apps get the change."
+            fi
+          fi
+          if [ "${{ matrix.name }}" = windows ]; then
+            if [ $reuse = 1 ]; then
+              echo "Desktop app $DV unchanged: reusing $RAW"
+              mkdir -p src-tauri/target/release
+              cp "prev/$RAW" src-tauri/target/release/streyn.exe
+            else
+              npx tauri build --no-bundle --config "$CFG"
+            fi
+            # Streyn Setup: a plain Rust program (desktop/setup) that installs both files per user,
+            # like Spotify. No NSIS, so no plug-in DLLs unpacked to %TEMP% and no process scanning.
+            STREYN_APP_EXE="$PWD/src-tauri/target/release/streyn.exe" STREYN_SERVER_EXE="$PWD/$SIDECAR" STREYN_VERSION="${{ needs.version.outputs.version }}" \
+              cargo build --release --locked --manifest-path setup/Cargo.toml
+            cp setup/target/release/StreynSetup.exe "../${{ matrix.out }}"
+          else
+            npx tauri build --bundles ${{ matrix.bundle }} --config "$CFG"
+            f=$(find src-tauri/target/release/bundle/${{ matrix.bundle }} -maxdepth 1 -name "*.AppImage" | head -n1)
+            cp "$f" "../${{ matrix.out }}"
+          fi
+          if [ "${{ matrix.name }}" = windows ]; then
+            cp src-tauri/target/release/streyn.exe "../$RAW"
+            cp "$SIDECAR" "../$SRV"
+            sha256sum "../$RAW" "../$SRV"
+          fi
+      # Real install and uninstall on the Windows runner: only the expected files, shortcut and
+      # registry entry appear, and they are gone again afterwards.
+      - name: Test setup and uninstall
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --manifest-path desktop/setup/Cargo.toml
+          $dir = Join-Path $env:LOCALAPPDATA 'Streyn'
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Streyn'
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Streyn.lnk'
+          $p = Start-Process -FilePath .\Streyn.exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "setup exit code $($p.ExitCode)" }
+          Get-ChildItem $dir | Format-Table Name, Length | Out-String | Write-Host
+          foreach ($f in 'Streyn.exe', 'streyn-server.exe') { if (-not (Test-Path (Join-Path $dir $f))) { throw "$f missing" } }
+          $extra = Get-ChildItem $dir | Where-Object { $_.Name -notin 'Streyn.exe', 'streyn-server.exe' }
+          if ($extra) { throw "unexpected files: $($extra.Name -join ', ')" }
+          if (-not (Test-Path $lnk)) { throw 'Start menu shortcut missing' }
+          $u = (Get-ItemProperty $key).UninstallString
+          Write-Host "UninstallString: $u"
+          # installing again over an existing installation (the update path)
+          $p = Start-Process -FilePath .\Streyn.exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "second setup exit code $($p.ExitCode)" }
+          $p = Start-Process -FilePath (Join-Path $dir 'Streyn.exe') -ArgumentList '--uninstall', '/S' -Wait -PassThru
+          if (Test-Path $key) { throw 'uninstall entry still there' }
+          if (Test-Path $lnk) { throw 'shortcut still there' }
+          if (Test-Path (Join-Path $dir 'streyn-server.exe')) { throw 'server file still there' }
+          if (Test-Path $dir) { Write-Host "::warning::install folder left: $((Get-ChildItem $dir).Name -join ', ')" }
+          Write-Host 'Setup and uninstall OK'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: |
+            ${{ matrix.out }}
+            streyn-desktop-*-windows-x64.exe
+            streyn-desktop-server-*-windows-x64.exe
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: needs.version.outputs.release == 'true'
+    needs: [version, server, android, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          cp deploy/proxmox.sh out/proxmox.sh
+          cp deploy/install.sh out/install.sh
+          # only the Streyn files; the old Musik.* copies are no longer attached
+          rm -f out/Musik.* out/musik-server-*
+          # every release gets a description: the notes file, or else the commit messages since the last release
+          NOTES=".github/releases/v$V.md"
+          if [ ! -s "$NOTES" ]; then
+            git fetch -q --tags origin || true
+            PREV="$(git tag -l 'v*' --sort=-v:refname | grep -vx "v$V" | head -n1)"
+            NOTES="$(mktemp)"
+            { echo "## What changed"; git log --no-merges --format='- %s' ${PREV:+$PREV..}HEAD | grep -v '^- Download page' | head -n 40; } > "$NOTES"
+          fi
+          # explain the two files that only exist so the next build can reuse them
+          FULL="$(mktemp)"; cat "$NOTES" > "$FULL"
+          printf '\n---\n<sub>`streyn-desktop-*` are the unchanged Windows app files that every installer reuses (kept here for the build). To install, download **Streyn.exe**.</sub>\n' >> "$FULL"
+          NOTES="$FULL"
+          gh release create "v$V" out/* --target "$GITHUB_SHA" --title "Streyn $V" --notes-file "$NOTES" --latest
+          # earlier releases that went out without a description get theirs from the notes files
+          for f in .github/releases/v*.md; do
+            t="$(basename "$f" .md)"
+            body="$(gh release view "$t" --json body -q .body 2>/dev/null)" || continue
+            [ -z "$body" ] && gh release edit "$t" --notes-file "$f" >/dev/null && echo "Description added to $t"
+          done || true
+      # the download page shows the new version right away
+      - name: Download page
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          git config user.name Labtoso
+          git config user.email 235880825+Labtoso@users.noreply.github.com
+          for i in 1 2 3; do
+            git fetch -q origin main && git checkout -q -B main origin/main
+            printf '{"tag_name":"v%s","published_at":"%s"}\n' "$V" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > site/version.json
+            git add site/version.json
+            git diff --cached --quiet && break
+            git commit -qm "Download page: version $V" && git push -q origin main && break
+            sleep 5
+          done
+          gh workflow run pages.yml --ref main
