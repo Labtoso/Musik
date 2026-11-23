@@ -1,0 +1,324 @@
+/* ==========================================================================
+   1.22.0
+   1. Liquid Glass like Apple's original: glass that swells and lights up from the finger, a lens that
+      magnifies while dragged, menus that grow out of their button, panes that materialise,
+      switches and sliders that turn into glass while held.
+   2. Own accent colour: picker with a saturation/brightness field, hue strip, hex input, recent colours.
+   3. OLED mode: a setting of dark mode that turns every theme pure black.
+   Loaded after style.css and green.css.
+   ========================================================================== */
+
+/* ---------- 1. Liquid Glass ---------- */
+/* pressed: the control swells (scale set from liquid.js) quickly, then springs back with a wobble when let go */
+[data-theme='glass'] .lg-p { transition: scale 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.25), translate 0.14s ease-out, background-color 0.2s, color 0.2s, box-shadow 0.2s !important; }
+[data-theme='glass'] .lg-rel { transition: scale 0.75s var(--lg-spring), translate 0.75s var(--lg-spring), background-color 0.2s, color 0.2s, box-shadow 0.2s !important; }
+/* the old "push in" of each control is replaced by the swell */
+[data-theme='glass'] :is(.btn, .icon-btn, .chip, .tab, .playpause, .seg button, .swatch, .card, .qt, .themeopt, .srccard, .menu button, .side-nav a, .fs-dev):active { transform: none; }
+/* light that wells up inside the glass from where the finger is and spreads */
+lg-glow { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: 3; mix-blend-mode: plus-lighter; transition: opacity 0.5s ease; }
+lg-glow.out { opacity: 0; }
+lg-dot {
+  position: absolute; border-radius: 50%; translate: -50% -50%;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.12) 46%, rgba(255, 255, 255, 0) 100%);
+  animation: lg-well 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes lg-well { from { scale: 0.12; opacity: 0; } 25% { opacity: 1; } to { scale: 1; opacity: 1; } }
+[data-mode='light'] lg-glow { mix-blend-mode: normal; }
+[data-mode='light'] lg-dot { background: radial-gradient(closest-side, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.3) 46%, rgba(255, 255, 255, 0) 100%); }
+/* a pressed glass control also catches more light on its rim */
+[data-theme='glass'] :is(.btn, .chip, .tab, .seg button).lg-p { box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.75), inset 0 -1px 0.5px rgba(255, 255, 255, 0.25), 0 8px 22px -8px rgba(0, 0, 0, 0.55); }
+[data-theme='glass'] .btn.primary.lg-p { box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.8), 0 12px 28px -8px color-mix(in srgb, var(--accent) 85%, transparent); }
+
+/* the tab bar drop: held and dragged it lifts off as a thicker lens that magnifies the icons under it */
+@media (max-width: 899px) {
+  [data-theme='glass'].lg-refract .bottomnav.dragging .navblob { backdrop-filter: url(#lg-lens-drag) saturate(1.25) brightness(1.14); }
+  [data-theme='glass'] .bottomnav.dragging .navblob::after { opacity: 1; }
+}
+
+/* materialise: a sheet comes into being by bending the light (lens strength animated from liquid.js), sharpening as it settles */
+@keyframes lg-mat {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+/* fill only backwards: a filter left on the element after the animation would switch its glass (backdrop-filter) off */
+[data-theme='glass'] .modal, [data-theme='glass'] .devsheet { animation: lg-mat 0.5s cubic-bezier(0.2, 0.9, 0.25, 1) backwards; }
+[data-theme='glass'] .menu { animation: lg-menu-in 0.26s cubic-bezier(0.2, 0.9, 0.25, 1) backwards; }
+@keyframes lg-menu-in { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
+@media (max-width: 899px) { [data-theme='glass'] .modal.devsheet { animation: ds-up 0.34s cubic-bezier(0.2, 0.9, 0.25, 1) backwards; } [data-theme='glass'] .devsheet-wrap.closing .devsheet { animation: ds-up 0.22s ease-in reverse both; } }
+[data-theme='glass'] .menu.lg-morph { animation: none; }
+[data-theme='glass'] .menu.lg-ghost { pointer-events: none; }
+[data-theme='glass'] .toast.show { animation: lg-toast 0.45s var(--lg-spring) backwards; }
+@keyframes lg-toast { from { scale: 0.7 0.5; opacity: 0; } to { scale: 1; opacity: 1; } }
+
+/* switches: the knob turns into a clear glass drop while held and slides over the track */
+[data-theme='glass'] :is(.switch span, input[type='checkbox'])::after { transition: transform 0.5s var(--lg-spring), width 0.45s var(--lg-spring), left 0.45s var(--lg-spring), background 0.25s, box-shadow 0.25s; }
+[data-theme='glass'] .switch:active span::after, [data-theme='glass'] input[type='checkbox']:active::after {
+  width: 30px; background: rgba(255, 255, 255, 0.16); transform: translateX(-3px) scale(1.3);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.95), inset 0 -1px 0.5px rgba(255, 255, 255, 0.4), inset 0 0 7px rgba(255, 255, 255, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+[data-theme='glass'] .switch:active input:checked + span::after, [data-theme='glass'] input[type='checkbox']:checked:active::after { transform: translateX(11px) scale(1.3); }
+
+/* sliders: the thumb becomes a glass pill while dragged and the track grows a little, like the media sliders */
+[data-theme='glass'] input[type='range']::-webkit-slider-thumb { transition: opacity 0.15s, width 0.4s var(--lg-spring), height 0.4s var(--lg-spring), margin-top 0.4s var(--lg-spring), background 0.2s, box-shadow 0.2s; }
+[data-theme='glass'] input[type='range']::-webkit-slider-runnable-track { transition: height 0.3s var(--lg-spring); }
+[data-theme='glass'] input[type='range']:active::-webkit-slider-runnable-track { height: 6px; }
+[data-theme='glass'] input[type='range']:active::-webkit-slider-thumb {
+  opacity: 1; width: 34px; height: 22px; margin-top: -8px; border-radius: 999px; background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.95), inset 0 -1px 0.5px rgba(255, 255, 255, 0.4), inset 0 0 8px rgba(255, 255, 255, 0.35), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+}
+
+/* ---------- 2. own accent colour ---------- */
+.accentpick { display: grid; gap: 10px; width: 100%; }
+.accentpick .swatches { justify-content: flex-start; }
+.swatch.custom { display: grid; place-items: center; color: #fff; background: conic-gradient(from 200deg, #ff5d5d, #ff9a3d, #f5d547, #3dbb7a, #2ec5c0, #4c8dff, #9b7bff, #ff6fb1, #ff5d5d); }
+.swatch.custom .ic { width: 16px; height: 16px; stroke-width: 2.6; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.55)); }
+.swatch.custom.has { background: radial-gradient(circle, var(--c) 0 56%, transparent 58%), conic-gradient(from 200deg, #ff5d5d, #ff9a3d, #f5d547, #3dbb7a, #2ec5c0, #4c8dff, #9b7bff, #ff6fb1, #ff5d5d); }
+.swatch.custom.has .ic { opacity: 0; }
+.cpick { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.42s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s; }
+.cpick.open { grid-template-rows: 1fr; opacity: 1; }
+.cpick[hidden] { display: none; }
+.cp-in { min-height: 0; overflow: hidden; display: grid; gap: 12px; padding: 4px 2px 8px; max-width: 520px; }
+@media (min-width: 560px) {
+  .cp-in { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: auto auto 1fr; column-gap: 16px; }
+  .cp-sv { grid-row: 1 / 4; }
+}
+.cp-sv {
+  position: relative; height: 172px; border-radius: 14px; touch-action: none; cursor: crosshair; outline: none;
+  background: linear-gradient(to top, #000, rgba(0, 0, 0, 0)), linear-gradient(to right, #fff, hsl(calc(var(--h, 220) * 1deg) 100% 50%));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.cp-hue { position: relative; height: 18px; margin: 4px 0; border-radius: 999px; touch-action: none; cursor: pointer; outline: none; background: linear-gradient(to right, #f00, #ff0 16.7%, #0f0 33.3%, #0ff 50%, #00f 66.7%, #f0f 83.3%, #f00); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.cp-thumb {
+  position: absolute; width: 22px; height: 22px; border-radius: 50%; translate: -50% -50%; pointer-events: none; background: var(--cur);
+  border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 3px 10px rgba(0, 0, 0, 0.45); transition: scale 0.3s cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+.cp-hue .cp-thumb { top: 50%; width: 24px; height: 24px; background: hsl(calc(var(--h, 220) * 1deg) 100% 50%); }
+.drag .cp-thumb, [data-cpdrag]:focus-visible .cp-thumb { scale: 1.22; }
+.cp-row { display: flex; align-items: center; gap: 10px; }
+.cp-prev { flex: none; width: 42px; height: 42px; border-radius: 12px; background: var(--cur); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 6px 16px -8px var(--cur); transition: background 0.15s; }
+.cp-hex {
+  display: flex; align-items: center; gap: 2px; height: 42px; padding: 0 12px; flex: 1; min-width: 0; max-width: 180px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line); font: 600 15px/1 ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.06em; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cp-hex span { color: var(--muted); }
+.cp-hex input { flex: 1; min-width: 0; border: 0; background: none; outline: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: uppercase; color: var(--text); }
+.cp-hex:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
+.cp-hex input.bad { color: var(--danger); }
+.cp-list small { display: block; margin: 2px 0 7px; font-size: 12px; color: var(--muted); }
+.cp-list > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.cp-chip { width: 28px; height: 28px; border-radius: 9px; background: var(--c); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14); transition: transform 0.2s cubic-bezier(0.3, 1.5, 0.5, 1); }
+.cp-chip:hover { transform: scale(1.12); }
+[data-mode='light'] .cp-sv, [data-mode='light'] .cp-chip, [data-mode='light'] .cp-prev { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1); }
+[data-mode='light'] .cp-hex { background: #fff; }
+/* in Liquid Glass the picker's parts are glass too */
+[data-theme='glass'] .cp-sv { border-radius: 20px; }
+[data-theme='glass'] .cp-hex { border-radius: 999px; background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.12); box-shadow: var(--lg-rim); }
+[data-theme='glass'] .cp-prev, [data-theme='glass'] .cp-chip { border-radius: 999px; }
+[data-theme='glass'] .cp-thumb { border-color: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.18), 0 4px 14px rgba(0, 0, 0, 0.45); }
+[data-theme='glass'][data-mode='light'] .cp-hex { background: rgba(255, 255, 255, 0.7); border-color: rgba(20, 22, 40, 0.12); }
+[data-theme='green'] .cp-sv, [data-theme='green'] .cp-hex, [data-theme='green'] .cp-prev { border-radius: 6px; }
+[data-theme='green'] .cp-chip { border-radius: 4px; }
+
+/* ---------- 3. OLED mode: pure black, dark mode only ---------- */
+[data-mode='light'] .oledrow { display: none; }
+:root[data-oled] { --bg: #000; --bg2: #000; --surface: #0d0d0f; --surface2: #18191c; --line: #1c1d21; }
+html[data-oled], [data-oled] body { background: #000; }
+[data-oled] .side { border-right-color: #141416; }
+[data-oled] .player { background: #000; border-top-color: #141416; }
+[data-oled].dyn .player { background: linear-gradient(90deg, color-mix(in srgb, var(--dyn-bg) 30%, #000), #000 60%); }
+[data-oled].dyn #content { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 22%, #000) 0, #000 340px); }
+[data-oled] .settings, [data-oled] .profile, [data-oled] .menu, [data-oled] .modal { background: #0a0a0b; }
+[data-oled] .fs { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg, #222) 45%, #000) 0, #000 60%); }
+@media (max-width: 899px) {
+  [data-oled] .player { background: #0d0d0f; }
+  [data-oled].dyn .player { background: color-mix(in srgb, var(--dyn-bg) 45%, #000); }
+  [data-oled] .bottomnav { background: #000; border-color: #1a1a1d; }
+  [data-oled] .navblob { background: #1a1b1e; }
+}
+/* Liquid Glass on black: no drifting light behind the glass, the glass itself stays */
+:root[data-theme='glass'][data-oled] { --bg: #000; --bg2: rgba(255, 255, 255, 0.035); --surface: rgba(255, 255, 255, 0.06); --surface2: rgba(255, 255, 255, 0.11); }
+html[data-theme='glass'][data-oled] { background: #000; }
+[data-theme='glass'][data-oled] body { background: transparent; }
+[data-theme='glass'][data-oled] body::before { display: none; }
+[data-theme='glass'][data-oled] .settings { background: rgba(0, 0, 0, 0.78); }
+[data-theme='glass'][data-oled] .player, [data-theme='glass'][data-oled] .side { background: linear-gradient(180deg, rgba(20, 20, 24, 0.42), rgba(8, 8, 10, 0.55)); border-top-color: transparent; }
+[data-theme='glass'][data-oled].dyn .player { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 16%, rgba(20, 20, 24, 0.4)), rgba(8, 8, 10, 0.55)); }
+[data-theme='glass'][data-oled] #content, [data-theme='glass'][data-oled].dyn #content { background: transparent; }
+[data-theme='glass'][data-oled] .menu, [data-theme='glass'][data-oled] .modal { background: linear-gradient(180deg, rgba(24, 24, 28, 0.62), rgba(10, 10, 12, 0.72)); }
+[data-theme='glass'][data-oled] .fs { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg, var(--accent)) 50%, #000) 0%, color-mix(in srgb, var(--dyn-bg, var(--accent)) 14%, #000) 50%, #000 100%); }
+@media (max-width: 899px) {
+  [data-theme='glass'][data-oled] .bottomnav { background: linear-gradient(180deg, rgba(20, 20, 24, 0.4), rgba(8, 8, 10, 0.55)); border-color: transparent; }
+  [data-theme='glass'][data-oled] .navblob { background: linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.045)); }
+}
+/* Green on black: the panels lose their grey, thin lines keep the parts apart */
+:root[data-theme='green'][data-oled] { --g-base: #000; --g-highlight: #161616; --g-elevated: #161616; --g-elevated-hi: #222; --surface: #161616; --surface2: #222; }
+@media (min-width: 900px) {
+  [data-theme='green'][data-oled] #content, [data-theme='green'][data-oled] .side-nav, [data-theme='green'][data-oled] .side-pls { box-shadow: inset 0 0 0 1px #1a1a1a; }
+  [data-theme='green'][data-oled] .side-head { box-shadow: inset 0 1px 0 #1a1a1a, inset 1px 0 0 #1a1a1a, inset -1px 0 0 #1a1a1a; }
+}
+[data-theme='green'][data-oled] .player { background: #000; }
+
+/* light Liquid Glass: the bar with "Next" in the start assistant fades into the light page, not into black */
+[data-theme='glass'][data-mode='light'] .wiz-nav { background: linear-gradient(180deg, rgba(238, 240, 246, 0), rgba(238, 240, 246, 0.9) 40%); }
+
+/* ==========================================================================
+   1.25.0: Liquid Glass polished after Apple's own apps
+   Glass is only for what floats (bars, sidebar, menus, sheets, buttons on top); the content below stays calm.
+   ========================================================================== */
+@font-face {
+  font-family: 'Streyn Inter';
+  src: url('vendor/inter.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+/* type: San Francisco on Apple devices, Inter (its closest open sibling) everywhere else, tight titles */
+[data-theme='glass'] body { font-family: -apple-system, 'SF Pro Text', 'Streyn Inter', system-ui, sans-serif; font-feature-settings: 'cv11', 'ss03'; letter-spacing: -0.006em; }
+[data-theme='glass'] h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.022em; line-height: 1.12; }
+[data-theme='glass'] h2 { font-size: 21px; font-weight: 700; letter-spacing: -0.018em; }
+[data-theme='glass'] .mhead h1 { font-size: 30px; }
+@media (max-width: 899px) { [data-theme='glass'] .detail-head h1 { font-size: 28px; } }
+[data-theme='glass'] .muted, [data-theme='glass'] .c-sub, [data-theme='glass'] .sr-hint { color: rgba(235, 235, 245, 0.6); }
+[data-theme='glass'][data-mode='light'] .muted, [data-theme='glass'][data-mode='light'] .c-sub, [data-theme='glass'][data-mode='light'] .sr-hint { color: rgba(60, 60, 67, 0.6); }
+
+/* bars: clear Liquid Glass (Sebastian 2026-11-17: must look like the real one, never just blur). What lies under the bar stays
+   visible and is bent at the rim; a thin veil and a soft shadow under the labels keep them readable over bright covers */
+[data-theme='glass'] .player, [data-theme='glass'] .side { background: linear-gradient(180deg, rgba(22, 22, 28, 0.2), rgba(10, 10, 14, 0.32)); }
+[data-theme='glass'].dyn .player { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 12%, rgba(22, 22, 28, 0.18)), rgba(10, 10, 14, 0.32)); }
+@media (max-width: 899px) {
+  [data-theme='glass'] .bottomnav { background: linear-gradient(180deg, rgba(22, 22, 28, 0.2), rgba(10, 10, 14, 0.32)); }
+}
+[data-theme='glass'] .toast { background: rgba(20, 20, 26, 0.36); }
+/* menus, sheets and dialogs are real Liquid Glass too: the page shows through and bends at the rim, a veil keeps the text readable */
+[data-theme='glass'] .menu { background: linear-gradient(180deg, rgba(34, 34, 42, 0.42), rgba(16, 16, 22, 0.52)); border-color: transparent; }
+[data-theme='glass'] .modal, [data-theme='glass'] .modal.devsheet { background: linear-gradient(180deg, rgba(30, 30, 38, 0.5), rgba(14, 14, 20, 0.62)); border-color: transparent; }
+[data-theme='glass'] .menu, [data-theme='glass'] .modal { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
+[data-theme='glass'] .modal::after, [data-theme='glass'] .menu::after { opacity: 1; }
+/* behind a sheet the page only dims, it is not blurred away, so the glass has something to bend */
+[data-theme='glass'] .modal-wrap, [data-theme='glass'] .devsheet-wrap { background: rgba(0, 0, 0, 0.28); -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* the dimming fades in through its colour, not its opacity: an opacity animation on the wrap (even a finished one with
+   fill "both") cuts the sheet off from the page, and the glass shows the page sharp instead of bending it */
+[data-theme='glass'] .devsheet-wrap { animation: lg-dim 0.2s ease backwards; }
+[data-theme='glass'] .devsheet-wrap.closing { animation: lg-dim 0.2s ease reverse forwards; }
+@keyframes lg-dim { from { background-color: transparent; } }
+[data-theme='glass'] .dev { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.12); }
+[data-theme='glass'] .player, [data-theme='glass'] .bottomnav, [data-theme='glass'] .toast { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 12px rgba(0, 0, 0, 0.35); }
+[data-theme='glass'] .player .ic, [data-theme='glass'] .bottomnav .ic { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5)); }
+[data-theme='glass'][data-mode='light'] .player, [data-theme='glass'][data-mode='light'].dyn .player, [data-theme='glass'][data-mode='light'] .bottomnav, [data-theme='glass'][data-mode='light'] .side { background: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(246, 246, 250, 0.42)); }
+[data-theme='glass'][data-mode='light'] .player, [data-theme='glass'][data-mode='light'] .bottomnav, [data-theme='glass'][data-mode='light'] .toast { text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8), 0 0 10px rgba(255, 255, 255, 0.6); }
+[data-theme='glass'][data-mode='light'] .player .ic, [data-theme='glass'][data-mode='light'] .bottomnav .ic { filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.8)); }
+[data-theme='glass'][data-mode='light'] .menu, [data-theme='glass'][data-mode='light'] .modal, [data-theme='glass'][data-mode='light'] .modal.devsheet { background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(246, 246, 250, 0.6)); text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7); }
+[data-theme='glass'][data-mode='light'] .modal-wrap, [data-theme='glass'][data-mode='light'] .devsheet-wrap { background: rgba(230, 233, 242, 0.25); }
+
+/* scroll edge on the desktop: a light shade under the player, no blur, so the glass still shows the content it bends.
+   On the phone the strip under the tab bar belongs to style.css (1.25.1: catches taps, nothing solid behind the glass) */
+@media (min-width: 900px) {
+  [data-theme='glass'] .shell::after {
+    content: ''; position: fixed; left: calc(var(--side) + 20px); right: 0; bottom: 0; z-index: 4; pointer-events: none;
+    height: calc(var(--bar) + 40px); background: linear-gradient(180deg, rgba(9, 10, 14, 0), rgba(9, 10, 14, 0.3));
+  }
+  [data-theme='glass'][data-mode='light'] .shell::after { background: linear-gradient(180deg, rgba(238, 240, 246, 0), rgba(238, 240, 246, 0.35)); }
+  [data-theme='glass'][data-oled] .shell::after { background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.35)); }
+}
+@media (max-width: 899px) {
+  [data-theme='glass'] .shell::before {
+    content: ''; position: fixed; left: 0; right: 0; top: 0; z-index: 4; pointer-events: none; height: calc(var(--safe-t) + 26px);
+    background: linear-gradient(180deg, rgba(9, 10, 14, 0.6), rgba(9, 10, 14, 0));
+  }
+  [data-theme='glass'][data-mode='light'] .shell::before { background: linear-gradient(180deg, rgba(238, 240, 246, 0.7), rgba(238, 240, 246, 0)); }
+  [data-theme='glass'][data-oled] .shell::before { background: linear-gradient(180deg, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0)); }
+}
+
+/* content is not glass (Apple keeps glass for the floating layer): calm tiles, no rims, rounder corners */
+[data-theme='glass'] .qt { box-shadow: none; background: rgba(255, 255, 255, 0.075); border-radius: 12px; }
+[data-theme='glass'] .qt:hover { background: rgba(255, 255, 255, 0.12); }
+[data-theme='glass'] .set-card { border-color: transparent; box-shadow: none; background: rgba(255, 255, 255, 0.06); border-radius: 26px; }
+[data-theme='glass'] .themeopt, [data-theme='glass'] .srccard { box-shadow: none; border-color: rgba(255, 255, 255, 0.1); }
+[data-theme='glass'][data-mode='light'] .qt { background: rgba(255, 255, 255, 0.6); }
+[data-theme='glass'][data-mode='light'] .set-card { background: rgba(255, 255, 255, 0.66); }
+
+/* menus like iOS: rounder, roomier rows, hairline separators */
+[data-theme='glass'] .menu { border-radius: 26px; padding: 8px; min-width: 220px; }
+[data-theme='glass'] .menu button { border-radius: 18px; min-height: 42px; padding: 0 14px; font-size: 15px; font-weight: 500; }
+[data-theme='glass'] .menu hr { border-top-color: rgba(255, 255, 255, 0.1); margin: 6px 10px; }
+[data-theme='glass'][data-mode='light'] .menu hr { border-top-color: rgba(60, 60, 67, 0.16); }
+[data-theme='glass'] .modal { border-radius: 34px; }
+
+/* the big player lies on its own artwork, blurred and slowly breathing, like Apple Music */
+[data-theme='glass'] .fs { background: #0b0b0f; isolation: isolate; overflow: hidden; }
+[data-theme='glass'] .fs::before {
+  content: ''; position: absolute; inset: -30%; z-index: -1; pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.5)), var(--art, none) center / cover, linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg, var(--accent)) 60%, #0b0b0f), #0b0b0f);
+  filter: blur(80px) saturate(1.35) brightness(0.45); transform: scale(1.1); animation: lg-art 40s ease-in-out infinite alternate;
+}
+@keyframes lg-art { from { transform: scale(1.1) rotate(0deg); } to { transform: scale(1.25) rotate(12deg); } }
+[data-theme='glass'][data-mode='light'] .fs::before { filter: blur(80px) saturate(1.35) brightness(0.5); }
+[data-theme='glass'][data-oled] .fs::before { filter: blur(80px) saturate(1.5) brightness(0.45); }
+[data-theme='glass'] .fs .cover.huge { border-radius: 14px; box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.6); }
+@media (prefers-reduced-motion: reduce) { [data-theme='glass'] .fs::before { animation: none; } }
+
+/* corners like Apple's: continuous and concentric (an inner corner = outer corner minus the gap), artwork rounded by its size */
+[data-theme='glass'] .cover:not(.round) { border-radius: 10px; }
+[data-theme='glass'] .cover.sm:not(.round) { border-radius: 8px; }
+[data-theme='glass'] .cover.md:not(.round) { border-radius: 12px; }
+[data-theme='glass'] .cover.lg:not(.round) { border-radius: 14px; }
+[data-theme='glass'] .cover.xl:not(.round) { border-radius: 22px; }
+[data-theme='glass'] .cover.huge:not(.round), [data-theme='glass'] .fs .cover.huge:not(.round) { border-radius: 24px; }
+[data-theme='glass'] .libgrid .card .cover:not(.round) { border-radius: 12px; }
+[data-theme='glass'] .qt { border-radius: 14px; }
+[data-theme='glass'] .qt .cover:not(.round) { border-radius: 0; }
+[data-theme='glass'] .card { border-radius: 20px; }
+[data-theme='glass'] .row { border-radius: 14px; }
+[data-theme='glass'] .hero, [data-theme='glass'] .topres, [data-theme='glass'] .srccard, [data-theme='glass'] .themeopt { border-radius: 24px; }
+[data-theme='glass'] .themeprev { border-radius: 16px; }
+/* bottom sheets only on the phone; on the PC the device picker is a floating dialog, round on every corner */
+[data-theme='glass'] .devsheet { border-radius: 34px; }
+/* the queue / lyrics panel in the big player floats above its buttons: round on every corner too */
+[data-theme='glass'] .fs-queue { border-radius: 30px; }
+@media (max-width: 899px) { [data-theme='glass'] .devsheet { border-radius: 34px 34px 0 0; } }
+[data-theme='glass'] .field input, [data-theme='glass'] .select, [data-theme='glass'] .textin, [data-theme='glass'] .field textarea { border-radius: 14px; }
+[data-theme='glass'] .icon-btn { border-radius: 999px; }
+/* phone: the mini player is a capsule like the tab bar under it, its artwork sits concentric inside */
+@media (max-width: 899px) {
+  [data-theme='glass'] .player { border-radius: 999px; padding-left: 11px; padding-right: 14px; }
+  [data-theme='glass'] .np .cover.md:not(.round) { border-radius: 16px; width: 48px; height: 48px; }
+  [data-theme='glass'] #mini-progress { left: 34px; max-width: calc(100% - 68px); }
+}
+[data-theme='glass'] .bt { border-radius: 18px; }
+[data-theme='glass'] .bt .cover:not(.round) { border-radius: 10px; }
+
+/* ---------- Liquid Glass sliders (1.28.2): seamless like Apple. The colour runs to the middle of the knob and the
+   track goes on from there, so nothing is cut while the knob is solid. While dragging, the knob turns into clear glass:
+   then the colour stops just under its rim and the track starts again under the other rim, so no colour shows inside
+   the glass and the edges hide under the rim. --tw = knob width (for its position), --cut = half the clear part. ---------- */
+@property --tw { syntax: '<length>'; inherits: true; initial-value: 0px; }
+@property --cut { syntax: '<length>'; inherits: true; initial-value: 0px; }
+[data-theme='glass'] input[type='range'] {
+  --tw: 12px; --cut: 0px; --fill: var(--text); --rest: #3a3d44;
+  transition: --tw 0.4s var(--lg-spring, ease), --cut 0.4s var(--lg-spring, ease);
+}
+[data-theme='glass'] input[type='range']:hover, [data-theme='glass'] input[type='range']:focus-visible { --fill: var(--accent); }
+[data-theme='glass'] input[type='range'].vol:hover, [data-theme='glass'] input[type='range'].vol:active { --fill: var(--text); }
+[data-theme='glass'] .prng input[type='range'], [data-theme='glass'] .prng input[type='range']:hover { --tw: 16px; --fill: var(--accent); --rest: color-mix(in srgb, var(--text) 18%, transparent); }
+[data-theme='glass'] .fs-vol input[type='range'].vol { --rest: rgba(255, 255, 255, 0.22); }
+[data-theme='glass'] input[type='range']:active, [data-theme='glass'] .prng input[type='range']:active { --tw: 34px; --cut: 16px; }
+[data-theme='glass'] input[type='range']::-webkit-slider-runnable-track {
+  background: linear-gradient(to right,
+    var(--fill) calc(var(--pn, 0) * (100% - var(--tw)) + var(--tw) / 2 - var(--cut)),
+    transparent 0 calc(var(--pn, 0) * (100% - var(--tw)) + var(--tw) / 2 + var(--cut)),
+    var(--rest) 0);
+}
+@media (min-width: 900px) {
+  [data-theme='glass'] .player input[type='range'].seek, [data-theme='glass'] .fs input[type='range'].seek { --tw: 14px; }
+  [data-theme='glass'] .player input[type='range'].seek:active, [data-theme='glass'] .fs input[type='range'].seek:active { --tw: 34px; --cut: 16px; }
+}
+@media (max-width: 899px) {
+  [data-theme='glass'] .fs input[type='range'].seek { --tw: 14px; }
+  [data-theme='glass'] .fs input[type='range'].seek:active { --tw: 34px; --cut: 16px; }
+}
+
+/* ALWAYS: with the ring visualizer the cover in the big player is a circle, in every theme (Liquid Glass's rounded-corner
+   rules for artwork must never win over it, so it is pinned here with the highest priority) */
+.fs[data-viz='ring'] .fs-cover .cover.huge, .fs[data-viz='ring'] .fs-cover .cover.huge img { border-radius: 50% !important; }
