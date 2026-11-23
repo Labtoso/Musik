@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Streyn",
+  "version": "1.0.0",
+  "identifier": "de.labtoso.streyn",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "appimage"
+    ],
+    "externalBin": [
+      "binaries/streyn-server"
+    ],
+    "publisher": "LabtosoStudios",
+    "copyright": "Copyright (c) LabtosoStudios. All rights reserved.",
+    "category": "Music",
+    "shortDescription": "Streyn",
+    "longDescription": "Desktop app for your own Streyn server.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

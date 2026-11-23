@@ -1,0 +1,16 @@
+{
+  "name": "streyn-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Streyn desktop app (Tauri)",
+  "author": "LabtosoStudios",
+  "license": "UNLICENSED",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}
