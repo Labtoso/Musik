@@ -79,10 +79,9 @@ fn download(url: &str, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn ytdlp_asset() -> &'static str {
-    if cfg!(windows) {
-        "yt-dlp.exe"
-    } else if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") {
         "yt-dlp_macos"
     } else if cfg!(target_arch = "aarch64") {
         "yt-dlp_linux_aarch64"
@@ -102,6 +101,98 @@ fn deno_asset() -> Option<&'static str> {
         Some("deno-x86_64-unknown-linux-gnu.zip")
     } else {
         None
+    }
+}
+
+/// Windows: yt-dlp's "onedir" build (yt-dlp_win.zip), unpacked once into <data>/bin/yt-dlp.
+/// The single-file yt-dlp.exe is a PyInstaller bundle that unpacks a Python runtime (DLLs) into
+/// %TEMP%\_MEI* and loads it from there on every run; the folder build loads its files from
+/// where they were installed and writes nothing to %TEMP%. It cannot update itself (-U), so the
+/// server compares the release tag at start and replaces the folder when a new release is out.
+/// "https://github.com/yt-dlp/yt-dlp/releases/tag/2026.10.26" -> "2026.10.26"
+#[cfg_attr(not(windows), allow(dead_code))]
+fn tag_from_location(loc: &str) -> Option<String> {
+    let t = loc.split_once("/tag/")?.1.trim().trim_end_matches('/');
+    (!t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')).then(|| t.to_string())
+}
+
+#[cfg(windows)]
+mod win_ytdlp {
+    use super::*;
+
+    const ZIP_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_win.zip";
+    const LATEST: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest";
+
+    pub fn exe(bin: &Path) -> PathBuf {
+        bin.join("yt-dlp").join("yt-dlp.exe")
+    }
+
+    /// Tag of the newest release, read from the redirect of the "latest" page (no API key needed).
+    fn latest_tag() -> Option<String> {
+        let agent = ureq::AgentBuilder::new().redirects(0).timeout(Duration::from_secs(20)).build();
+        let r = agent.get(LATEST).call().ok()?;
+        tag_from_location(r.header("location")?)
+    }
+
+
+    /// Installs or updates the folder. Returns the exe when one is there afterwards.
+    pub fn ensure(bin: &Path) -> Option<PathBuf> {
+        // the single-file build of earlier versions is no longer used
+        std::fs::remove_file(bin.join("yt-dlp.exe")).ok();
+        let dir = bin.join("yt-dlp");
+        let have = std::fs::read_to_string(dir.join(".tag")).ok().map(|s| s.trim().to_string());
+        let latest = latest_tag();
+        let present = exe(bin).is_file();
+        if present && (latest.is_none() || latest == have) {
+            return Some(exe(bin));
+        }
+        println!("{} yt-dlp {} ...", if present { "Updating" } else { "Downloading" }, latest.as_deref().unwrap_or("latest"));
+        let zip = bin.join("yt-dlp_win.zip");
+        let fresh = bin.join("yt-dlp.new");
+        std::fs::remove_dir_all(&fresh).ok();
+        let ok = download(ZIP_URL, &zip).and_then(|_| unzip_all(&zip, &fresh));
+        std::fs::remove_file(&zip).ok();
+        match ok {
+            Ok(()) if fresh.join("yt-dlp.exe").is_file() => {
+                if let Some(t) = &latest {
+                    std::fs::write(fresh.join(".tag"), t).ok();
+                }
+                std::fs::remove_dir_all(&dir).ok();
+                if std::fs::rename(&fresh, &dir).is_err() {
+                    std::fs::remove_dir_all(&fresh).ok();
+                }
+            }
+            Ok(()) => {
+                eprintln!("yt-dlp download: yt-dlp.exe missing in the archive");
+                std::fs::remove_dir_all(&fresh).ok();
+            }
+            Err(e) => {
+                eprintln!("yt-dlp download failed: {e}");
+                std::fs::remove_dir_all(&fresh).ok();
+            }
+        }
+        exe(bin).is_file().then(|| exe(bin))
+    }
+
+    /// Unpacks every file of the archive below `to`; entries that would leave `to` are refused.
+    fn unzip_all(zip: &Path, to: &Path) -> Result<(), String> {
+        let f = std::fs::File::open(zip).map_err(|e| e.to_string())?;
+        let mut a = zip::ZipArchive::new(f).map_err(|e| e.to_string())?;
+        for i in 0..a.len() {
+            let mut e = a.by_index(i).map_err(|e| e.to_string())?;
+            let Some(rel) = e.enclosed_name() else { return Err(format!("unsafe path in archive: {}", e.name())) };
+            let out = to.join(rel);
+            if e.is_dir() {
+                std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+                continue;
+            }
+            if let Some(d) = out.parent() {
+                std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+            }
+            let mut f = std::fs::File::create(&out).map_err(|e| e.to_string())?;
+            std::io::copy(&mut e, &mut f).map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 }
 
@@ -130,11 +221,17 @@ pub fn init(data_dir: &Path) {
     std::fs::create_dir_all(&cache).ok();
     CACHE.set(cache).ok();
     std::thread::spawn(move || {
-        let exe = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
-        let local = bin.join(exe);
-        let ytdlp = std::env::var_os("YTDLP_PATH")
-            .map(PathBuf::from)
-            .filter(|p| p.is_file())
+        #[cfg(windows)]
+        let local = win_ytdlp::exe(&bin);
+        #[cfg(not(windows))]
+        let local = bin.join("yt-dlp");
+        let user_set = std::env::var_os("YTDLP_PATH").map(PathBuf::from).filter(|p| p.is_file());
+        #[cfg(windows)]
+        let ytdlp = user_set
+            .or_else(|| (local.is_file() || on_path("yt-dlp").is_none()).then(|| win_ytdlp::ensure(&bin)).flatten())
+            .or_else(|| on_path("yt-dlp"));
+        #[cfg(not(windows))]
+        let ytdlp = user_set
             .or_else(|| local.is_file().then(|| local.clone()))
             .or_else(|| on_path("yt-dlp"))
             .or_else(|| {
@@ -150,7 +247,7 @@ pub fn init(data_dir: &Path) {
             });
         // keep it current, YouTube changes often (only our own copy, a system one is the system's)
         if let Some(y) = &ytdlp {
-            if *y == local {
+            if *y == local && !cfg!(windows) {
                 Command::new(y).arg("-U").env("TMPDIR", bin.join("tmp")).stdout(Stdio::null()).stderr(Stdio::null()).status().ok();
             }
         }
@@ -683,6 +780,15 @@ fn trim_cache(dir: &Path) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn release_tag_from_redirect() {
+        assert_eq!(super::tag_from_location("https://github.com/yt-dlp/yt-dlp/releases/tag/2026.10.26").as_deref(), Some("2026.10.26"));
+        assert_eq!(super::tag_from_location("https://github.com/yt-dlp/yt-dlp/releases"), None);
+        // nothing that could become a path or a command
+        assert_eq!(super::tag_from_location("https://x/tag/../../evil"), None);
+        assert_eq!(super::tag_from_location("https://x/tag/a b"), None);
+    }
+
     #[test]
     fn reads_expiry() {
         let soon = super::expires("https://r1.googlevideo.com/videoplayback?expire=1&x=1");

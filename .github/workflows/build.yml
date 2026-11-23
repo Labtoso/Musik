@@ -159,7 +159,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - { name: windows, os: windows-latest, bundle: nsis, out: Streyn.exe, srv: server-windows-x64, bin: streyn-server-windows-x64.exe, triple: x86_64-pc-windows-msvc, ext: .exe }
+          - { name: windows, os: windows-latest, bundle: none, out: Streyn.exe, srv: server-windows-x64, bin: streyn-server-windows-x64.exe, triple: x86_64-pc-windows-msvc, ext: .exe }
           - { name: linux, os: ubuntu-22.04, bundle: appimage, out: Streyn.AppImage, srv: server-linux-x64, bin: streyn-server-linux-x64, triple: x86_64-unknown-linux-gnu, ext: '' }
     runs-on: ${{ matrix.os }}
     steps:
@@ -178,7 +178,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri
+          workspaces: |
+            desktop/src-tauri
+            desktop/setup
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -204,8 +206,7 @@ jobs:
           # the offline-mode server inside the installer is pinned the same way (same file until DESKTOP_VERSION changes)
           SRV="streyn-desktop-server-$DV-windows-x64.exe"
           SIDECAR="src-tauri/binaries/streyn-server-${{ matrix.triple }}${{ matrix.ext }}"
-          # installer hooks live outside desktop/ so changing them never changes the app file
-          CFG="{\"version\":\"$DV\",\"bundle\":{\"windows\":{\"nsis\":{\"installerHooks\":\"../../tools/installer/hooks.nsh\"}}}}"
+          CFG="{\"version\":\"$DV\"}"
           npm ci
           reuse=0
           if [ "${{ matrix.name }}" = windows ]; then
@@ -219,21 +220,58 @@ jobs:
               echo "::warning::The desktop app changed but DESKTOP_VERSION is still $DV. Raise DESKTOP_VERSION so installed apps get the change."
             fi
           fi
-          if [ $reuse = 1 ]; then
-            echo "Desktop app $DV unchanged: reusing $RAW"
-            mkdir -p src-tauri/target/release
-            cp "prev/$RAW" src-tauri/target/release/streyn.exe
-            npx tauri bundle --bundles ${{ matrix.bundle }} --config "$CFG"
+          if [ "${{ matrix.name }}" = windows ]; then
+            if [ $reuse = 1 ]; then
+              echo "Desktop app $DV unchanged: reusing $RAW"
+              mkdir -p src-tauri/target/release
+              cp "prev/$RAW" src-tauri/target/release/streyn.exe
+            else
+              npx tauri build --no-bundle --config "$CFG"
+            fi
+            # Streyn Setup: a plain Rust program (desktop/setup) that installs both files per user,
+            # like Spotify. No NSIS, so no plug-in DLLs unpacked to %TEMP% and no process scanning.
+            STREYN_APP_EXE="$PWD/src-tauri/target/release/streyn.exe" STREYN_SERVER_EXE="$PWD/$SIDECAR" STREYN_VERSION="${{ needs.version.outputs.version }}" \
+              cargo build --release --locked --manifest-path setup/Cargo.toml
+            cp setup/target/release/StreynSetup.exe "../${{ matrix.out }}"
           else
             npx tauri build --bundles ${{ matrix.bundle }} --config "$CFG"
+            f=$(find src-tauri/target/release/bundle/${{ matrix.bundle }} -maxdepth 1 -name "*.AppImage" | head -n1)
+            cp "$f" "../${{ matrix.out }}"
           fi
-          f=$(find src-tauri/target/release/bundle/${{ matrix.bundle }} -maxdepth 1 \( -name "*.exe" -o -name "*.AppImage" \) | head -n1)
-          cp "$f" "../${{ matrix.out }}"
           if [ "${{ matrix.name }}" = windows ]; then
             cp src-tauri/target/release/streyn.exe "../$RAW"
             cp "$SIDECAR" "../$SRV"
             sha256sum "../$RAW" "../$SRV"
           fi
+      # Real install and uninstall on the Windows runner: only the expected files, shortcut and
+      # registry entry appear, and they are gone again afterwards.
+      - name: Test setup and uninstall
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --manifest-path desktop/setup/Cargo.toml
+          $dir = Join-Path $env:LOCALAPPDATA 'Streyn'
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Streyn'
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Streyn.lnk'
+          $p = Start-Process -FilePath .\Streyn.exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "setup exit code $($p.ExitCode)" }
+          Get-ChildItem $dir | Format-Table Name, Length | Out-String | Write-Host
+          foreach ($f in 'Streyn.exe', 'streyn-server.exe') { if (-not (Test-Path (Join-Path $dir $f))) { throw "$f missing" } }
+          $extra = Get-ChildItem $dir | Where-Object { $_.Name -notin 'Streyn.exe', 'streyn-server.exe' }
+          if ($extra) { throw "unexpected files: $($extra.Name -join ', ')" }
+          if (-not (Test-Path $lnk)) { throw 'Start menu shortcut missing' }
+          $u = (Get-ItemProperty $key).UninstallString
+          Write-Host "UninstallString: $u"
+          # installing again over an existing installation (the update path)
+          $p = Start-Process -FilePath .\Streyn.exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "second setup exit code $($p.ExitCode)" }
+          $p = Start-Process -FilePath (Join-Path $dir 'Streyn.exe') -ArgumentList '--uninstall', '/S' -Wait -PassThru
+          if (Test-Path $key) { throw 'uninstall entry still there' }
+          if (Test-Path $lnk) { throw 'shortcut still there' }
+          if (Test-Path (Join-Path $dir 'streyn-server.exe')) { throw 'server file still there' }
+          if (Test-Path $dir) { Write-Host "::warning::install folder left: $((Get-ChildItem $dir).Name -join ', ')" }
+          Write-Host 'Setup and uninstall OK'
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.name }}

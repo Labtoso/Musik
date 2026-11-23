@@ -20,9 +20,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p scan
-          gh release download ${{ inputs.tag }} -R "$GITHUB_REPOSITORY" -p 'Streyn.exe' -p 'streyn-server-windows-x64.exe' -D scan
-          7z x -y -oscan/unpacked scan/Streyn.exe >/dev/null
-          ls -la scan scan/unpacked
+          gh release download ${{ inputs.tag }} -R "$GITHUB_REPOSITORY" -p 'Streyn.exe' -p 'streyn-server-windows-x64.exe' -p 'streyn-desktop-*-windows-x64.exe' -D scan
+          # Streyn.exe is the Rust setup (no archive); the two program files are scanned as release files
+          ls -la scan
       - name: Defender
         shell: pwsh
         run: |

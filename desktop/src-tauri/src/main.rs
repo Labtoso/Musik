@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod discord;
+#[cfg(windows)]
+mod win;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -137,9 +139,9 @@ fn do_update(app: &AppHandle, win: &WebviewWindow) -> Result<(), String> {
         std::fs::create_dir_all(&dir).map_err(|_| "write".to_string())?;
         let installer = dir.join("Streyn-setup.exe");
         download("https://github.com/Labtoso/Musik/releases/latest/download/Streyn.exe", &installer, win)?;
-        // /P shows the installer's progress bar, /R opens Streyn again when it is done.
-        // The installer closes this app itself before it replaces the files.
-        std::process::Command::new(&installer).args(["/P", "/R"]).spawn().map_err(|_| "write".to_string())?;
+        // /S works without questions, /R opens Streyn again when it is done. The setup does not
+        // touch this running app: it renames the in-use file and this app closes itself below.
+        std::process::Command::new(&installer).args(["/S", "/R"]).spawn().map_err(|_| "write".to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -272,6 +274,9 @@ fn ensure_local(app: &AppHandle) -> bool {
         cmd.creation_flags(0x0800_0000);
     }
     let Ok(child) = cmd.spawn() else { return false };
+    // the server ends together with this app, even after a crash
+    #[cfg(windows)]
+    win::tie_to_app(&child);
     *guard = Some(child);
     for _ in 0..40 {
         if local_up() {
@@ -282,7 +287,15 @@ fn ensure_local(app: &AppHandle) -> bool {
     false
 }
 fn local_call(app: &AppHandle, method: &str, path: &str, body: &str) -> String {
-    if !path.starts_with("/api/offline/") || !ensure_local(app) {
+    if !path.starts_with("/api/offline/") {
+        return String::new();
+    }
+    // Nothing downloaded yet: answer without starting the offline server. Only a download
+    // (POST /api/offline/add) starts it.
+    if !has_offline(app) && !(method == "POST" && path == "/api/offline/add") {
+        return if path == "/api/offline/status" { r#"{"sets":[]}"#.into() } else { String::new() };
+    }
+    if !ensure_local(app) {
         return String::new();
     }
     let req = ureq::request(method, &format!("{LOCAL}{path}")).set("x-musik-key", &off_key(app)).timeout(Duration::from_secs(15));
@@ -332,9 +345,10 @@ fn use_offline(app: AppHandle, window: WebviewWindow) {
     open_local(app, window);
 }
 
+/// The "Offline" button on the connect page only shows when something was downloaded.
 #[tauri::command]
-fn can_offline() -> bool {
-    server_bin().is_file()
+fn can_offline(app: AppHandle) -> bool {
+    has_offline(&app)
 }
 
 fn query_param(url: &Url, key: &str) -> String {
@@ -350,6 +364,15 @@ fn home_url() -> &'static str {
 }
 
 fn main() {
+    #[cfg(windows)]
+    {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if args.iter().any(|a| a == "--uninstall") {
+            win::uninstall(args.iter().any(|a| a.eq_ignore_ascii_case("/S")));
+            return;
+        }
+        win::clean_leftovers();
+    }
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![connect, saved_server, self_update, open_saved, use_offline, can_offline])
         .setup(|app| {
@@ -430,6 +453,7 @@ fn main() {
             if let tauri::RunEvent::Exit = ev {
                 if let Some(mut c) = LOCAL_PROC.lock().unwrap().take() {
                     let _ = c.kill();
+                    let _ = c.wait();
                 }
             }
         });

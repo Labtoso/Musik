@@ -1,0 +1,229 @@
+//! Streyn Setup: installs Streyn for the current user, the way Spotify does it.
+//!
+//! - one plain Rust program, no installer framework, no plug-in DLLs unpacked to %TEMP%
+//! - no administrator rights (manifest: asInvoker), no services, no autostart, no scheduled tasks
+//! - writes exactly: %LOCALAPPDATA%\Streyn\Streyn.exe and streyn-server.exe, the Start menu
+//!   shortcut (plus a Desktop shortcut on the first install) and its own entry under
+//!   HKCU\...\Uninstall\Streyn so it shows up in "Installed apps"
+//! - never looks at other processes: a running Streyn keeps running from its renamed old file
+//!   (Windows allows renaming a running program), the new files are used on the next start
+//!
+//! Arguments: /S silent (no message boxes, no start afterwards), /R start Streyn afterwards
+//! (also without /S; kept for the updater of older versions), /P accepted and ignored.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use sha2::{Digest, Sha256};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
+
+const VERSION: &str = env!("STREYN_VERSION");
+const APP_EXE: &str = "Streyn.exe";
+const SERVER_EXE: &str = "streyn-server.exe";
+
+static APP_BIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.bin"));
+static SERVER_BIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/server.bin"));
+
+struct Payload {
+    name: &'static str,
+    packed: &'static [u8],
+    sha256: &'static str,
+}
+
+fn payloads() -> [Payload; 2] {
+    [
+        Payload { name: APP_EXE, packed: APP_BIN, sha256: env!("STREYN_APP_SHA256") },
+        Payload { name: SERVER_EXE, packed: SERVER_BIN, sha256: env!("STREYN_SERVER_SHA256") },
+    ]
+}
+
+/// Unpacks one program file and checks it against the hash taken at build time.
+fn unpack(p: &Payload) -> Result<Vec<u8>, String> {
+    if p.packed.is_empty() {
+        return Err(format!("{} is missing in this setup", p.name));
+    }
+    let data = miniz_oxide::inflate::decompress_to_vec(p.packed).map_err(|_| format!("{} is damaged", p.name))?;
+    let got = format!("{:x}", Sha256::digest(&data));
+    if got != p.sha256 {
+        return Err(format!("{} is damaged (checksum)", p.name));
+    }
+    Ok(data)
+}
+
+#[derive(Debug, Default, PartialEq)]
+struct Args {
+    silent: bool,
+    launch: bool,
+}
+
+fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
+    let mut a = Args { silent: false, launch: true };
+    let mut restart = false;
+    for s in args {
+        match s.to_ascii_uppercase().as_str() {
+            "/S" | "--SILENT" => a.silent = true,
+            "/R" => restart = true,
+            _ => {}
+        }
+    }
+    if a.silent {
+        a.launch = restart;
+    }
+    a
+}
+
+/// Writes `data` to `dir/name`. The file is first written next to the target and then moved into
+/// place. If the old file is in use (Streyn still running), it is renamed out of the way: Windows
+/// allows that for a running program, and the leftover is removed by the next setup or start.
+fn place(dir: &Path, name: &str, data: &[u8]) -> Result<(), String> {
+    let target = dir.join(name);
+    let tmp = dir.join(format!("{name}.new"));
+    std::fs::write(&tmp, data).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    if target.exists() && std::fs::remove_file(&target).is_err() {
+        let old = dir.join(format!("{name}.old-{}", std::process::id()));
+        std::fs::rename(&target, &old).map_err(|e| format!("{}: {e}", target.display()))?;
+    }
+    std::fs::rename(&tmp, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("{}: {e}", target.display())
+    })
+}
+
+/// Removes leftovers of earlier versions in the install folder: renamed old program files
+/// (`*.old-*`, `*.new`) and the uninstaller of the former NSIS setup. Only these names are touched.
+fn clean_leftovers(dir: &Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let n = e.file_name().to_string_lossy().to_ascii_lowercase();
+        if is_leftover(&n) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+fn is_leftover(lower_name: &str) -> bool {
+    let known = lower_name.starts_with("streyn.exe.") || lower_name.starts_with("streyn-server.exe.");
+    (known && (lower_name.contains(".old-") || lower_name.ends_with(".new"))) || lower_name == "uninstall.exe"
+}
+
+fn install(dir: &Path) -> Result<bool, String> {
+    // unpack and check everything first: a damaged setup changes nothing
+    let files: Vec<(&str, Vec<u8>)> = payloads().iter().map(|p| unpack(p).map(|d| (p.name, d))).collect::<Result<_, _>>()?;
+    let fresh = !dir.join(APP_EXE).exists();
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    clean_leftovers(dir);
+    for (name, data) in &files {
+        place(dir, name, data)?;
+    }
+    Ok(fresh)
+}
+
+#[cfg(windows)]
+mod win;
+
+#[cfg(windows)]
+fn main() {
+    let args = parse_args(std::env::args().skip(1));
+    let Some(dir) = win::install_dir() else {
+        if !args.silent {
+            win::message("Streyn Setup", "The folder for apps (%LOCALAPPDATA%) was not found.", true);
+        }
+        std::process::exit(1);
+    };
+    let result = install(&dir).and_then(|fresh| {
+        let size: u64 = [APP_EXE, SERVER_EXE].iter().filter_map(|n| std::fs::metadata(dir.join(n)).ok()).map(|m| m.len()).sum();
+        win::register(&dir, VERSION, size)?;
+        win::shortcuts(&dir, fresh);
+        Ok(())
+    });
+    match result {
+        Ok(()) => {
+            if args.launch {
+                // a normal start as the same user, nothing inherited
+                let _ = std::process::Command::new(dir.join(APP_EXE)).current_dir(&dir).spawn();
+            }
+        }
+        Err(e) => {
+            if !args.silent {
+                win::message("Streyn Setup", &format!("Streyn could not be installed.\n\n{e}"), true);
+            }
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("Streyn Setup {VERSION} is for Windows. On Linux use Streyn.AppImage.");
+    std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("streyn-setup-test-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn args() {
+        assert_eq!(parse_args(vec![]), Args { silent: false, launch: true });
+        assert_eq!(parse_args(vec!["/S".into()]), Args { silent: true, launch: false });
+        assert_eq!(parse_args(vec!["/S".into(), "/R".into()]), Args { silent: true, launch: true });
+        // what the updater of older versions passes
+        assert_eq!(parse_args(vec!["/P".into(), "/R".into()]), Args { silent: false, launch: true });
+    }
+
+    #[test]
+    fn checksum_is_enforced() {
+        let data = b"program".to_vec();
+        let packed: &'static [u8] = Box::leak(miniz_oxide::deflate::compress_to_vec(&data, 10).into_boxed_slice());
+        let good: &'static str = Box::leak(format!("{:x}", Sha256::digest(&data)).into_boxed_str());
+        assert_eq!(unpack(&Payload { name: "a", packed, sha256: good }).unwrap(), data);
+        assert!(unpack(&Payload { name: "a", packed, sha256: "00" }).is_err());
+        assert!(unpack(&Payload { name: "a", packed: &[], sha256: good }).is_err());
+        assert!(unpack(&Payload { name: "a", packed: b"not deflate at all", sha256: good }).is_err());
+    }
+
+    #[test]
+    fn place_replaces_and_cleans() {
+        let d = tmpdir("place");
+        place(&d, "Streyn.exe", b"one").unwrap();
+        place(&d, "Streyn.exe", b"two").unwrap();
+        assert_eq!(std::fs::read(d.join("Streyn.exe")).unwrap(), b"two");
+        assert!(!d.join("Streyn.exe.new").exists());
+        std::fs::write(d.join("streyn.exe.old-12"), b"x").unwrap();
+        std::fs::write(d.join("uninstall.exe"), b"x").unwrap();
+        std::fs::write(d.join("notes.txt"), b"keep").unwrap();
+        clean_leftovers(&d);
+        assert!(!d.join("streyn.exe.old-12").exists());
+        assert!(!d.join("uninstall.exe").exists());
+        assert!(d.join("notes.txt").exists(), "only known leftovers are removed");
+        assert!(d.join("Streyn.exe").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn leftovers_only_known_names() {
+        assert!(is_leftover("streyn.exe.old-42"));
+        assert!(is_leftover("streyn-server.exe.new"));
+        assert!(is_leftover("uninstall.exe"));
+        assert!(!is_leftover("streyn.exe"));
+        assert!(!is_leftover("streyn-server.exe"));
+        assert!(!is_leftover("other.exe.old-1"));
+    }
+
+    #[test]
+    fn empty_setup_refuses() {
+        // built without payloads (as in tests): nothing may be written
+        let d = tmpdir("empty").join("Streyn");
+        if APP_BIN.is_empty() {
+            assert!(install(&d).is_err());
+            assert!(!d.exists());
+        }
+    }
+}

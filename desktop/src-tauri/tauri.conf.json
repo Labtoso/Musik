@@ -15,19 +15,23 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "appimage"],
-    "externalBin": ["binaries/streyn-server"],
+    "targets": [
+      "appimage"
+    ],
+    "externalBin": [
+      "binaries/streyn-server"
+    ],
     "publisher": "LabtosoStudios",
     "copyright": "Copyright (c) LabtosoStudios. All rights reserved.",
     "category": "Music",
     "shortDescription": "Streyn",
     "longDescription": "Desktop app for your own Streyn server.",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "windows": {
-      "nsis": {
-        "installMode": "currentUser",
-        "installerHooks": "windows/hooks.nsh"
-      }
-    }
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   }
 }

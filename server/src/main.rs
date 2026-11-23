@@ -179,8 +179,11 @@ fn main() {
         );
         println!("Data: {}", data_dir.display());
         let mut addrs = vec![format!("http://localhost:{port}")];
-        if let Ok(list) = local_ip_address::list_afinet_netifas() {
-            for (_, ip) in list {
+        // Only a server reachable from the network lists the network addresses. One that listens on
+        // 127.0.0.1 (offline mode inside the apps) does not look at the network setup at all.
+        let loopback = host.parse::<std::net::IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(host == "localhost");
+        if !loopback {
+            for (_, ip) in local_ip_address::list_afinet_netifas().unwrap_or_default() {
                 if ip.is_ipv4() && !ip.is_loopback() {
                     addrs.push(format!("http://{ip}:{port}"));
                 }
