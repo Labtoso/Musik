@@ -509,7 +509,9 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const DUST = 260, dustPos = new Float32Array(DUST * 3), dustSeed = [];
   for (let i = 0; i < DUST; i++) { dustSeed.push([-14 + rnd() * 30, FLOOR + rnd() * 16, -3 + rnd() * 10, rnd() * 6]); }
   const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
-  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xffe6c4, size: 0.05, transparent: true, opacity: 0.55, depthWrite: false }));
+  // soft round flecks instead of square pixels
+  const dustTex = canvasTex(32, 32, (g, w) => { const r = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.5, 'rgba(255,255,255,.5)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, w, w); });
+  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ map: dustTex, color: 0xffe6c4, size: 0.08, transparent: true, opacity: 0.5, depthWrite: false }));
   root.add(dust);
 
   // framed print on the wall

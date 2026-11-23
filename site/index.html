@@ -36,6 +36,7 @@ img { max-width: 100%; }
 
 /* ── top bar ── */
 .bar { position: fixed; top: 0; left: 0; right: 0; z-index: 30; height: 64px; padding: 0 var(--gut); background: transparent; border-bottom: 1px solid transparent; transition: background .3s, border-color .3s; }
+.bar:not(.solid) { background: linear-gradient(rgba(11,11,12,.95) 55%, rgba(11,11,12,.7)); }
 .bar.solid { background: rgba(11,11,12,.92); border-color: var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .bar .wrap { height: 100%; display: flex; align-items: center; gap: 8px; }
 .word { display: inline-flex; align-items: center; gap: 10px; margin-right: auto; }
@@ -96,7 +97,6 @@ body.set-open .panel { transform: none; }
 .hero { position: relative; min-height: min(100svh, 940px); display: flex; align-items: center; padding: 110px var(--gut) 90px; overflow: hidden; border-bottom: 1px solid var(--line); }
 .hero .wrap { width: 100%; position: relative; z-index: 2; }
 .htxt { max-width: 560px; }
-.kick { font: 500 12.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 0 22px; }
 .hero h1 { margin: 0; font: 500 clamp(46px, 6.6vw, 92px)/1 var(--serif); font-variation-settings: 'opsz' 144; letter-spacing: -.03em; }
 .hero h1 em { font-style: italic; font-weight: 400; color: var(--muted); }
 .hero .lead { max-width: 500px; color: var(--muted); font-size: 18.5px; margin: 26px 0 34px; }
@@ -123,7 +123,7 @@ body.set-open .panel { transform: none; }
 .stage { position: absolute; inset: 0; z-index: 0; }
 .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 1.2s; }
 .has3d .stage canvas { opacity: 1; }
-.hero::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(90deg, rgba(11,11,12,.96) 0%, rgba(11,11,12,.9) 34%, rgba(11,11,12,.45) 52%, rgba(11,11,12,0) 66%); }
+.hero::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(90deg, rgba(11,11,12,.96) 0%, rgba(11,11,12,.9) 44%, rgba(11,11,12,.4) 58%, rgba(11,11,12,0) 70%); }
 .hero::after { content: ''; position: absolute; inset: auto 0 0 0; height: 30%; background: linear-gradient(transparent, var(--bg)); pointer-events: none; z-index: 1; }
 .deck { display: none; position: absolute; aspect-ratio: 1; width: min(40vw, 540px); right: 7%; top: 50%; transform: translateY(-50%); }
 .no3d .deck { display: block; }
@@ -147,7 +147,6 @@ body.set-open .panel { transform: none; }
 .sec { padding: clamp(84px, 10vw, 140px) var(--gut); border-bottom: 1px solid var(--line); }
 .sh { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 20px 56px; align-items: end; margin-bottom: clamp(44px, 5.5vw, 72px); }
 .lab { grid-column: 1 / -1; display: flex; gap: 12px; align-items: baseline; font: 500 12.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
-.lab b { color: var(--accent); font-weight: 500; }
 .sh h2 { margin: 0; font: 500 clamp(36px, 4.6vw, 64px)/1.04 var(--serif); font-variation-settings: 'opsz' 144; letter-spacing: -.025em; }
 .sh h2 em { font-style: italic; font-weight: 400; color: var(--muted); }
 .sh p { margin: 0; color: var(--muted); font-size: 18px; max-width: 560px; }
@@ -186,6 +185,7 @@ p.subp { margin: 8px 0 0; color: var(--muted); font-size: 16px; max-width: 520px
 .phones img { border-radius: 16px; aspect-ratio: 780 / 1688; object-fit: cover; }
 .phones .cap { margin-top: 12px; font-size: 14.5px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 4vw, 56px) clamp(20px, 3vw, 40px); }
+.grid2 img { aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; }
 .grid2 .cap b { display: block; margin-bottom: 2px; }
 .chill { position: relative; aspect-ratio: 21 / 9; border-radius: 10px; overflow: hidden; border: 1px solid var(--line2); background: #000; }
 .chill img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 1.4s ease; border: 0; border-radius: 0; }
@@ -195,6 +195,7 @@ p.subp { margin: 8px 0 0; color: var(--muted); font-size: 16px; max-width: 520px
 .chill-dots button::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.4); transition: background .3s; }
 .chill-dots button.on::before { background: #fff; }
 .zm { cursor: zoom-in; }
+.looks img:not(.on), .chill img:not(.on) { pointer-events: none; }
 
 /* 03 mix */
 .mix { display: grid; grid-template-columns: 1fr 1.15fr; gap: clamp(32px, 6vw, 88px); align-items: start; }
@@ -205,7 +206,8 @@ p.subp { margin: 8px 0 0; color: var(--muted); font-size: 16px; max-width: 520px
 .wt .v.n { color: var(--dim); }
 .wt b { font-weight: 600; display: block; }
 .wt span { color: var(--muted); font-size: 15px; }
-.fine { color: var(--muted); font-size: 15px; margin-top: 24px; max-width: 540px; }
+.fine { color: var(--muted); font-size: 15px; margin: 22px 0 0; max-width: 540px; }
+.fine + .fine { margin-top: 12px; }
 .demo { border: 1px solid var(--line2); border-radius: 12px; padding: 22px 22px 18px; background: var(--bg2); }
 .demo .dh { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
 .demo .dh h3 { margin: 0; font: 600 19px var(--sans); }
@@ -245,8 +247,10 @@ p.subp { margin: 8px 0 0; color: var(--muted); font-size: 16px; max-width: 520px
 .binr a:hover { color: var(--paper); border-color: var(--dim); }
 
 /* 05 server */
-.tabs { display: flex; gap: 26px; flex-wrap: wrap; border-bottom: 1px solid var(--line2); margin-bottom: 32px; }
-.tabs button { padding: 12px 0; font-size: 16px; font-weight: 500; color: var(--dim); position: relative; }
+.tabs { display: flex; gap: 26px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line2); margin-bottom: 32px; }
+.tabs::-webkit-scrollbar { display: none; }
+@media (max-width: 640px) { .tabs { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); padding-right: 28px; } }
+.tabs button { flex: none; padding: 12px 0; font-size: 16px; font-weight: 500; color: var(--dim); position: relative; }
 .tabs button:hover { color: var(--muted); }
 .tabs button.on { color: var(--paper); }
 .tabs button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--paper); }
@@ -267,7 +271,7 @@ p.subp { margin: 8px 0 0; color: var(--muted); font-size: 16px; max-width: 520px
 .steps li { counter-increment: s; position: relative; padding: 0 0 20px 40px; color: var(--muted); font-size: 16px; }
 .steps li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line2); display: grid; place-items: center; font: 500 12px var(--mono); color: var(--paper); }
 .steps a, .notes a { color: var(--paper); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--dim); }
-.steps code, .notes code { font: 13px var(--mono); color: var(--paper); background: var(--bg3); padding: 1px 6px; border-radius: 4px; word-break: break-all; }
+.steps code, .notes code { font: 13px var(--mono); color: var(--paper); background: var(--bg3); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
 .steps b { color: var(--paper); }
 
 /* 06 questions */
@@ -296,6 +300,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 @media (max-width: 1000px) {
   .hero { display: flex; flex-direction: column; min-height: 0; padding: 64px var(--gut) 70px; }
   .hero .wrap { order: 2; }
+  .stage { align-self: stretch; }
   .stage { position: relative; inset: auto; height: min(100vw, 520px); margin: 0 calc(var(--gut) * -1); -webkit-mask-image: linear-gradient(#000 72%, transparent); mask-image: linear-gradient(#000 72%, transparent); }
   .hero::before, .hero::after { display: none; }
   .deck { width: 70vw; right: 15vw; }
@@ -308,7 +313,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   .mix, .pane { grid-template-columns: 1fr; }
   .phones { grid-template-columns: repeat(2, 1fr); }
   .pair { padding-right: 0; padding-bottom: 0; }
-  .pair .phone { position: relative; width: 46%; margin: -22% 4% 0 auto; bottom: auto; }
+  .pair .phone { position: relative; width: 30%; margin: -16% 4% 0 auto; bottom: auto; }
   .pair figcaption { max-width: none; }
   .notes { grid-template-columns: 1fr; }
 }
@@ -327,7 +332,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   .tabs { gap: 18px; }
   .seg { width: 100%; }
   .seg button { flex: 1; padding: 0 6px; font-size: 14px; }
-  .pair .phone { width: 52%; }
+  .pair .phone { width: 40%; margin-top: -20%; }
 }
 
 /* image viewer */
@@ -392,7 +397,6 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   </div>
   <div class="wrap">
     <div class="htxt">
-      <p class="kick" data-t="kick"></p>
       <h1 data-h="h1"></h1>
       <p class="lead" data-h="lead"></p>
       <div class="ctas">
@@ -411,7 +415,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
 <section class="sec" id="how">
   <div class="wrap">
-    <div class="sh"><div class="lab rv"><b>01</b><span data-t="nav1"></span></div><h2 class="rv" data-h="a1h"></h2><p class="rv" data-t="a1p"></p></div>
+    <div class="sh"><div class="lab rv"><span data-t="nav1"></span></div><h2 class="rv" data-h="a1h"></h2><p class="rv" data-t="a1p"></p></div>
     <div class="chain">
       <div class="st rv"><div class="t" data-t="s1t"></div><h3 data-t="s1"></h3><p data-t="s1p"></p><dl><div><dt data-t="s1a"></dt><dd>NAS / Host</dd></div><div><dt data-t="s1b"></dt><dd>Upload</dd></div><div><dt>MP3 · FLAC · M4A · OGG</dt><dd>Tags</dd></div></dl></div>
       <div class="st rv" style="--i:1"><div class="t" data-t="s2t"></div><h3 data-t="s2"></h3><p data-t="s2p"></p><dl><div><dt data-t="s2a"></dt><dd>LXC</dd></div><div><dt data-t="s2b"></dt><dd>Rust</dd></div><div><dt data-t="s2c"></dt><dd>SQLite</dd></div></dl></div>
@@ -422,7 +426,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
 <section class="sec" id="app">
   <div class="wrap">
-    <div class="sh"><div class="lab rv"><b>02</b><span data-t="navP"></span></div><h2 class="rv" data-h="gh"></h2><p class="rv" data-t="gp"></p></div>
+    <div class="sh"><div class="lab rv"><span data-t="navP"></span></div><h2 class="rv" data-h="gh"></h2><p class="rv" data-t="gp"></p></div>
 
     <figure class="shot pair rv" data-gal="pair">
       <img class="zm" src="shots/v2/d-artist.webp" alt="" data-ta="altPairD" loading="lazy" decoding="async" width="1600" height="1000">
@@ -452,7 +456,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
     <div class="block">
       <div class="grid2" data-gal="details">
-        <figure class="shot rv"><img class="zm" src="shots/v2/x-artist.webp" alt="" loading="lazy" decoding="async"><figcaption class="cap"><b data-t="d1"></b><span data-t="d1p"></span></figcaption></figure>
+        <figure class="shot rv"><img class="zm" src="shots/v2/d-album.webp" alt="" loading="lazy" decoding="async"><figcaption class="cap"><b data-t="d1"></b><span data-t="d1p"></span></figcaption></figure>
         <figure class="shot rv" style="--i:1"><img class="zm" src="shots/v2/x-search.webp" alt="" loading="lazy" decoding="async"><figcaption class="cap"><b data-t="d3"></b><span data-t="d3p"></span></figcaption></figure>
         <figure class="shot rv"><img class="zm" src="shots/v2/x-settings.webp" alt="" loading="lazy" decoding="async"><figcaption class="cap"><b data-t="d2"></b><span data-t="d2p"></span></figcaption></figure>
         <figure class="shot rv" style="--i:1"><img class="zm" src="shots/v2/x-welcome.webp" alt="" loading="lazy" decoding="async"><figcaption class="cap"><b data-t="d4"></b><span data-t="d4p"></span></figcaption></figure>
@@ -476,17 +480,18 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
 <section class="sec" id="mix">
   <div class="wrap">
-    <div class="sh"><div class="lab rv"><b>03</b><span data-t="nav2"></span></div><h2 class="rv" data-h="a2h"></h2><p class="rv" data-t="a2p"></p></div>
+    <div class="sh"><div class="lab rv"><span data-t="nav2"></span></div><h2 class="rv" data-h="a2h"></h2><p class="rv" data-t="a2p"></p></div>
     <div class="mix">
       <div class="rv">
         <div class="weights">
           <div class="wt"><div class="v p">+3</div><div><b data-t="w1"></b><span data-t="w1d"></span></div></div>
           <div class="wt"><div class="v p">+1</div><div><b data-t="w2"></b><span data-t="w2d"></span></div></div>
-          <div class="wt"><div class="v p">+½</div><div><b data-t="w3"></b><span data-t="w3d"></span></div></div>
+          <div class="wt"><div class="v p" data-t="w3v"></div><div><b data-t="w3"></b><span data-t="w3d"></span></div></div>
           <div class="wt"><div class="v n" data-t="w4v"></div><div><b data-t="w4"></b><span data-t="w4d"></span></div></div>
           <div class="wt"><div class="v n">−1</div><div><b data-t="w5"></b><span data-t="w5d"></span></div></div>
         </div>
         <p class="fine" data-t="fine"></p>
+        <p class="fine" data-t="fine2"></p>
       </div>
       <div class="demo rv" style="--i:1">
         <div class="dh"><h3 data-t="demoH"></h3><button id="reset" data-t="reset"></button></div>
@@ -504,7 +509,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
 <section class="sec" id="download">
   <div class="wrap">
-    <div class="sh"><div class="lab rv"><b>04</b><span data-t="nav4"></span></div><h2 class="rv" data-h="b1h"></h2><p class="rv" data-t="b1p"></p></div>
+    <div class="sh"><div class="lab rv"><span data-t="nav4"></span></div><h2 class="rv" data-h="b1h"></h2><p class="rv" data-t="b1p"></p></div>
     <div class="dls rv">
       <a class="dl" data-os="android" href="https://github.com/Labtoso/Musik/releases/latest/download/Streyn.apk"><div class="n">Android</div><div class="d"><p data-t="android"></p><small>Streyn.apk · Android 8+</small></div><span class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></svg><span data-t="get"></span></span></a>
       <a class="dl" data-os="windows" href="https://github.com/Labtoso/Musik/releases/latest/download/Streyn.exe"><div class="n">Windows</div><div class="d"><p data-t="windows"></p><small>Streyn.exe · Windows 10 / 11</small></div><span class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></svg><span data-t="get"></span></span></a>
@@ -516,7 +521,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
 <section class="sec" id="server">
   <div class="wrap">
-    <div class="sh"><div class="lab rv"><b>05</b><span data-t="nav3"></span></div><h2 class="rv" data-h="b2h"></h2><p class="rv" data-t="b2p"></p></div>
+    <div class="sh"><div class="lab rv"><span data-t="nav3"></span></div><h2 class="rv" data-h="b2h"></h2><p class="rv" data-t="b2p"></p></div>
     <div class="rv">
     <div class="tabs" role="tablist"><button role="tab" data-tab="px" class="on">Proxmox</button><button role="tab" data-tab="deb">Debian</button><button role="tab" data-tab="zima">ZimaOS</button><button role="tab" data-tab="dock">Docker</button><button role="tab" data-tab="win">Windows</button></div>
     <div class="pane on" data-pane="px">
@@ -558,7 +563,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
 <section class="sec" id="faq">
   <div class="wrap">
-    <div class="sh"><div class="lab rv"><b>06</b><span data-t="nav5"></span></div><h2 class="rv" data-h="b3h"></h2><p class="rv" data-h="b3p"></p></div>
+    <div class="sh"><div class="lab rv"><span data-t="nav5"></span></div><h2 class="rv" data-h="b3h"></h2><p class="rv" data-h="b3p"></p></div>
     <div class="notes rv">
       <div><h4 data-t="q1"></h4><p data-h="a1"></p></div>
       <div><h4 data-t="q2"></h4><p data-h="a2"></p></div>
@@ -584,12 +589,11 @@ const T = {
   en: {
     settings: 'Settings', close: 'Close', menu: 'Menu', lang: 'Language', accent: 'Accent colour', blue: 'Blue', green: 'Green', purple: 'Purple', dynColor: 'From the playing cover',
     nav1: 'How it works', navP: 'The app', nav2: 'The mix', nav3: 'Server', nav4: 'Download', nav5: 'Questions',
-    kick: 'Self-hosted music streaming',
     h1: 'Your music,<br>on your own <em>server.</em>',
     lead: 'Streyn is a small server for your Proxmox host, with apps for <b>Android, Windows and Linux</b>. No subscription, no ads, no third-party cloud. It learns from what you actually play and builds your mix from that.',
     dlFor: 'Download for {os}', dlAll: 'Download the apps', listen: 'Play a short demo loop', listenStop: 'Stop the demo loop',
     metaVer: 'Version', metaFree: 'Free', metaOs: 'Source available', nowPlaying: 'Now playing',
-    a1h: 'Three parts that<br>work together.', a1p: 'Your files stay on your hardware. The server reads them in, keeps track of what you play and streams to every app you connect.',
+    a1h: 'Your files, a server,<br>and your apps.', a1p: 'Your files stay on your hardware. The server reads them in, keeps track of what you play and streams to every app you connect.',
     s1t: 'Input', s1: 'Your music', s1p: 'A folder of songs. The server reads covers and tags on its own.', s1a: 'Mount a folder', s1b: 'Or upload in the app',
     s2t: 'Server', s2: 'Streyn server', s2p: 'A small program written in Rust that runs as a container in Proxmox. It needs little memory and holds everything together.', s2a: 'Proxmox container', s2b: 'Mix algorithm', s2c: 'Users, playlists, likes',
     s3t: 'Output', s3: 'Your apps', s3p: 'Enter the address, sign in, listen. Playlists and likes are the same on every device.', browser: 'Browser',
@@ -599,15 +603,16 @@ const T = {
     lkH: 'Three looks', lkP: 'Standard, Liquid Glass and Green. Switch in the settings; every device keeps its own.',
     phH: 'On the phone', phP: 'The Android app plays in the background and shows controls on the lock screen.',
     f1: 'Home with your mix', f4: 'Album', f5: 'Queue', f7: 'Player in Green',
-    d1: 'Artist pages', d1p: 'Popular songs, every release, radio and follow.', d2: 'Settings', d2p: 'Searchable, and each switch says what it does.', d3: 'Search', d3p: 'Your library, Spotify and YouTube Music in one search.', d4: 'First start', d4p: 'Six short questions, then you are ready.',
+    d1: 'Albums', d1p: 'Cover, year, length and every track, with the artist one click away.', d2: 'Settings', d2p: 'Searchable, and each switch says what it does.', d3: 'Search', d3p: 'Your library, Spotify and YouTube Music in one search.', d4: 'First start', d4p: 'Six short questions, then you are ready.',
     rlH: 'Chillscreen', rlP: 'A full-screen room for listening. The record turns and the light follows the cover. It is the same room you see at the top of this page.',
     a2h: 'A mix built from<br>what you play.', a2p: 'Every play is a signal for the song, the artist, the album and the genre. This is how much each one counts.',
     w1: 'Like', w1d: 'The strongest signal. The song and the artist move up.',
     w2: 'Played to the end', w2d: 'You stayed until the end, so it fits.',
     w3: 'Played halfway', w3d: 'Counts in proportion to how much you heard.',
-    w4v: '−0.3', w4: 'Skipped late', w4d: 'Skipped after the halfway point: a small minus.',
+    w3v: '+0.5', w4v: '−0.3', w4: 'Skipped late', w4d: 'Skipped after the halfway point: a small minus.',
     w5: 'Skipped early', w5d: 'Skipped within seconds: a clear no.',
-    fine: 'Old signals fade with a half-life of 30 days. Songs that other users often play back to back get linked. The same applies to songs from Spotify and Deezer. From this the server builds daily Streyn Mixes per genre and artist, a top-songs playlist for each year, new artists every week, and an autoplay that continues in the same style after a playlist ends. The same artist never plays twice in a row.',
+    fine: 'Old signals fade with a half-life of 30 days. Songs that other users often play back to back get linked. This also works for songs from Spotify and Deezer.',
+    fine2: 'From this the server builds daily Streyn Mixes per genre and artist, a top-songs playlist for each year, new artists every week and an autoplay that keeps going in the same style after a playlist ends. The same artist never plays twice in a row.',
     demoH: 'Try it', reset: 'Reset', hint: 'Like a song, play it to the end or skip it. The list re-sorts the way the server would.', kLike: 'Like +3', kFull: 'Played +1', kSkip: 'Skipped −1',
     whyStart: 'Popular on the server', whyLike: 'You like this song', whyArtist: 'You like {a}', whyGenre: 'Because you play {g}', whySkip: 'Often skipped', whyFull: 'Fits your taste',
     b1h: 'Get the apps.', b1p: 'Every app connects to your server. Set up the server first, then enter its address in the app.',
@@ -616,7 +621,7 @@ const T = {
     linux: 'AppImage. Make it executable and run it.',
     yours: 'Your device', bins: 'Server only:', get: 'Download', all: 'All versions',
     b2h: 'Set up the server.', b2p: 'One command sets everything up. Running the same command again later updates the server to the newest version.',
-    copy: 'Select', copied: 'Copied', marked: 'Selected · Ctrl+C', markedTouch: 'Selected · tap Copy',
+    copy: 'Select', aLike: 'Like', aPlayed: 'Played to the end', aSkip: 'Skip', aPrev: 'Previous', aNext: 'Next', aShot: 'Picture {n}', marked: 'Selected · Ctrl+C', markedTouch: 'Selected · tap Copy',
     px1: 'In Proxmox click the node and open <b>Shell</b>. Paste the command and press Enter. The installer asks whether you want Streyn on the go too (with Tailscale) or only at home.',
     px2: 'If your music is already on the host, put the folder in front: <code>MUSIC_HOST_DIR=/mnt/nas/music</code>. Otherwise upload songs in the app.',
     px3: 'At the end it prints the address. Enter it in the app and create your account on first launch.',
@@ -645,12 +650,11 @@ const T = {
   de: {
     settings: 'Einstellungen', close: 'Schließen', menu: 'Menü', lang: 'Sprache', accent: 'Akzentfarbe', blue: 'Blau', green: 'Grün', purple: 'Lila', dynColor: 'Aus dem laufenden Cover',
     nav1: 'So funktioniert’s', navP: 'Die App', nav2: 'Der Mix', nav3: 'Server', nav4: 'Download', nav5: 'Fragen',
-    kick: 'Musik-Streaming auf eigener Hardware',
     h1: 'Deine Musik,<br>auf deinem eigenen <em>Server.</em>',
     lead: 'Streyn ist ein kleiner Server für deinen Proxmox-Host, mit Apps für <b>Android, Windows und Linux</b>. Kein Abo, keine Werbung, keine fremde Cloud. Er lernt aus dem, was du wirklich hörst, und baut daraus deinen Mix.',
-    dlFor: 'Für {os} laden', dlAll: 'Apps laden', listen: 'Kurze Demo-Schleife abspielen', listenStop: 'Demo-Schleife stoppen',
+    dlFor: 'Für {os} herunterladen', dlAll: 'Apps herunterladen', listen: 'Kurze Demo-Schleife abspielen', listenStop: 'Demo-Schleife stoppen',
     metaVer: 'Version', metaFree: 'Kostenlos', metaOs: 'Quellcode einsehbar', nowPlaying: 'Läuft gerade',
-    a1h: 'Drei Teile, die<br>zusammenspielen.', a1p: 'Deine Dateien bleiben auf deiner Hardware. Der Server liest sie ein, merkt sich, was du hörst, und streamt an jede App, die du verbindest.',
+    a1h: 'Deine Dateien, ein Server<br>und deine Apps.', a1p: 'Deine Dateien bleiben auf deiner Hardware. Der Server liest sie ein, merkt sich, was du hörst, und streamt an jede App, die du verbindest.',
     s1t: 'Eingang', s1: 'Deine Musik', s1p: 'Ein Ordner mit Songs. Cover und Tags liest der Server selbst aus.', s1a: 'Ordner einbinden', s1b: 'Oder in der App hochladen',
     s2t: 'Server', s2: 'Streyn-Server', s2p: 'Ein kleines Programm in Rust, das als Container in Proxmox läuft. Braucht wenig Speicher und hält alles zusammen.', s2a: 'Proxmox-Container', s2b: 'Mix-Algorithmus', s2c: 'Nutzer, Playlists, Likes',
     s3t: 'Ausgang', s3: 'Deine Apps', s3p: 'Adresse eintragen, anmelden, hören. Playlists und Likes sind auf jedem Gerät gleich.', browser: 'Browser',
@@ -660,24 +664,25 @@ const T = {
     lkH: 'Drei Looks', lkP: 'Standard, Liquid Glass und Green. Umschalten in den Einstellungen, jedes Gerät merkt sich seinen.',
     phH: 'Am Handy', phP: 'Die Android-App spielt im Hintergrund weiter und zeigt die Steuerung im Sperrbildschirm.',
     f1: 'Start mit deinem Mix', f4: 'Album', f5: 'Warteschlange', f7: 'Player in Green',
-    d1: 'Künstlerseiten', d1p: 'Beliebte Songs, jede Veröffentlichung, Radio und Folgen.', d2: 'Einstellungen', d2p: 'Durchsuchbar, und jeder Schalter sagt, was er tut.', d3: 'Suche', d3p: 'Deine Bibliothek, Spotify und YouTube Music in einer Suche.', d4: 'Erster Start', d4p: 'Sechs kurze Fragen, dann geht es los.',
-    rlH: 'Chillscreen', rlP: 'Ein Vollbild-Raum zum Zuhören. Die Platte dreht sich, das Licht folgt dem Cover. Es ist derselbe Raum wie oben auf dieser Seite.',
+    d1: 'Alben', d1p: 'Cover, Jahr, Länge und jeder Song, der Künstler ist einen Klick entfernt.', d2: 'Einstellungen', d2p: 'Durchsuchbar, und jeder Schalter sagt, was er tut.', d3: 'Suche', d3p: 'Deine Bibliothek, Spotify und YouTube Music in einer Suche.', d4: 'Erster Start', d4p: 'Sechs kurze Fragen, dann geht es los.',
+    rlH: 'Chillscreen', rlP: 'Ein Raum im Vollbild, nur zum Zuhören. Die Platte dreht sich, das Licht folgt dem Cover. Es ist derselbe Raum wie oben auf dieser Seite.',
     a2h: 'Ein Mix aus dem,<br>was du hörst.', a2p: 'Jedes Abspielen ist ein Signal für den Song, den Künstler, das Album und das Genre. So viel zählt jedes davon.',
     w1: 'Like', w1d: 'Das stärkste Signal. Song und Künstler rücken nach vorne.',
     w2: 'Bis zum Ende gehört', w2d: 'Bis zum Schluss dabeigeblieben, also passt er.',
     w3: 'Zur Hälfte gehört', w3d: 'Zählt so viel, wie du gehört hast.',
-    w4v: '−0,3', w4: 'Spät übersprungen', w4d: 'Nach der Hälfte weiter: ein kleiner Abzug.',
+    w3v: '+0,5', w4v: '−0,3', w4: 'Spät übersprungen', w4d: 'Nach der Hälfte weiter: ein kleiner Abzug.',
     w5: 'Früh übersprungen', w5d: 'In den ersten Sekunden weg: ein klares Nein.',
-    fine: 'Alte Signale verblassen mit einer Halbwertszeit von 30 Tagen. Songs, die andere Nutzer oft hintereinander hören, werden verknüpft. Das gilt auch für Songs von Spotify und Deezer. Daraus baut der Server tägliche Streyn Mixes pro Genre und Künstler, eine Top-Songs-Playlist für jedes Jahr, jede Woche neue Künstler und ein Autoplay, das nach einer Playlist im selben Stil weiterspielt. Nie derselbe Künstler zweimal hintereinander.',
+    fine: 'Alte Signale verblassen mit einer Halbwertszeit von 30 Tagen. Songs, die andere Nutzer oft hintereinander hören, werden verknüpft. Das klappt auch mit Songs von Spotify und Deezer.',
+    fine2: 'Daraus baut der Server tägliche Streyn Mixes pro Genre und Künstler, eine Top-Songs-Playlist für jedes Jahr, jede Woche neue Künstler und ein Autoplay, das nach einer Playlist im selben Stil weiterspielt. Nie derselbe Künstler zweimal hintereinander.',
     demoH: 'Probier es aus', reset: 'Zurücksetzen', hint: 'Like einen Song, hör ihn bis zum Ende oder überspring ihn. Die Liste sortiert sich so, wie der Server es tun würde.', kLike: 'Like +3', kFull: 'Gehört +1', kSkip: 'Übersprungen −1',
     whyStart: 'Beliebt auf dem Server', whyLike: 'Du magst diesen Song', whyArtist: 'Du hörst gern {a}', whyGenre: 'Weil du {g} hörst', whySkip: 'Oft übersprungen', whyFull: 'Passt zu dir',
     b1h: 'Hol dir die Apps.', b1p: 'Jede App verbindet sich mit deinem Server. Erst den Server einrichten, dann die Adresse in der App eintragen.',
     android: 'Spielt im Hintergrund weiter, mit Steuerung im Sperrbildschirm und in der Benachrichtigung.',
     windows: 'Installation ohne Admin-Rechte. Die Medientasten der Tastatur funktionieren.',
     linux: 'AppImage. Ausführbar machen und starten.',
-    yours: 'Dein Gerät', bins: 'Nur der Server:', get: 'Laden', all: 'Alle Versionen',
+    yours: 'Dein Gerät', bins: 'Nur der Server:', get: 'Herunterladen', all: 'Alle Versionen',
     b2h: 'Server einrichten.', b2p: 'Ein Befehl richtet alles ein. Denselben Befehl später noch einmal ausführen bringt den Server auf die neueste Version.',
-    copy: 'Markieren', copied: 'Kopiert', marked: 'Markiert · Strg+C', markedTouch: 'Markiert · Kopieren tippen',
+    copy: 'Markieren', aLike: 'Gefällt mir', aPlayed: 'Bis zum Ende gehört', aSkip: 'Überspringen', aPrev: 'Zurück', aNext: 'Weiter', aShot: 'Bild {n}', marked: 'Markiert · Strg+C', markedTouch: 'Markiert · Kopieren tippen',
     px1: 'In Proxmox die Node anklicken und <b>Shell</b> öffnen. Befehl einfügen, Enter. Der Installer fragt, ob du Streyn auch unterwegs nutzen willst (mit Tailscale) oder nur zuhause.',
     px2: 'Liegt deine Musik schon auf dem Host, schreib den Ordner davor: <code>MUSIC_HOST_DIR=/mnt/nas/music</code>. Sonst lädst du Songs in der App hoch.',
     px3: 'Am Ende steht die Adresse. Die trägst du in der App ein und legst beim ersten Start deinen Account an.',
@@ -829,7 +834,7 @@ SONGS.forEach((s) => {
   const el = document.createElement('div');
   el.className = 'song'; el.dataset.id = s.id;
   el.innerHTML = `<div class="i"></div><div style="min-width:0"><div class="t">${s.t}<small>${s.a}</small></div><div class="why"></div></div>
-    <div class="acts"><button data-w="3" aria-label="Like">${IC.like}</button><button data-w="1" aria-label="Played">${IC.full}</button><button data-w="-1" aria-label="Skip">${IC.skip}</button></div><div class="meter"></div>`;
+    <div class="acts"><button data-w="3" data-ta="aLike">${IC.like}</button><button data-w="1" data-ta="aPlayed">${IC.full}</button><button data-w="-1" data-ta="aSkip">${IC.skip}</button></div><div class="meter"></div>`;
   list.appendChild(el);
 });
 list.style.height = SONGS.length * 66 + 'px';
@@ -859,9 +864,9 @@ $$('[data-copy]').forEach((b) => b.addEventListener('click', () => {
   const sel = getSelection();
   sel.removeAllRanges();
   sel.addRange(r);
-  b.textContent = matchMedia('(hover: none)').matches ? T[lang].markedTouch : T[lang].marked;
+  b.dataset.t = matchMedia('(hover: none)').matches ? 'markedTouch' : 'marked'; b.textContent = T[lang][b.dataset.t];
   clearTimeout(b._t);
-  b._t = setTimeout(() => (b.textContent = T[lang].copy), 3500);
+  b._t = setTimeout(() => { b.dataset.t = 'copy'; b.textContent = T[lang].copy; }, 3500);
 }));
 const openSet = (v) => document.body.classList.toggle('set-open', v);
 $('#gear').addEventListener('click', () => openSet(true));
@@ -945,9 +950,10 @@ function render() {
     main.href = 'https://github.com/Labtoso/Musik/releases/latest/download/' + files[os];
     $(`[data-os=${os}] .n`).insertAdjacentHTML('beforeend', `<span class="yours">${d.yours}</span>`);
   } else $('span', main).textContent = d.dlAll;
-  const m = [`<span>${d.metaOs}</span>`, `<span>${d.metaFree}</span>`, '<span>LabtosoStudios</span>'];
+  const m = [`<span>${d.metaOs}</span>`, `<span>${d.metaFree}</span>`];
   if (release) m.unshift(`<a href="https://github.com/Labtoso/Musik/releases/tag/${release.tag_name}" target="_blank" rel="noopener">${d.metaVer} <b>${release.tag_name.replace(/^v/, '')}</b></a>`);
   $('#meta').innerHTML = m.join('');
+  $$('#chilldots button').forEach((b) => b.setAttribute('aria-label', d.aShot.replace('{n}', b.dataset.n)));
   drawList();
 }
 
@@ -971,7 +977,7 @@ resetDemo(); render();
   // chillscreen: slow crossfade through the stills, dots to pick one
   const frames = $$('.chill img'), dots = $('#chilldots');
   let fi = 0, ft = 0, on = false;
-  frames.forEach((_, k) => { const b = document.createElement('button'); b.setAttribute('aria-label', String(k + 1)); b.addEventListener('click', () => { go(k); loop(); }); dots.appendChild(b); });
+  frames.forEach((_, k) => { const b = document.createElement('button'); b.dataset.n = k + 1; b.setAttribute('aria-label', T[lang].aShot.replace('{n}', k + 1)); b.addEventListener('click', () => { go(k); loop(); }); dots.appendChild(b); });
   const go = (k) => { fi = k; frames.forEach((f, j) => f.classList.toggle('on', j === k)); $$('button', dots).forEach((b, j) => b.classList.toggle('on', j === k)); };
   const loop = () => { clearTimeout(ft); if (!reduce && on) ft = setTimeout(() => { go((fi + 1) % frames.length); loop(); }, 5500); };
   go(0);
@@ -1095,7 +1101,7 @@ try {
   function open(list, i) {
     const lb = document.createElement('div');
     lb.className = 'lb';
-    lb.innerHTML = '<div class="lb-stage"><img alt=""></div><button class="lb-x" aria-label="Close">✕</button><button class="lb-p" aria-label="Previous">‹</button><button class="lb-n" aria-label="Next">›</button><div class="lb-c"></div>';
+    lb.innerHTML = '<div class="lb-stage"><img alt=""></div><button class="lb-x" aria-label="' + T[lang].close + '">✕</button><button class="lb-p" aria-label="' + T[lang].aPrev + '">‹</button><button class="lb-n" aria-label="' + T[lang].aNext + '">›</button><div class="lb-c"></div>';
     document.body.appendChild(lb);
     document.documentElement.style.overflow = 'hidden';
     const im = lb.querySelector('img');
