@@ -2,27 +2,29 @@
 // CI passes their paths in STREYN_APP_EXE and STREYN_SERVER_EXE. Without them (tests, local checks)
 // the setup is built with empty payloads and refuses to install.
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-fn pack(env: &str, out: &PathBuf, name: &str) -> String {
+fn pack(env: &str, out: &Path, name: &str) -> Result<String, String> {
     println!("cargo:rerun-if-env-changed={env}");
     let data = match std::env::var_os(env) {
         Some(p) => {
-            println!("cargo:rerun-if-changed={}", PathBuf::from(&p).display());
-            std::fs::read(&p).unwrap_or_else(|e| panic!("{env}: {e}"))
+            let p = PathBuf::from(p);
+            println!("cargo:rerun-if-changed={}", p.display());
+            std::fs::read(&p).map_err(|e| format!("{env}: reading {}: {e}", p.display()))?
         }
         None => Vec::new(),
     };
     let hash = format!("{:x}", Sha256::digest(&data));
     let packed = if data.is_empty() { Vec::new() } else { miniz_oxide::deflate::compress_to_vec(&data, 10) };
-    std::fs::write(out.join(name), packed).unwrap();
-    hash
+    let dest = out.join(name);
+    std::fs::write(&dest, packed).map_err(|e| format!("writing {}: {e}", dest.display()))?;
+    Ok(hash)
 }
 
-fn main() {
-    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    let app = pack("STREYN_APP_EXE", &out, "app.bin");
-    let srv = pack("STREYN_SERVER_EXE", &out, "server.bin");
+fn main() -> Result<(), String> {
+    let out = PathBuf::from(std::env::var("OUT_DIR").map_err(|e| format!("OUT_DIR: {e}"))?);
+    let app = pack("STREYN_APP_EXE", &out, "app.bin")?;
+    let srv = pack("STREYN_SERVER_EXE", &out, "server.bin")?;
     println!("cargo:rustc-env=STREYN_APP_SHA256={app}");
     println!("cargo:rustc-env=STREYN_SERVER_SHA256={srv}");
     println!("cargo:rerun-if-env-changed=STREYN_VERSION");
@@ -41,6 +43,7 @@ fn main() {
             .set("ProductVersion", &version)
             .set("FileVersion", &version)
             .set_manifest(include_str!("setup.manifest"));
-        res.compile().expect("resources");
+        res.compile().map_err(|e| format!("resources: {e}"))?;
     }
+    Ok(())
 }

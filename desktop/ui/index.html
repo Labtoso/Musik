@@ -72,6 +72,7 @@
   const e = document.getElementById('e');
   const b = document.getElementById('b');
   const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+  let offBtn = null;
   invoke('can_offline').then((ok) => {
     if (!ok || q.has('update')) return;
     const off = document.getElementById('off');
@@ -79,11 +80,13 @@
     off.hidden = oh.hidden = false;
     off.textContent = T.off;
     oh.textContent = T.offhelp;
+    offBtn = off;
     off.onclick = () => { off.disabled = true; invoke('use_offline'); };
   }).catch(() => {});
   window.showError = (code) => {
     e.textContent = T[code] || T.offline;
     b.disabled = false;
+    if (offBtn) offBtn.disabled = false;
   };
   if (q.has('update')) {
     // update screen: no address field, just progress

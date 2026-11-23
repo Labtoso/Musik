@@ -32,13 +32,19 @@ fn load_config(app: &AppHandle) -> Config {
         .unwrap_or_default()
 }
 
-fn save_config(app: &AppHandle, cfg: &Config) {
-    if let Some(p) = config_path(app) {
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(p, serde_json::to_string_pretty(cfg).unwrap_or_default());
+/// Written next to the target first and then moved into place, so an interrupted write never
+/// leaves a cut-off config.json behind.
+fn save_config(app: &AppHandle, cfg: &Config) -> std::io::Result<()> {
+    let p = config_path(app).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no config folder"))?;
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir)?;
     }
+    let data = serde_json::to_string_pretty(cfg).map_err(std::io::Error::other)?;
+    let tmp = p.with_extension("json.tmp");
+    std::fs::write(&tmp, data)?;
+    std::fs::rename(&tmp, &p).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
 }
 
 /// "192.168.1.50" -> "http://192.168.1.50:8484"
@@ -89,9 +95,18 @@ fn open_server(win: &WebviewWindow, origin: &str) {
 async fn connect(app: AppHandle, window: WebviewWindow, server: String) -> String {
     let Some(origin) = normalize(&server) else { return "offline".into() };
     let o = origin.clone();
-    let (state, remote) = tauri::async_runtime::spawn_blocking(move || probe(&o, 6)).await.unwrap_or(("offline", None));
+    // the check and the config file both block, so neither runs on the async handler itself
+    let state = tauri::async_runtime::spawn_blocking(move || {
+        let (state, remote) = probe(&o, 6);
+        if state == "ok" {
+            // a failed save only means the address is asked again on the next start
+            let _ = save_config(&app, &Config { server: Some(o.clone()), remote, ..load_config(&app) });
+        }
+        state
+    })
+    .await
+    .unwrap_or("offline");
     if state == "ok" {
-        save_config(&app, &Config { server: Some(origin.clone()), remote, ..load_config(&app) });
         open_server(&window, &origin);
     }
     state.into()
@@ -193,7 +208,13 @@ static LOCAL_PROC: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mu
 fn off_dir(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_data_dir().ok().map(|d| d.join("offline"))
 }
+/// The key is fixed once per run, so the offline server and every call use the same one even if
+/// the config file cannot be written.
 fn off_key(app: &AppHandle) -> String {
+    static KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| new_or_saved_off_key(app)).clone()
+}
+fn new_or_saved_off_key(app: &AppHandle) -> String {
     let mut cfg = load_config(app);
     if let Some(k) = cfg.off_key.clone().filter(|k| k.len() >= 32) {
         return k;
@@ -207,7 +228,8 @@ fn off_key(app: &AppHandle) -> String {
         k.push_str(&format!("{:016x}", h.finish()));
     }
     cfg.off_key = Some(k.clone());
-    save_config(app, &cfg);
+    // if this fails, the key still holds for this run; the next run makes a new one and restarts the server with it
+    let _ = save_config(app, &cfg);
     k
 }
 /// Settings → Offline → folder button: shows the downloaded songs in Explorer / the file manager.
@@ -275,8 +297,11 @@ fn ensure_local(app: &AppHandle) -> bool {
     }
     let Ok(child) = cmd.spawn() else { return false };
     // the server ends together with this app, even after a crash
+    // If that is not possible, the server is still ended by the exit handler below on a normal exit.
     #[cfg(windows)]
-    win::tie_to_app(&child);
+    if !win::tie_to_app(&child) {
+        eprintln!("offline server could not be tied to the app; it ends with a normal exit only");
+    }
     *guard = Some(child);
     for _ in 0..40 {
         if local_up() {
@@ -287,7 +312,15 @@ fn ensure_local(app: &AppHandle) -> bool {
     false
 }
 fn local_call(app: &AppHandle, method: &str, path: &str, body: &str) -> String {
-    if !path.starts_with("/api/offline/") {
+    // Only the offline API of the local server. The check runs on the URL as it will be sent, after
+    // "." / ".." segments (also percent-encoded ones) are resolved, so no path can reach another endpoint.
+    let Ok(url) = Url::parse(&format!("{LOCAL}{path}")) else { return String::new() };
+    if !path.starts_with("/api/offline/")
+        || path.contains('\\')
+        || url.host_str() != Some("127.0.0.1")
+        || url.port() != Some(8485)
+        || !url.path().starts_with("/api/offline/")
+    {
         return String::new();
     }
     // Nothing downloaded yet: answer without starting the offline server. Only a download
@@ -298,7 +331,7 @@ fn local_call(app: &AppHandle, method: &str, path: &str, body: &str) -> String {
     if !ensure_local(app) {
         return String::new();
     }
-    let req = ureq::request(method, &format!("{LOCAL}{path}")).set("x-musik-key", &off_key(app)).timeout(Duration::from_secs(15));
+    let req = ureq::request(method, url.as_str()).set("x-musik-key", &off_key(app)).timeout(Duration::from_secs(15));
     let res = if body.is_empty() { req.call() } else { req.set("Content-Type", "application/json").send_string(body) };
     match res {
         Ok(r) | Err(ureq::Error::Status(_, r)) => r.into_string().unwrap_or_default(),
@@ -327,7 +360,7 @@ fn open_best(app: AppHandle, win: WebviewWindow) {
         let (state, remote) = probe(&server, 3);
         if state == "ok" {
             if remote.is_some() && remote != cfg.remote {
-                save_config(&app, &Config { server: Some(server.clone()), remote, ..load_config(&app) });
+                let _ = save_config(&app, &Config { server: Some(server.clone()), remote, ..load_config(&app) });
             }
             open_server(&win, &server);
         } else if let Some(r) = cfg.remote.as_deref().filter(|r| check(r) == "ok") {
@@ -368,7 +401,9 @@ fn main() {
     {
         let args: Vec<String> = std::env::args().skip(1).collect();
         if args.iter().any(|a| a == "--uninstall") {
-            win::uninstall(args.iter().any(|a| a.eq_ignore_ascii_case("/S")));
+            if !win::uninstall(args.iter().any(|a| a.eq_ignore_ascii_case("/S"))) {
+                std::process::exit(1);
+            }
             return;
         }
         win::clean_leftovers();

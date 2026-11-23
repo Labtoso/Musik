@@ -119,11 +119,12 @@ class MainActivity : ComponentActivity() {
         web.addJavascriptInterface(Bridge(), "MusikAndroid")
         audio.registerAudioDeviceCallback(deviceCallback, main)
         web.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                trustedPage = url != null && isTrusted(Uri.parse(url))
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val url = request.url.toString()
-                val server = prefs.getString("server", null)
-                val remote = prefs.getString("remote", null)
-                if (url.startsWith("file:///android_asset/") || url.startsWith(LOCAL) || (server != null && url.startsWith(server)) || (remote != null && url.startsWith(remote))) return false
+                if (isTrusted(request.url)) return false
                 // Spotify sign-in runs inside the app and comes back to the server address
                 val host = request.url.host ?: ""
                 // but a song, album or artist page of Spotify opens in the Spotify app, so this page (and the player) stays
@@ -187,6 +188,21 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
         web.saveState(outState)
     }
+
+    /** Whether the page shown in the main frame is one of ours; set when a page starts loading. */
+    @Volatile private var trustedPage = false
+
+    /** The app's own pages, the server, the address for on the go and the server on the phone. Compared by exact origin, not by prefix. */
+    private fun isTrusted(u: Uri): Boolean {
+        if (u.scheme == "file") return u.path?.startsWith("/android_asset/") == true
+        fun same(base: String?): Boolean {
+            if (base == null) return false
+            val b = Uri.parse(base)
+            return b.scheme.equals(u.scheme, true) && b.host.equals(u.host, true) && portOf(b) == portOf(u)
+        }
+        return same(LOCAL) || same(prefs.getString("server", null)) || same(prefs.getString("remote", null))
+    }
+    private fun portOf(u: Uri): Int = if (u.port != -1) u.port else if (u.scheme.equals("https", true)) 443 else 80
 
     /** Home address first, then the address for on the go (Tailscale) that the server told us about. */
     private var lastOpen = 0L
@@ -267,7 +283,10 @@ class MainActivity : ComponentActivity() {
 
     /** A call to the server on the phone; the app adds the key and looks up the server's address (the server has no DNS on Android). */
     private fun localCall(method: String, path: String, body: String): String {
-        if (!path.startsWith("/api/offline/") || !ensureLocal()) return ""
+        // only the offline API: no "." or ".." segments or backslashes that could lead to another endpoint
+        val segs = runCatching { Uri.parse("$LOCAL$path").pathSegments }.getOrNull() ?: return ""
+        if (!path.startsWith("/api/offline/") || path.contains('\\') || segs.any { it == "." || it == ".." }) return ""
+        if (!ensureLocal()) return ""
         var data = body
         if (path == "/api/offline/add") runCatching {
             val o = JSONObject(body)
@@ -331,7 +350,11 @@ class MainActivity : ComponentActivity() {
             emitTime(c)
         }
 
+        /** Errors in a row; a queue where nothing plays is not skipped through forever (repeat all). */
+        private var errorStreak = 0
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) errorStreak = 0
             emit(JSONObject().put("type", "playing").put("playing", isPlaying))
         }
 
@@ -348,7 +371,7 @@ class MainActivity : ComponentActivity() {
         override fun onPlayerError(error: PlaybackException) {
             emit(JSONObject().put("type", "error").put("message", error.errorCodeName))
             val c = controller ?: return
-            if (c.hasNextMediaItem()) {
+            if (++errorStreak < c.mediaItemCount && c.hasNextMediaItem()) {
                 c.seekToNextMediaItem()
                 c.prepare()
                 c.play()
@@ -448,11 +471,17 @@ class MainActivity : ComponentActivity() {
         main.post { web.evaluateJavascript(js, null) }
     }
 
-    private fun toItems(json: String): List<MediaItem> {
-        val arr = JSONArray(json)
-        return (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            val uri = Uri.parse(o.getString("url"))
+    /** The queue from the page; entries without an address are left out, invalid JSON gives null. */
+    private fun toItems(json: String): List<MediaItem>? {
+        val arr = runCatching { JSONArray(json) }.getOrElse {
+            emit(JSONObject().put("type", "error").put("message", "BAD_QUEUE"))
+            return null
+        }
+        return (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val url = o.optString("url")
+            if (url.isEmpty()) return@mapNotNull null
+            val uri = Uri.parse(url)
             val art = o.optString("artwork")
             val meta = MediaMetadata.Builder()
                 .setTitle(o.optString("title"))
@@ -499,7 +528,7 @@ class MainActivity : ComponentActivity() {
 
     inner class Bridge {
         @JavascriptInterface fun setQueue(json: String, index: Int, posMs: Long, autoplay: Boolean) {
-            val items = toItems(json)
+            val items = toItems(json) ?: return
             withController { c ->
                 c.setMediaItems(items, index.coerceIn(0, maxOf(0, items.size - 1)), posMs)
                 c.prepare()
@@ -507,7 +536,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         @JavascriptInterface fun insert(at: Int, json: String) {
-            val items = toItems(json)
+            val items = toItems(json) ?: return
             withController { c -> c.addMediaItems(at.coerceIn(0, c.mediaItemCount), items) }
         }
         @JavascriptInterface fun remove(i: Int) = withController { c -> if (i in 0 until c.mediaItemCount) c.removeMediaItem(i) }
@@ -640,7 +669,7 @@ class MainActivity : ComponentActivity() {
         }
         @JavascriptInterface fun appVersion(): String =
             runCatching { packageManager.getPackageInfo(packageName, 0).versionName ?: "" }.getOrDefault("")
-        @JavascriptInterface fun updateApp() { thread { downloadAndInstall() } }
+        @JavascriptInterface fun updateApp() { if (trustedPage) thread { downloadAndInstall() } }
         // only a language the person picked ("lang" of older versions was set without asking)
         @JavascriptInterface fun getLang(): String = prefs.getString("langChosen", "") ?: ""
         @JavascriptInterface fun setLang(lang: String) {
@@ -692,13 +721,14 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun setPlayPref(key: String, on: Boolean) {
             if (key == "pauseOnDisconnect" || key == "resumeOnConnect") prefs.edit().putBoolean("play_$key", on).apply()
         }
-        @JavascriptInterface fun offlineCall(method: String, path: String, body: String): String = localCall(method, path, body)
+        @JavascriptInterface fun offlineCall(method: String, path: String, body: String): String = if (trustedPage) localCall(method, path, body) else ""
         @JavascriptInterface fun useOffline() = openLocal()
         @JavascriptInterface fun goOnline() = main.post { lastOpen = 0; openBest() }
         @JavascriptInterface fun canOffline(): Boolean = offBinary().exists()
         @JavascriptInterface fun getServer(): String = prefs.getString("server", "") ?: ""
         @JavascriptInterface fun changeServer() = main.post { showConnect("") }
         @JavascriptInterface fun connect(input: String) {
+            if (!trustedPage) return
             thread {
                 val origin = normalize(input)
                 if (origin != null && origin != prefs.getString("server", null)) prefs.edit().remove("remote").apply()
