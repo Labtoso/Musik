@@ -59,6 +59,7 @@ pub fn routes() -> Router<St> {
         .route("/podcasts/new", get(new_episodes))
         .route("/podcasts/continue", get(continue_list))
         .route("/podcasts/pulse", get(pulse))
+        .route("/podcasts/match", axum::routing::post(match_episodes))
 }
 
 // ---------- the feed ----------
@@ -922,6 +923,97 @@ async fn show(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>, Query
     })))
 }
 
+/// The Apple id of a show from its name, the closest one Apple knows (kept for a day).
+fn show_by_name(name: &str, cc: &str) -> Option<i64> {
+    let want = fold(name);
+    if want.is_empty() {
+        return None;
+    }
+    let key = format!("n:{cc}:{want}");
+    if let Some(v) = cached_list(&key, Duration::from_secs(86400)) {
+        return v.as_i64();
+    }
+    let mut best: Option<(f64, i64)> = None;
+    for v in spellings(name) {
+        let j = http_json(&format!("https://itunes.apple.com/search?media=podcast&entity=podcast&limit=15&country={cc}&term={}", enc(&v))).ok();
+        for r in j.as_ref().and_then(|j| j["results"].as_array()).into_iter().flatten() {
+            let id = r["collectionId"].as_i64().unwrap_or(0);
+            if id == 0 || !r["feedUrl"].is_string() {
+                continue;
+            }
+            let sc = similarity(&want, &fold(r["collectionName"].as_str().unwrap_or("")));
+            if best.map(|b| sc > b.0).unwrap_or(true) {
+                best = Some((sc, id));
+            }
+        }
+        if best.map(|b| b.0 >= 0.95).unwrap_or(false) {
+            break;
+        }
+    }
+    let id = best.filter(|b| b.0 >= 0.6).map(|b| b.1);
+    keep_list(&key, &json!(id));
+    id
+}
+/// The episode of a show with this title (and about this length).
+fn episode_by_title<'a>(s: &'a Show, title: &str, duration: f64) -> Option<&'a Episode> {
+    let want = fold(title);
+    let mut best: Option<(f64, &Episode)> = None;
+    for e in &s.episodes {
+        let mut sc = similarity(&want, &fold(&e.title));
+        if duration > 0.0 && e.duration > 0.0 && (e.duration - duration).abs() < 90.0 {
+            sc += 0.1;
+        }
+        if best.map(|b| sc > b.0).unwrap_or(true) {
+            best = Some((sc, e));
+        }
+    }
+    best.filter(|b| b.0 >= 0.7).map(|b| b.1)
+}
+
+/// [{ show, title, duration }] (episodes of a Spotify playlist) → the same episodes from the
+/// shows' own public feeds, playable here without Spotify; null where a show has no public feed.
+async fn match_episodes(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap<String, String>>, req: Request) -> R {
+    let v: Value = body_json(req).await?;
+    let list: Vec<(String, String, f64)> = v
+        .as_array()
+        .ok_or(ApiError::new(400, "bad_json"))?
+        .iter()
+        .take(300)
+        .map(|x| (x["show"].as_str().unwrap_or("").to_string(), x["title"].as_str().unwrap_or("").to_string(), x["duration"].as_f64().unwrap_or(0.0)))
+        .collect();
+    let cc = cc_of(&q);
+    let uid = u.id;
+    let out = tokio::task::spawn_blocking(move || {
+        // each show is looked up once, however many of its episodes are in the list
+        let mut names: Vec<String> = list.iter().map(|x| x.0.clone()).collect();
+        names.sort();
+        names.dedup();
+        let shows: HashMap<String, Option<(i64, Arc<Show>)>> = std::thread::scope(|sc| {
+            let hs: Vec<_> = names
+                .iter()
+                .take(40)
+                .map(|n| {
+                    let (st, cc) = (&st, &cc);
+                    sc.spawn(move || (n.clone(), show_by_name(n, cc).and_then(|id| load_show(st, id, false).ok().map(|s| (id, s)))))
+                })
+                .collect();
+            hs.into_iter().filter_map(|h| h.join().ok()).collect()
+        });
+        let mut prog: HashMap<i64, HashMap<String, (f64, f64, bool)>> = HashMap::new();
+        list.iter()
+            .map(|(name, title, dur)| {
+                let Some(Some((id, s))) = shows.get(name) else { return Value::Null };
+                let Some(e) = episode_by_title(s, title, *dur) else { return Value::Null };
+                let p = prog.entry(*id).or_insert_with(|| progress_map(&st, uid, *id));
+                ep_json(e, *id, s, p, 320)
+            })
+            .collect::<Vec<Value>>()
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?;
+    Ok(Json(json!(out)))
+}
+
 fn find<'a>(s: &'a Show, ep: &str) -> Option<&'a Episode> {
     s.episodes.iter().find(|e| e.id == ep).or_else(|| s.episodes.iter().find(|e| e.url_id == ep))
 }
@@ -1192,6 +1284,14 @@ mod tests {
         assert!(b.desc.contains("• one"));
         assert_eq!(a.date, parse_iso("2026-11-18T10:00:00Z"));
         assert_eq!(b.date, parse_iso("2026-11-16T05:00:00Z"));
+    }
+    #[test]
+    fn spotify_episode_to_feed() {
+        let s = parse_feed(FEED);
+        // Spotify's title of the same episode, written a little differently
+        assert_eq!(episode_by_title(&s, "Folge 2!", 750.0).map(|e| e.title.as_str()), Some("Folge 2"));
+        assert_eq!(episode_by_title(&s, "folge 1", 0.0).map(|e| e.id.clone()), Some(ep_id("abc-1")));
+        assert!(episode_by_title(&s, "Etwas ganz anderes", 0.0).is_none());
     }
     #[test]
     fn forgiving_search() {

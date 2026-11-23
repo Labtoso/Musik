@@ -427,7 +427,7 @@ const unhtml = (h) => {
 /** Songs of a public Spotify page (embed), each with its own cover from the Web API where it answers. */
 export async function spotifyEmbedItems(kind, id, onProgress, pre) {
   const e = pre || await get(`/api/spotify/embed?kind=${kind}&id=${encodeURIComponent(id)}`).catch(() => null);
-  const list = (e?.tracks || []).filter((t) => t.id);
+  const list = (e?.tracks || []).filter((t) => t.id && !t.episode);
   const out = list.map((t) => ({ source: 'spotify', ext_id: t.id, title: t.title, artist: t.artist, album: '', duration: t.duration || 0, cover: t.cover || '', url: `https://open.spotify.com/track/${t.id}` }));
   // covers and albums one by one (Spotify dropped the batch call), a few at a time
   let i = 0;
@@ -476,9 +476,21 @@ export async function spotifyPlaylist(id, url = `https://open.spotify.com/playli
     em = await get(`/api/spotify/embed?kind=playlist&id=${encodeURIComponent(id)}`).catch(() => null);
     items = await spotifyEmbedItems('playlist', id, onProgress, em);
   }
-  if (!items.length) throw new Error('spotify_not_own');
+  // podcast episodes in the playlist: played from the shows' own public feeds, no Spotify needed
+  const want = raw.length
+    ? raw.map((x) => x.item || x.track).filter((t) => t?.type === 'episode').map((t) => ({ show: t.show?.name || '', title: t.name || '', duration: (t.duration_ms || 0) / 1000, spid: t.id }))
+    : (em?.tracks || []).filter((t) => t.episode).map((t) => ({ show: t.artist || '', title: t.title || '', duration: t.duration || 0, spid: t.id }));
+  let episodes = [];
+  if (want.length) {
+    const reg = String(navigator.language || '').split('-')[1] || '';
+    const cc = /^[a-z]{2}$/i.test(reg) ? reg.toLowerCase() : 'de';
+    const found = await post(`/api/podcasts/match?cc=${cc}`, want.map(({ show, title, duration }) => ({ show, title, duration }))).catch(() => []);
+    episodes = want.map((w, i) => found?.[i] || { missing: true, title: w.title, showTitle: w.show, duration: w.duration, url: `https://open.spotify.com/episode/${w.spid}` });
+  }
+  if (!items.length && !episodes.length) throw new Error('spotify_not_own');
   const meta = { description: unhtml(p?.description || em?.description || ''), owner: p?.owner?.display_name || em?.owner || '', followers: p?.followers?.total || 0, total: items.length, duration: items.reduce((n, x) => n + (x.duration || 0), 0) };
-  return { source: 'spotify', name: p?.name || em?.name || 'Spotify', url, cover: p?.images?.[0]?.url || em?.cover || '', meta, items };
+  meta.duration += episodes.reduce((n, x) => n + (x.duration || 0), 0);
+  return { source: 'spotify', name: p?.name || em?.name || 'Spotify', url, cover: p?.images?.[0]?.url || em?.cover || '', meta, items, episodes };
 }
 export async function spotifyLiked(onProgress) {
   const items = (await spotify.all('/me/tracks?limit=50', undefined, onProgress)).map((x) => spotify.item(x.track)).filter(Boolean);

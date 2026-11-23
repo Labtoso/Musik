@@ -2085,3 +2085,11 @@ body.pod-playing #player [data-act='like'], body.pod-playing #fs [data-act='like
 .gp-pshow .cover { width: 48px; height: 48px; border-radius: 4px; flex: none; }
 .gp-pshow small { display: block; color: var(--g-sub, var(--muted)); }
 .sp-hint { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 18px 0 8px; }
+/* phone, like Spotify's app: Follow and … on the left, the round play button on the right */
+@media (max-width: 899px) {
+  .detail-head .toolbar:has(.podfollow) { display: flex; align-items: center; gap: 14px; width: 100%; }
+  .detail-head .toolbar:has(.podfollow) .podplay { order: 9; margin-left: auto; }
+}
+/* episodes of a Spotify playlist that have no public feed */
+.sp-gone { display: grid; gap: 6px; margin: 18px 0 8px; }
+.sp-gone .sp-hint { display: block; margin: 0; }

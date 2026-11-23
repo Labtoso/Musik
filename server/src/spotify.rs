@@ -266,8 +266,16 @@ pub fn parse_embed(html: &str) -> Option<Value> {
     let id_of = |uri: &str| uri.rsplit(':').next().unwrap_or("").to_string();
     let tracks: Vec<Value> = if let Some(list) = e["trackList"].as_array() {
         list.iter()
-            .filter(|t| t["uri"].as_str().map(|u| u.starts_with("spotify:track:")).unwrap_or(false))
-            .map(|t| json!({ "id": id_of(t["uri"].as_str().unwrap_or("")), "title": t["title"], "artist": t["subtitle"].as_str().unwrap_or("").replace('\u{a0}', " "), "duration": t["duration"].as_f64().unwrap_or(0.0) / 1000.0 }))
+            .filter(|t| t["uri"].as_str().map(|u| u.starts_with("spotify:track:") || u.starts_with("spotify:episode:")).unwrap_or(false))
+            .map(|t| {
+                let uri = t["uri"].as_str().unwrap_or("");
+                let mut o = json!({ "id": id_of(uri), "title": t["title"], "artist": t["subtitle"].as_str().unwrap_or("").replace('\u{a0}', " "), "duration": t["duration"].as_f64().unwrap_or(0.0) / 1000.0 });
+                // podcast episodes in a playlist: the subtitle is the show's name
+                if uri.starts_with("spotify:episode:") {
+                    o["episode"] = json!(true);
+                }
+                o
+            })
             .collect()
     } else {
         let artist = e["artists"].as_array().map(|a| a.iter().filter_map(|x| x["name"].as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();

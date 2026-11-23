@@ -2390,7 +2390,7 @@ async function runSearch(q) {
   // YouTube Music: only songs (the audio tracks), never videos
   if (mode === 'all' || mode === 'ytmusic') later.push(searchYouTubeMusic(q).then((l) => { data.ytm = l; }).catch(() => {}));
   // podcasts and episodes, like Spotify's search shows them below the music
-  if (mode === 'all') later.push(searchPodcasts(q).then((p) => { data.pods = p; }).catch(() => {}));
+  later.push(searchPodcasts(q).then((p) => { data.pods = p; }).catch(() => {}));
   for (const p of later) p.then(() => seq === searchSeq && state.search === data && drawSearch(box, false));
   await Promise.all(later);
   if (seq === searchSeq) drawSearch(box, false, true);
@@ -2409,8 +2409,8 @@ function drawSearch(box, loading, done = false) {
   const playlists = [...d.playlists, ...(cat.playlists || [])];
   const pods = d.pods || { shows: [], episodes: [] };
   const has = { songs: songs.length, artists: artists.length, albums: albums.length, playlists: playlists.length, podcasts: pods.shows.length, episodes: pods.episodes.length };
-  const f = has[state.sfilter] ? state.sfilter : 'all';
-  const chips = `<div class="sfilters">${SFILTERS.filter((k) => k === 'all' || has[k]).map((k) => `<button class="sf ${f === k ? 'on' : ''}" data-sfilter="${k}">${t('sf_' + k)}</button>`).join('')}</div>`;
+  const f = has[state.sfilter] || ['podcasts', 'episodes'].includes(state.sfilter) ? state.sfilter : 'all';
+  const chips = `<div class="sfilters">${SFILTERS.filter((k) => k === 'all' || k === 'podcasts' || k === 'episodes' || has[k]).map((k) => `<button class="sf ${f === k ? 'on' : ''}" data-sfilter="${k}">${t('sf_' + k)}</button>`).join('')}</div>`;
   if (!songs.length && !artists.length && !albums.length && !playlists.length && !pods.shows.length && !pods.episodes.length) {
     box.innerHTML = d.note
       ? `<div class="noresult"><h3>${t(d.note)}</h3><div class="stack"><a class="btn primary" href="#/sources">${t('spotifyConnect')}</a></div></div>`
@@ -2441,8 +2441,8 @@ function drawSearch(box, loading, done = false) {
     if (pods.shows.length) html += section(t('sf_podcasts'), plainAlbumCards(pods.shows.slice(0, 10), true), pods.shows.length > 10 ? `<button class="link" data-sfilter="podcasts">${t('showAll')}</button>` : '');
     if (pods.episodes.length) html += section(t('episodes'), episodeList(pods.episodes.slice(0, 4), { showName: true }), pods.episodes.length > 4 ? `<button class="link" data-sfilter="episodes">${t('showAll')}</button>` : '');
   } else if (f === 'songs') html += trackList(songs);
-  else if (f === 'podcasts') html += plainAlbumCards(pods.shows);
-  else if (f === 'episodes') html += episodeList(pods.episodes, { showName: true });
+  else if (f === 'podcasts') html += pods.shows.length ? plainAlbumCards(pods.shows) : done ? `<p class="muted empty">${t('noResultsFor', { q: d.q })}</p>` : '';
+  else if (f === 'episodes') html += pods.episodes.length ? episodeList(pods.episodes, { showName: true }) : done ? `<p class="muted empty">${t('noResultsFor', { q: d.q })}</p>` : '';
   else if (f === 'artists') html += artistCards(artists);
   else if (f === 'albums') html += plainAlbumCards(albums);
   else html += plainAlbumCards(playlists);
@@ -2831,7 +2831,22 @@ views.spplaylist = async (params) => {
   state.detail = { sppl: tracks };
   state.spPending = { ...r, url: 'https://open.spotify.com/playlist/' + id };
   const m = r.meta || {};
-  const total = tracks.reduce((n, x) => n + (x.duration || 0), 0);
+  const eps = (r.episodes || []).filter((e) => !e.missing);
+  const gone = (r.episodes || []).filter((e) => e.missing);
+  const total = tracks.reduce((n, x) => n + (x.duration || 0), 0) + (r.episodes || []).reduce((n, x) => n + (x.duration || 0), 0);
+  const count = tracks.length && !r.episodes?.length ? songCount(tracks.length) : t('podEpCount', { n: tracks.length + (r.episodes?.length || 0) });
+  // a playlist of podcast episodes looks like Spotify's: episode rows, played from the shows' own feeds
+  if (r.episodes?.length) {
+    state.detail = { sppl: tracks };
+    return detailHeader({
+      coverId: cid,
+      kind: t('playlist'),
+      title: r.name,
+      sub: `${m.description ? `<span class="dh-desc">${esc(m.description)}</span>` : ''}${srcBadge('spotify')} ${m.owner ? `<b>${esc(m.owner)}</b> · ` : ''}${count}, ${fmtLong(total)}`,
+      actions: eps.length ? `<button class="playround podplay" data-epplay="${'pl' + id}:0" title="${t('play')}">${icon('play')}</button>` : ''
+    }) + (eps.length ? episodeList(eps, { showName: true, key: 'pl' + id }) : '') + (tracks.length ? trackList(tracks) : '') +
+      (gone.length ? `<div class="sp-gone"><p class="muted small">${t('podOnlySpotify', { n: gone.length })}</p>${gone.map((g) => `<a class="sp-hint" href="${esc(g.url)}" target="_blank" rel="noopener">${esc(g.title)} <span class="muted">· ${esc(g.showTitle)}</span></a>`).join('')}</div>` : '');
+  }
   return detailHeader({
     coverId: cid,
     kind: t('playlist'),
@@ -4263,9 +4278,9 @@ function epMeta(e) {
   return bits.join('<span class="dot">·</span>');
 }
 /** A list of episode rows like Spotify's: cover, title, two lines of text, date and length, play button. */
-function episodeList(eps, { show = null, showName = false } = {}) {
+function episodeList(eps, { show = null, showName = false, key = '' } = {}) {
   if (!eps.length) return `<p class="muted empty">${t('podNoEps')}</p>`;
-  const key = 'eps' + Math.random().toString(36).slice(2, 8);
+  key = key || 'eps' + Math.random().toString(36).slice(2, 8);
   state.eps = state.eps || {};
   state.eps[key] = { eps, show };
   return `<div class="eplist" data-eplist="${key}">${eps.map((e, i) => epRow(e, i, key, show, showName)).join('')}</div>`;
