@@ -251,11 +251,21 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           cargo test --manifest-path desktop/setup/Cargo.toml
-          $dir = Join-Path $env:LOCALAPPDATA 'Streyn'
+          # program in %APPDATA%\Streyn like Spotify; %LOCALAPPDATA%\Streyn holds the data
+          $dir = Join-Path $env:APPDATA 'Streyn'
+          $old = Join-Path $env:LOCALAPPDATA 'Streyn'
           $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Streyn'
           $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Streyn.lnk'
+          # an installation from before 1.34: its program files must go, its data must stay
+          New-Item -ItemType Directory -Force (Join-Path $old 'Storage\music') | Out-Null
+          Set-Content (Join-Path $old 'Streyn.exe') 'old'
+          Set-Content (Join-Path $old 'streyn-server.exe') 'old'
+          Set-Content (Join-Path $old 'Storage\music\keep.txt') 'song'
           $p = Start-Process -FilePath .\Streyn.exe -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "setup exit code $($p.ExitCode)" }
+          foreach ($f in 'Streyn.exe', 'streyn-server.exe') { if (Test-Path (Join-Path $old $f)) { throw "old $f still in $old" } }
+          if (-not (Test-Path (Join-Path $old 'Storage\music\keep.txt'))) { throw 'old data was removed' }
+          Remove-Item -Recurse -Force $old
           Get-ChildItem $dir | Format-Table Name, Length | Out-String | Write-Host
           foreach ($f in 'Streyn.exe', 'streyn-server.exe') { if (-not (Test-Path (Join-Path $dir $f))) { throw "$f missing" } }
           $extra = Get-ChildItem $dir | Where-Object { $_.Name -notin 'Streyn.exe', 'streyn-server.exe' }
