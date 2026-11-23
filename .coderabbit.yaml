@@ -1,0 +1,101 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Code review settings for Streyn (Labtoso/Musik)
+
+language: de-DE
+tone_instructions: "Sachlich, knapp und konkret. Jeder Hinweis nennt die Ursache, die Folge und einen fertigen Fix. Keine Lobeshymnen, kein Fülltext."
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: true
+  poem: false
+  sequence_diagrams: false
+  changed_files_summary: true
+  auto_review:
+    enabled: true
+    drafts: false
+    # main and every other base branch (also the full-code review branches)
+    base_branches:
+      - ".*"
+  path_filters:
+    - "!**/*.lock"
+    - "!**/package-lock.json"
+    - "!**/vendor/**"
+    - "!**/*.min.js"
+    - "!site/shots/**"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.ico"
+    - "!**/*.icns"
+    - "!.github/releases/**"
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Schwerpunkte, in dieser Reihenfolge:
+        1. Echte Bugs: Logikfehler, Abstürze, Race Conditions, falsche Fehlerbehandlung, Datenverlust.
+        2. Sicherheit: Injection (SQL, Shell, Pfade), fehlende Authentifizierung/Prüfung, offene CORS,
+           Geheimnisse oder Schlüssel im Code, unsichere Downloads/Updates ohne Prüfung.
+        3. Verhalten, das Antivirus/Defender/Triage auffällig findet (die Desktop-App darf sich NIE wie Malware verhalten):
+           keine DLLs oder ausführbaren Dateien droppen oder entpacken, kein WriteProcessMemory/OpenProcess/
+           CreateRemoteThread auf fremde Prozesse, keine unnötigen Systemabfragen (Prozessliste, Registry-Scans,
+           Hardware-/VM-Erkennung), keine versteckten cmd/powershell/ping-Aufrufe, keine Selbstlöschung,
+           keine Verschleierung. Echte Ursachen fixen, nie verschleiern.
+        Reine Stilfragen nur nennen, wenn sie die Lesbarkeit deutlich verschlechtern.
+    - path: "**/*.rs"
+      instructions: |
+        Rust-Qualität: kein unwrap()/expect() auf Daten von außen (Netz, Dateien, Nutzer), Fehler mit ? und
+        sinnvollem Kontext weitergeben. Kein unsafe ohne zwingenden Grund und SAFETY-Kommentar. Keine blockierenden
+        Aufrufe (std::fs, std::thread::sleep, rusqlite) direkt in async-Handlern ohne spawn_blocking.
+        Mutex-Guards nicht über .await halten. SQL nur mit Parametern, nie per format!. Unnötige clone() und
+        Allokationen in heißen Pfaden melden. Clippy-Warnungen beachten.
+    - path: "desktop/**"
+      instructions: |
+        Windows-Desktop-App (Rust/Tauri, eigenes Rust-Setup statt NSIS). Besonders streng auf AV-auffälliges
+        Verhalten prüfen: Installationsstruktur und Prozesse sollen wie bei normalen Apps (z.B. Spotify) aussehen.
+        Jeder neue Zugriff auf Registry, fremde Prozesse, Autostart, Netzwerk-Shells oder temporäre ausführbare
+        Dateien muss begründet sein.
+    - path: "server/**"
+      instructions: |
+        Server (axum + rusqlite) läuft im Heimnetz und optional öffentlich erreichbar. Auf Authentifizierung jeder
+        Route, Pfad-Traversal bei Dateizugriffen, Größenlimits für Uploads und sichere Aufrufe von yt-dlp achten.
+    - path: "android/**"
+      instructions: |
+        Android (Kotlin, Media3). Auf Lifecycle-Fehler, Leaks im Wiedergabedienst, Hintergrund-Wiedergabe und
+        unnötige Berechtigungen achten.
+    - path: "{web,site}/**/*.{js,html,css}"
+      instructions: |
+        Web-Oberfläche. Auf XSS (innerHTML mit fremden Daten), unbehandelte Promise-Fehler und Speicherlecks
+        (Event-Listener, Animationen, WebGL-Ressourcen) achten.
+    - path: ".github/workflows/**"
+      instructions: |
+        CI: keine Geheimnisse in Logs, Actions mit fester Version, minimale permissions, keine Script-Injection
+        über ${{ github.event.* }}.
+    - path: "deploy/**"
+      instructions: |
+        Installationsskripte für Proxmox/ZimaOS: set -euo pipefail, Variablen quoten, keine unsicheren
+        curl | bash ohne festen Pfad, Abbruch bei Fehlern.
+  tools:
+    clippy:
+      enabled: true
+    gitleaks:
+      enabled: true
+    shellcheck:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: false
+    languagetool:
+      enabled: false
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: local
