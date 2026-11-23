@@ -533,6 +533,8 @@ class MainActivity : ComponentActivity() {
             if (c.currentMediaItemIndex > 0) c.seekToDefaultPosition(c.currentMediaItemIndex - 1) else c.seekTo(0)
         }
         @JavascriptInterface fun setVolume(v: Double) = withController { c -> c.volume = v.toFloat().coerceIn(0f, 1f) }
+        // podcasts: 0.5x to 3x, the pitch stays (songs always get 1x from the page)
+        @JavascriptInterface fun setSpeed(v: Double) = withController { c -> c.setPlaybackSpeed(v.toFloat().coerceIn(0.5f, 3f)) }
         @JavascriptInterface fun setRepeat(mode: String) = withController { c ->
             c.repeatMode = when (mode) {
                 "one" -> Player.REPEAT_MODE_ONE

@@ -103,6 +103,31 @@ export function ytSongUrl(t) {
 export function ytAudioUrl(vid) {
   return `${conn.server}/api/ytaudio/${encodeURIComponent(vid)}?t=${conn.token}&q=${audioPrefs.q}`;
 }
+/** The sound of a podcast episode, passed on by the server (seeking, equalizer and the phone player work like with songs). */
+export function podAudioUrl(show, ep) {
+  return `${conn.server}/api/podcasts/audio/${encodeURIComponent(show)}/${encodeURIComponent(ep)}?t=${conn.token}`;
+}
+/** Pictures of podcast shows and episodes, kept on this device so a queue reloaded later still has them. */
+const PODART_KEY = 'musik.podArt';
+export const podArt = new Map((() => {
+  try {
+    return JSON.parse(localStorage.getItem(PODART_KEY) || '[]');
+  } catch {
+    return [];
+  }
+})());
+let podArtTimer = 0;
+export function keepPodArt(id, url) {
+  if (!url || podArt.get(id) === url) return;
+  podArt.delete(id);
+  podArt.set(id, url);
+  clearTimeout(podArtTimer);
+  podArtTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(PODART_KEY, JSON.stringify([...podArt].slice(-600)));
+    } catch {}
+  }, 500);
+}
 export function streamUrl(id) {
   return `${conn.server}/api/stream/${id}?t=${conn.token}`;
 }
@@ -112,6 +137,8 @@ export function coverUrl(id) {
   if (typeof id === 'string') {
     const c = extCovers.get(id);
     if (c) return c;
+    const pc = podArt.get(id);
+    if (pc) return pc;
     // YouTube songs always have a picture under their video id, also when none was stored with them
     const yt = /^(youtube|ytmusic):([\w-]{11})$/.exec(id);
     return yt ? `https://i.ytimg.com/vi/${yt[2]}/hqdefault.jpg` : '';

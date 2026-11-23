@@ -73,6 +73,9 @@ const P = {
   sort: '<path d="M7 5v14M4 16l3 3 3-3"/><path d="M17 19V5M14 8l3-3 3 3"/>',
   expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   drag: '<path d="M8 7h8M8 12h8M8 17h8"/>',
+  // podcasts: 15 seconds back and forward
+  back15: '<path d="M9.5 4.9A7.5 7.5 0 1 1 4.8 9.6"/><path d="M9.9 2.3 7.3 4.9l2.6 2.5"/><text x="12" y="15.2" text-anchor="middle" font-size="7.2" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">15</text>',
+  fwd15: '<path d="M14.5 4.9A7.5 7.5 0 1 0 19.2 9.6"/><path d="M14.1 2.3l2.6 2.6-2.6 2.5"/><text x="12" y="15.2" text-anchor="middle" font-size="7.2" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">15</text>',
   album: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/>',
   mix: '<path d="M4 17c3 0 4-10 8-10s5 10 8 10"/>',
   server: '<rect x="4" y="4.5" width="16" height="6" rx="1.6"/><rect x="4" y="13.5" width="16" height="6" rx="1.6"/><path d="M7.5 7.5h.01M7.5 16.5h.01M11 7.5h5M11 16.5h5"/>',

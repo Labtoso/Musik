@@ -6,6 +6,7 @@ mod invite;
 mod library;
 mod mixes;
 mod offline;
+mod podcast;
 mod presence;
 mod recommend;
 mod spotify;
@@ -188,6 +189,7 @@ fn main() {
         println!("Open: {}", addrs.join("  "));
 
         api::start_scan(&state);
+        podcast::start_refresher(state.clone());
         if scan_minutes > 0 {
             let st = state.clone();
             tokio::spawn(async move {

@@ -1,7 +1,7 @@
 // Queue + playback. Two engines with the same interface:
 //  - HtmlEngine: <audio> element (browser, desktop)
 //  - NativeEngine: Android bridge (ExoPlayer service, keeps playing in background)
-import { api, streamUrl, coverUrl, post, get, ytSongUrl, ytAudioUrl, audioOut, extCovers, audioPrefs } from './api.js';
+import { api, streamUrl, coverUrl, post, get, ytSongUrl, ytAudioUrl, podAudioUrl, audioOut, extCovers, audioPrefs } from './api.js';
 import { extTrack } from './sources.js';
 import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showStage } from './engines.js';
 import { toBands } from './viz.js';
@@ -276,6 +276,10 @@ class HtmlEngine extends EventTarget {
     showStage('');
     if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
     this.audio.src = it.url;
+    // podcasts play at their own speed, songs always at normal speed
+    const rate = it.pod ? this.rate || 1 : 1;
+    this.audio.defaultPlaybackRate = rate;
+    this.audio.playbackRate = rate;
     if (pos) {
       const seek = () => {
         this.audio.currentTime = pos;
@@ -285,6 +289,14 @@ class HtmlEngine extends EventTarget {
     }
     if (autoplay) this.audio.play().catch(() => this.#emit('playing', { playing: false }));
     this.#emit('index', { index: i, reason });
+  }
+  /** Playback speed of podcast episodes (songs keep 1×). */
+  setSpeed(r) {
+    this.rate = r;
+    if (this.items[this.index]?.pod && !this.active) {
+      this.audio.defaultPlaybackRate = r;
+      this.audio.playbackRate = r;
+    }
   }
   setQueue(items, index, pos = 0, autoplay = true) {
     this.items = items.slice();
@@ -461,6 +473,11 @@ class NativeEngine extends EventTarget {
   setRepeat(mode) {
     this.b.setRepeat(mode);
   }
+  setSpeed(r) {
+    try {
+      this.b.setSpeed?.(r);
+    } catch {}
+  }
   get position() {
     return this.pos;
   }
@@ -497,6 +514,8 @@ function songOf(t) {
   return { id: t.id, title: t.title, artist: t.artist || '', album: t.album || '', duration: t.duration || 0, cover: extCovers.get(t.id) || '', source: t.ext.source, ext_id: String(t.ext.id), url: t.ext.url || '', ext: t.ext };
 }
 function toItem(t) {
+  // a podcast episode: the server passes the show's own audio file on
+  if (t.pod) return { id: t.id, url: podAudioUrl(t.pod.show, t.pod.ep), pod: true, title: t.title, artist: t.artist || '', album: t.album || '', artwork: coverUrl(t.id), duration: t.duration || 0 };
   if (streams(t)) return { id: t.id, ext: t.ext, url: streamOf(t), streamed: true, title: t.title, artist: t.artist || '', album: t.album || '', artwork: coverUrl(t.id), duration: t.duration || 0 };
   if (t.ext) return { id: t.id, ext: t.ext, url: '', title: t.title, artist: t.artist || '', album: t.album || '', artwork: coverUrl(t.id), duration: t.duration || 0 };
   return {
@@ -558,6 +577,13 @@ export class Player extends EventTarget {
     this.buffering = false;
     this.repeat = 'off';
     this.shuffled = false;
+    this.podSpeed = (() => {
+      try {
+        return Number(localStorage.getItem('musik.podSpeed')) || 1;
+      } catch {
+        return 1;
+      }
+    })();
     this.volume = 1;
     this.autoplay = true;
     this.listen = null; // { id, played, duration, last }
@@ -770,6 +796,7 @@ export class Player extends EventTarget {
     this.position = 0;
     const cur = this.current;
     this.duration = cur?.duration || 0;
+    if (this.native) this.#applySpeed(cur);
     if (cur && reason !== 'end') this.listen = { id: cur.id, played: 0, duration: cur.duration || 0, last: 0, song: songOf(cur) };
     this.#emit('change');
     this.#updateSession();
@@ -777,6 +804,7 @@ export class Player extends EventTarget {
   }
 
   async #maybeExtend() {
+    if (this.current?.pod) return;
     if (!this.autoplay || this.repeat !== 'off' || this.fetchingMore || !this.current) return;
     if (this.queue.length - this.index - 1 >= 2) return;
     this.fetchingMore = true;
@@ -800,7 +828,7 @@ export class Player extends EventTarget {
   }
 
   // ---------- queue control ----------
-  playList(tracks, start = 0, { shuffle = false } = {}) {
+  playList(tracks, start = 0, { shuffle = false, at = 0 } = {}) {
     if (!tracks.length) return;
     this.#finishListen('skip');
     let list = tracks.slice();
@@ -818,8 +846,31 @@ export class Player extends EventTarget {
     this.index = -1;
     this.listen = null;
     this.#pickEngine(list);
-    this.engine.setQueue(list.map(toItem), idx, 0, true);
+    this.#applySpeed(list[idx]);
+    this.engine.setQueue(list.map(toItem), idx, shuffle ? 0 : at || 0, true);
     this.#emit('change');
+  }
+  /** Podcast speed (0.5× to 3×), kept on this device; songs always play at 1×. */
+  get speed() {
+    return this.podSpeed || 1;
+  }
+  setSpeed(r) {
+    this.podSpeed = Math.min(3, Math.max(0.5, Number(r) || 1));
+    try {
+      localStorage.setItem('musik.podSpeed', String(this.podSpeed));
+    } catch {}
+    this.#applySpeed(this.current);
+    this.#emit('state');
+  }
+  #applySpeed(cur) {
+    const r = cur?.pod ? this.speed : 1;
+    this.htmlEngine?.setSpeed(this.speed);
+    if (this.native) this.nativeEngine.setSpeed(r);
+  }
+  /** Back or forward by some seconds (podcasts: 15). */
+  skipBy(sec) {
+    const d = this.duration || this.current?.duration || 0;
+    this.seek(Math.max(0, Math.min(d ? d - 1 : Infinity, this.position + sec)));
   }
 
   #localShuffle(list) {
@@ -987,7 +1038,9 @@ export class Player extends EventTarget {
       pause: () => this.pause(),
       nexttrack: () => this.next(),
       previoustrack: () => this.prev(),
-      seekto: (d) => this.seek(d.seekTime)
+      seekto: (d) => this.seek(d.seekTime),
+      seekbackward: (d) => this.skipBy(-(d?.seekOffset || 15)),
+      seekforward: (d) => this.skipBy(d?.seekOffset || 15)
     };
     for (const [k, fn] of Object.entries(h)) {
       try {

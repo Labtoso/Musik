@@ -1,4 +1,4 @@
-import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, sameInfo, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers } from './api.js';
+import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, sameInfo, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers, keepPodArt } from './api.js';
 import { LOGOS } from './logos.js';
 import { Player, EQ_FREQS, warmSongs, preloadSongs } from './player.js';
 import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong, DISCORD_URL, openExternal as openExt } from './sources.js';
@@ -816,6 +816,8 @@ function fmtTime(sec) {
 const findArtistHref = (name, src = '') => `#/findartist?name=${encodeURIComponent(name)}${src ? '&src=' + encodeURIComponent(src) : ''}`;
 function artistRefs(tr) {
   if (!tr) return [];
+  // a podcast episode: the show stands where the artist would
+  if (tr.pod) return tr.pod.showTitle ? [{ name: tr.pod.showTitle, href: `#/podcast/${tr.pod.show}` }] : [];
   if (!tr.ext) {
     const n = tr.artist || tr.album_artist;
     return n ? [{ name: n, href: `#/artist?name=${encodeURIComponent(n)}` }] : [];
@@ -2227,7 +2229,7 @@ function rememberSearch(q) {
     localStorage.setItem(RECENT_KEY, JSON.stringify(l));
   } catch {}
 }
-const SFILTERS = ['all', 'songs', 'artists', 'albums', 'playlists'];
+const SFILTERS = ['all', 'songs', 'artists', 'albums', 'playlists', 'podcasts', 'episodes'];
 views.search = async (params) => {
   const q = params.get('q') || '';
   state.sfilter = 'all';
@@ -2348,7 +2350,7 @@ async function runSearch(q) {
   if (!q.trim()) return browseView(box);
   const mode = searchMode();
   const lq = q.trim().toLowerCase();
-  const data = { q, mode, tracks: [], artists: [], albums: [], playlists: [], cat: null, ytm: [], note: '' };
+  const data = { q, mode, tracks: [], artists: [], albums: [], playlists: [], cat: null, ytm: [], note: '', pods: { shows: [], episodes: [] } };
   if (mode === 'all') {
     const [tr, albums, artists, pls] = await Promise.all([
       get('/api/tracks?limit=50&q=' + encodeURIComponent(q)).catch(() => ({ items: [] })),
@@ -2387,6 +2389,8 @@ async function runSearch(q) {
   if (mode === 'all' && !useSpotify) later.push(deezer().catch(() => {}));
   // YouTube Music: only songs (the audio tracks), never videos
   if (mode === 'all' || mode === 'ytmusic') later.push(searchYouTubeMusic(q).then((l) => { data.ytm = l; }).catch(() => {}));
+  // podcasts and episodes, like Spotify's search shows them below the music
+  if (mode === 'all') later.push(searchPodcasts(q).then((p) => { data.pods = p; }).catch(() => {}));
   for (const p of later) p.then(() => seq === searchSeq && state.search === data && drawSearch(box, false));
   await Promise.all(later);
   if (seq === searchSeq) drawSearch(box, false, true);
@@ -2403,10 +2407,11 @@ function drawSearch(box, loading, done = false) {
   const artists = [...d.artists, ...cat.artists.filter((a) => !d.artists.some((x) => x.name.toLowerCase() === a.name.toLowerCase()))];
   const albums = [...d.albums, ...cat.albums];
   const playlists = [...d.playlists, ...(cat.playlists || [])];
-  const has = { songs: songs.length, artists: artists.length, albums: albums.length, playlists: playlists.length };
+  const pods = d.pods || { shows: [], episodes: [] };
+  const has = { songs: songs.length, artists: artists.length, albums: albums.length, playlists: playlists.length, podcasts: pods.shows.length, episodes: pods.episodes.length };
   const f = has[state.sfilter] ? state.sfilter : 'all';
   const chips = `<div class="sfilters">${SFILTERS.filter((k) => k === 'all' || has[k]).map((k) => `<button class="sf ${f === k ? 'on' : ''}" data-sfilter="${k}">${t('sf_' + k)}</button>`).join('')}</div>`;
-  if (!songs.length && !artists.length && !albums.length && !playlists.length) {
+  if (!songs.length && !artists.length && !albums.length && !playlists.length && !pods.shows.length && !pods.episodes.length) {
     box.innerHTML = d.note
       ? `<div class="noresult"><h3>${t(d.note)}</h3><div class="stack"><a class="btn primary" href="#/sources">${t('spotifyConnect')}</a></div></div>`
       : loading || !done
@@ -2419,22 +2424,31 @@ function drawSearch(box, loading, done = false) {
   if (f === 'all') {
     // top result: an artist that matches the words exactly, else the first song
     const topArtist = artists.find((a) => a.name.toLowerCase() === lq) || (!songs.length ? artists[0] : null);
-    const topSong = !topArtist ? songs[0] : null;
-    const top = topArtist
+    // a show whose name is the words (or nothing else was found) is the top result, like on Spotify
+    const topShow = !artists.some((a) => a.name.toLowerCase() === lq) ? pods.shows.find((x) => x.title.toLowerCase() === lq) || (!songs.length && !topArtist ? pods.shows[0] : null) : null;
+    const topSong = !topArtist && !topShow ? songs[0] : null;
+    const top = topShow
+      ? `<a class="topres" href="${topShow.href}">${coverImg(topShow.cover)}<div class="tr-text"><div class="tr-title">${esc(topShow.title)}</div><div class="tr-sub">${esc(topShow.artist)} <span class="pill">${t('podcast')}</span></div></div></a>`
+      : topArtist
       ? `<a class="topres" href="${topArtist.href}">${coverImg(topArtist.cover, 'round')}<div class="tr-text"><div class="tr-title">${esc(topArtist.name)}</div><div class="tr-sub"><span class="pill">${t('artist')}</span></div></div><span class="tr-play">${icon('play')}</span></a>`
-      : `<button class="topres" data-topsong>${coverImg(topSong.id)}<div class="tr-text"><div class="tr-title">${esc(topSong.title)}</div><div class="tr-sub">${esc(artistName(topSong))} <span class="pill">${topSong.ext ? srcBadge(topSong.ext.source) : t('song')}</span></div></div><span class="tr-play">${icon('play')}</span></button>`;
+      : !topSong ? '' : `<button class="topres" data-topsong>${coverImg(topSong.id)}<div class="tr-text"><div class="tr-title">${esc(topSong.title)}</div><div class="tr-sub">${esc(artistName(topSong))} <span class="pill">${topSong.ext ? srcBadge(topSong.ext.source) : t('song')}</span></div></div><span class="tr-play">${icon('play')}</span></button>`;
     state.topSong = topSong;
     const first = [...d.tracks, ...cat.tracks].length ? [...d.tracks, ...cat.tracks] : songs;
-    html += `<div class="sgrid"><section class="sec"><div class="sec-head"><h2>${t('topResult')}</h2></div>${top}</section>${first.length ? `<section class="sec"><div class="sec-head"><h2>${t('tracks')}</h2>${songs.length > 4 ? `<button class="link" data-sfilter="songs">${t('showAll')}</button>` : ''}</div>${trackList(first.slice(0, 4), { album: false })}</section>` : ''}</div>`;
+    html += `<div class="sgrid">${top ? `<section class="sec"><div class="sec-head"><h2>${t('topResult')}</h2></div>${top}</section>` : ''}${first.length ? `<section class="sec"><div class="sec-head"><h2>${t('tracks')}</h2>${songs.length > 4 ? `<button class="link" data-sfilter="songs">${t('showAll')}</button>` : ''}</div>${trackList(first.slice(0, 4), { album: false })}</section>` : ''}</div>`;
     if (artists.length) html += section(t('artists'), artistCards(artists.slice(0, 10), true), artists.length > 10 ? `<button class="link" data-sfilter="artists">${t('showAll')}</button>` : '');
     if (albums.length) html += section(t('albums'), plainAlbumCards(albums.slice(0, 10), true), albums.length > 10 ? `<button class="link" data-sfilter="albums">${t('showAll')}</button>` : '');
     if (playlists.length) html += section(t('playlists'), plainAlbumCards(playlists.slice(0, 10), true));
+    if (pods.shows.length) html += section(t('sf_podcasts'), plainAlbumCards(pods.shows.slice(0, 10), true), pods.shows.length > 10 ? `<button class="link" data-sfilter="podcasts">${t('showAll')}</button>` : '');
+    if (pods.episodes.length) html += section(t('episodes'), episodeList(pods.episodes.slice(0, 4), { showName: true }), pods.episodes.length > 4 ? `<button class="link" data-sfilter="episodes">${t('showAll')}</button>` : '');
   } else if (f === 'songs') html += trackList(songs);
+  else if (f === 'podcasts') html += plainAlbumCards(pods.shows);
+  else if (f === 'episodes') html += episodeList(pods.episodes, { showName: true });
   else if (f === 'artists') html += artistCards(artists);
   else if (f === 'albums') html += plainAlbumCards(albums);
   else html += plainAlbumCards(playlists);
   if (!done) html += `<p class="muted small">${t('searchingMore')}</p>`;
   box.innerHTML = html;
+  paintEpisodes();
 }
 async function browseView(box) {
   const recent = recentSearches();
@@ -2447,6 +2461,7 @@ async function browseView(box) {
     ['#/library?tab=albums', t('albums'), 205],
     ['#/library?tab=artists', t('artists'), 160],
     ['#/library?tab=playlists', t('playlists'), 32],
+    ['#/podcasts', t('podcasts'), 120],
     ['#/add', t('importAdd'), 12]
   ];
   let html = '';
@@ -2864,7 +2879,7 @@ async function cached(key, fn) {
   return state.cache[key];
 }
 
-const LIB_TABS = ['tracks', 'albums', 'artists', 'playlists', 'imported'];
+const LIB_TABS = ['tracks', 'albums', 'artists', 'playlists', 'podcasts', 'imported'];
 views.library = async (params) => {
   const tab = LIB_TABS.includes(params.get('tab')) ? params.get('tab') : 'tracks';
   let body = '';
@@ -2887,6 +2902,8 @@ views.library = async (params) => {
         (a) => `<a class="card artist" href="#/artist?name=${encodeURIComponent(a.name)}">${coverImg(a.cover_id, 'lg round')}<div class="c-title">${esc(a.name)}</div><div class="c-sub">${songCount(a.tracks)}</div></a>`
       )
       .join('')}</div>`;
+  } else if (tab === 'podcasts') {
+    body = await libPodcasts();
   } else if (tab === 'imported') {
     const list = (await get('/api/imports')).filter((im) => !im.kept);
     body = `<div class="libbar"><a class="sortbtn" href="#/add">${icon('download')}<span>${t('importAdd')}</span></a></div>
@@ -4166,6 +4183,470 @@ document.addEventListener('drop', (e) => {
   dragFrom = null;
 });
 
+// ---------- podcasts, like on Spotify ----------
+// Shows, charts and categories from the public Apple Podcasts directory, the episodes from each
+// show's own RSS feed, the sound through the server. Followed shows and where an episode was left
+// off are kept in the account, so every device goes on at the same second.
+/** Country for the charts and the search: from the device language (de-AT → at), else de or us. */
+function podCC() {
+  const reg = String(navigator.language || '').split('-')[1] || '';
+  return /^[a-z]{2}$/i.test(reg) ? reg.toLowerCase() : getLang() === 'de' ? 'de' : 'us';
+}
+const POD_GENRES = [
+  [1303, 'Comedy', 'Comedy'], [1324, 'Society & Culture', 'Gesellschaft & Kultur'], [1488, 'True Crime', 'True Crime'], [1311, 'News', 'Nachrichten'],
+  [1489, 'News', 'Nachrichten'], [1321, 'Business', 'Wirtschaft'], [1304, 'Education', 'Bildung'], [1533, 'Science', 'Wissenschaft'],
+  [1487, 'History', 'Geschichte'], [1512, 'Health & Fitness', 'Gesundheit & Fitness'], [1545, 'Sports', 'Sport'], [1318, 'Technology', 'Technologie'],
+  [1309, 'TV & Film', 'TV & Film'], [1310, 'Music', 'Musik'], [1305, 'Kids & Family', 'Kinder & Familie'], [1483, 'Fiction', 'Fiktion'],
+  [1502, 'Leisure', 'Freizeit'], [1314, 'Religion & Spirituality', 'Religion & Spiritualität'], [1301, 'Arts', 'Kunst']
+].filter((g, i, a) => a.findIndex((x) => x[1] === g[1]) === i);
+const podGenreName = (g) => (getLang() === 'de' ? g[2] : g[1]);
+
+let podSubs = null;
+async function loadPodSubs(force = false) {
+  if (!podSubs || force) podSubs = await get('/api/podcasts/subs').catch(() => podSubs || []);
+  return podSubs;
+}
+const isPodFollowed = (id) => !!podSubs?.some((s) => s.id === Number(id));
+
+/** A show as a card (cover through extCovers like the other platforms). */
+function podCard(s) {
+  const id = 'pod:' + s.id;
+  if (s.cover) {
+    extCovers.set(id, s.cover);
+    keepPodArt(id, s.cover);
+  }
+  return { title: s.title, artist: s.author || t('podcast'), cover: id, href: `#/podcast/${s.id}` };
+}
+/** An episode as something the player can hold. */
+function epTrack(e, show = {}) {
+  const id = `ep:${e.show}:${e.id}`;
+  const cover = e.cover || show.cover || '';
+  if (cover) {
+    extCovers.set(id, cover);
+    keepPodArt(id, cover);
+  }
+  const showTitle = e.showTitle || show.title || '';
+  return {
+    id,
+    title: e.title,
+    artist: showTitle,
+    album: showTitle,
+    duration: e.duration || 0,
+    pod: { show: Number(e.show), ep: e.id, showTitle, author: e.author || show.author || '', date: e.date || 0, cover, desc: e.desc || '', pos: e.pos || 0, done: !!e.done }
+  };
+}
+const podPct = (e) => (e.duration ? Math.min(100, Math.round(((e.pos || 0) / e.duration) * 100)) : 0);
+function podLeft(e) {
+  const left = Math.max(0, (e.duration || 0) - (e.pos || 0));
+  return left >= 3600 ? t('podLeftH', { h: Math.floor(left / 3600), m: Math.round((left % 3600) / 60) }) : t('podLeft', { m: Math.max(1, Math.round(left / 60)) });
+}
+/** Live state of an episode: what the player knows beats what the page was drawn with. */
+function epNow(e) {
+  const cur = player?.current;
+  if (cur?.pod && cur.pod.ep === e.id && Number(cur.pod.show) === Number(e.show)) return { ...e, pos: player.position || e.pos, duration: player.duration || e.duration, done: false };
+  const m = podMemo.get(`${e.show}:${e.id}`);
+  return m ? { ...e, ...m } : e;
+}
+// what was saved on this device since the page was drawn
+const podMemo = new Map();
+function epMeta(e) {
+  const x = epNow(e);
+  const date = x.date ? fmtDate(x.date) : '';
+  const bits = [];
+  if (x.explicit) bits.push('<span class="ep-e" title="Explicit">E</span>');
+  if (date) bits.push(`<span>${esc(date)}</span>`);
+  if (x.done) bits.push(`<span class="ep-done">${icon('check')}${t('podPlayed')}</span>`);
+  else if (x.pos > 5 && x.duration) bits.push(`<span>${podLeft(x)}</span><span class="ep-bar"><i style="width:${podPct(x)}%"></i></span>`);
+  else if (x.duration) bits.push(`<span>${fmtLong(x.duration)}</span>`);
+  return bits.join('<span class="dot">·</span>');
+}
+/** A list of episode rows like Spotify's: cover, title, two lines of text, date and length, play button. */
+function episodeList(eps, { show = null, showName = false } = {}) {
+  if (!eps.length) return `<p class="muted empty">${t('podNoEps')}</p>`;
+  const key = 'eps' + Math.random().toString(36).slice(2, 8);
+  state.eps = state.eps || {};
+  state.eps[key] = { eps, show };
+  return `<div class="eplist" data-eplist="${key}">${eps.map((e, i) => epRow(e, i, key, show, showName)).join('')}</div>`;
+}
+function epRow(e, i, key, show, showName) {
+  const tr = epTrack(e, show || {});
+  const href = `#/episode/${e.show}/${encodeURIComponent(e.id)}`;
+  return `<div class="ep-row" data-i="${i}" data-epid="${esc(e.show + ':' + e.id)}">
+    <a class="ep-cover" href="${href}">${coverImg(tr.id, 'lg')}</a>
+    <div class="ep-body">
+      <a class="ep-title" href="${href}">${esc(e.title)}</a>
+      ${showName ? `<a class="ep-show" href="#/podcast/${e.show}">${esc(e.showTitle || '')}</a>` : ''}
+      ${e.desc ? `<div class="ep-desc">${esc(e.desc)}</div>` : ''}
+      <div class="ep-foot"><button class="ep-play" data-epplay="${key}:${i}" title="${t('play')}">${icon('play')}</button><span class="ep-meta">${epMeta(e)}</span><span class="grow"></span><button class="icon-btn ep-more" data-epmore="${key}:${i}" title="${t('more')}">${icon('more')}</button></div>
+    </div>
+  </div>`;
+}
+function epFrom(ref) {
+  const [key, i] = String(ref).split(':');
+  const box = state.eps?.[key];
+  return box ? { list: box.eps, i: Number(i), e: box.eps[Number(i)], show: box.show } : null;
+}
+const isCurrentEp = (e) => {
+  const c = player?.current;
+  return !!c?.pod && c.pod.ep === e.id && Number(c.pod.show) === Number(e.show);
+};
+/** Play an episode where it was left off; the newer ones of the same show follow, like Spotify's autoplay. */
+function playEpisode(list, i, show) {
+  const e = list[i];
+  if (!e) return;
+  if (isCurrentEp(e)) return player.toggle();
+  const x = epNow(e);
+  const sameShow = list.filter((y) => Number(y.show) === Number(e.show));
+  const after = show ? sameShow.filter((y) => y.date > e.date && !epNow(y).done).sort((a, b) => a.date - b.date).slice(0, 10) : [];
+  const tracks = [e, ...after].map((y) => epTrack(y, show || {}));
+  player.playList(tracks, 0, { at: !x.done && x.pos > 5 && x.pos < (x.duration || Infinity) - 10 ? x.pos : 0 });
+}
+function paintEpisodes() {
+  document.querySelectorAll('[data-epplay]').forEach((b) => {
+    const r = epFrom(b.dataset.epplay);
+    if (!r?.e) return;
+    const on = isCurrentEp(r.e) && player.playing;
+    if (b.dataset.on !== String(on)) {
+      b.dataset.on = String(on);
+      b.innerHTML = icon(on ? 'pause' : 'play');
+      b.title = t(on ? 'pause' : 'play');
+    }
+    b.closest('.ep-row')?.classList.toggle('current', isCurrentEp(r.e));
+    const meta = b.parentElement.querySelector('.ep-meta');
+    if (meta) {
+      const html = epMeta(r.e);
+      if (meta.innerHTML !== html) meta.innerHTML = html;
+    }
+  });
+  document.querySelectorAll('[data-podplay]').forEach((b) => {
+    const e = state.podPage?.episodes?.find((x) => isCurrentEp(x));
+    const on = !!e && player.playing;
+    if (b.dataset.on === String(on)) return;
+    b.dataset.on = String(on);
+    b.innerHTML = icon(on ? 'pause' : 'play');
+  });
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-epplay]');
+  if (b) {
+    const r = epFrom(b.dataset.epplay);
+    if (r?.e) playEpisode(r.list, r.i, r.show);
+    return;
+  }
+  const m = e.target.closest('[data-epmore]');
+  if (m) {
+    const r = epFrom(m.dataset.epmore);
+    if (r?.e) epMenu(m, r.e, r.show);
+  }
+});
+function epMenu(anchor, e, show) {
+  const x = epNow(e);
+  const tr = epTrack(e, show || {});
+  menu(anchor, [
+    { label: t('playNext'), icon: 'queue', run: () => player.playNext([tr]) },
+    { label: t('addQueue'), icon: 'plus', run: () => player.add([tr]) },
+    '-',
+    { label: t(x.done ? 'podMarkUnplayed' : 'podMarkPlayed'), icon: 'check', run: () => markEpisode(e, !x.done) },
+    { label: t('podGoShow'), icon: 'mic', run: () => go(`#/podcast/${e.show}`) },
+    { label: t('podGoEpisode'), icon: 'note', run: () => go(`#/episode/${e.show}/${encodeURIComponent(e.id)}`) }
+  ]);
+}
+async function markEpisode(e, done) {
+  podMemo.set(`${e.show}:${e.id}`, { done, pos: done ? 0 : 0 });
+  paintEpisodes();
+  await put('/api/podcasts/progress', { show: Number(e.show), ep: e.id, pos: 0, dur: e.duration || 0, done, meta: epMetaFor(e) });
+  toast(t(done ? 'podMarkedPlayed' : 'podMarkedUnplayed'));
+  if (state.route === 'episode') render();
+}
+const epMetaFor = (e) => ({ title: e.title, showTitle: e.showTitle || '', author: e.author || '', cover: e.cover || '', date: e.date || 0, desc: String(e.desc || '').slice(0, 300) });
+
+// ---------- following a show ----------
+function podFollowBtn(s) {
+  const on = isPodFollowed(s.id);
+  return `<button class="btn follow podfollow${on ? ' on' : ''}" data-podfollow="${s.id}">${icon(on ? 'check' : 'plus')}<span>${t(on ? 'following' : 'follow')}</span></button>`;
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-podfollow]');
+  if (!b) return;
+  const id = Number(b.dataset.podfollow);
+  const s = state.podPage?.id === id ? state.podPage : podSubs?.find((x) => x.id === id) || { id };
+  const on = !isPodFollowed(id);
+  try {
+    if (on) await put(`/api/podcasts/subs/${id}`, { title: s.title || '', author: s.author || '', cover: s.cover || '' });
+    else await del(`/api/podcasts/subs/${id}`);
+    await loadPodSubs(true);
+    document.querySelectorAll(`[data-podfollow="${id}"]`).forEach((x) => {
+      x.classList.toggle('on', on);
+      x.innerHTML = `${icon(on ? 'check' : 'plus')}<span>${t(on ? 'following' : 'follow')}</span>`;
+    });
+    renderSidebarPlaylists();
+    toast(t(on ? 'followed' : 'unfollowed', { name: s.title || t('podcast') }));
+  } catch (err) {
+    toast(errorText(err));
+  }
+});
+
+// ---------- pages ----------
+/** Podcasts: go on listening, your shows, new episodes, the charts and the categories. */
+views.podcasts = async (params) => {
+  const genre = Number(params.get('genre')) || 0;
+  const cc = podCC();
+  if (genre) {
+    const g = POD_GENRES.find((x) => x[0] === genre);
+    const top = await get(`/api/podcasts/top?cc=${cc}&genre=${genre}`).catch(() => []);
+    return `${pageHead(esc(g ? podGenreName(g) : t('podcasts')))}<button class="mback" data-back title="${t('back')}">${icon('back')}</button>${top.length ? plainAlbumCards(top.map(podCard)).replace('class="cards"', 'class="cards libgrid"') : `<p class="muted empty">${t('podUnreachable')}</p>`}`;
+  }
+  const [subs, cont, fresh, top] = await Promise.all([loadPodSubs(true), get('/api/podcasts/continue').catch(() => []), get('/api/podcasts/new?limit=12').catch(() => []), get(`/api/podcasts/top?cc=${cc}`).catch(() => [])]);
+  let html = pageHead(t('podcasts'));
+  if (cont.length) html += section(t('podContinue'), episodeList(cont, { showName: true }));
+  if (subs.length) html += section(t('podYourShows'), plainAlbumCards(subs.map(podCard), true));
+  if (fresh.length) html += section(t('podNew'), episodeList(fresh.slice(0, 6), { showName: true }));
+  if (top.length) html += section(t('podTop'), plainAlbumCards(top.slice(0, 30).map(podCard), true));
+  html += section(t('podCategories'), `<div class="browse">${POD_GENRES.map((g, i) => `<a class="bt hue" href="#/podcasts?genre=${g[0]}" style="--h:${(i * 53 + 18) % 360}"><span>${esc(podGenreName(g))}</span></a>`).join('')}</div>`);
+  if (!cont.length && !subs.length && !top.length) html += `<p class="muted empty">${t('podFollowNone')}</p>`;
+  return html;
+};
+
+/** A show like on Spotify: cover, name, who makes it, Follow, About, all episodes. */
+views.podcast = async (params, id) => {
+  const sid = Number(id);
+  const sort = params.get('sort') === 'old' ? 'old' : 'new';
+  const [s] = await Promise.all([get(`/api/podcasts/show/${sid}`), loadPodSubs()]);
+  state.podPage = s;
+  const cid = 'pod:' + sid;
+  if (s.cover) {
+    extCovers.set(cid, s.cover);
+    keepPodArt(cid, s.cover);
+  }
+  const eps = sort === 'old' ? s.episodes.slice().reverse() : s.episodes;
+  const shown = Number(params.get('n')) || 50;
+  const more = eps.length > shown ? `<button class="btn ghost podmore" data-podmore="${shown + 50}">${t('podShowMore')}</button>` : '';
+  const about = s.desc ? `<section class="sec podabout"><div class="sec-head"><h2>${t('podAbout')}</h2></div><div class="pod-desc clamp" data-clamp>${esc(s.desc)}</div><button class="link" data-unclamp>${t('podShowMore')}</button>${s.genre ? `<div class="chips"><span class="chip">${esc(s.genre)}</span></div>` : ''}</section>` : '';
+  return (
+    detailHeader({
+      coverId: cid,
+      kind: t('podcast'),
+      title: s.title,
+      sub: `<b>${esc(s.author || '')}</b>${s.total ? ` · ${t('podEpisodesN', { n: s.total })}` : ''}`,
+      actions: `<button class="playround podplay" data-podplay title="${t('play')}">${icon('play')}</button>${podFollowBtn(s)}<button class="icon-btn lg" data-podshowmore title="${t('more')}">${icon('more')}</button>`
+    }) +
+    `<div class="podcols"><aside class="podside">${about}</aside><div class="podmain"><div class="sec-head"><h2>${t('podAllEpisodes')}</h2><button class="sortbtn" data-podsort="${sort === 'old' ? 'new' : 'old'}">${icon('sort')}<span>${t(sort === 'old' ? 'podOldest' : 'podNewest')}</span></button></div>${episodeList(eps.slice(0, shown), { show: s })}${more}</div></div>`
+  );
+};
+document.addEventListener('click', (e) => {
+  const sortB = e.target.closest('[data-podsort]');
+  if (sortB && state.podPage) return go(`#/podcast/${state.podPage.id}?sort=${sortB.dataset.podsort}`);
+  const moreB = e.target.closest('[data-podmore]');
+  if (moreB && state.podPage) {
+    const sort = /sort=old/.test(location.hash) ? 'old' : 'new';
+    const n = Number(moreB.dataset.podmore);
+    const eps = sort === 'old' ? state.podPage.episodes.slice().reverse() : state.podPage.episodes;
+    const list = moreB.parentElement.querySelector('.eplist');
+    const box = state.eps?.[list?.dataset.eplist];
+    if (!list || !box) return;
+    const from = box.eps.length;
+    const add = eps.slice(from, n);
+    box.eps.push(...add);
+    list.insertAdjacentHTML('beforeend', add.map((x, k) => epRow(x, from + k, list.dataset.eplist, state.podPage, false)).join(''));
+    if (eps.length > n) moreB.dataset.podmore = String(n + 50);
+    else moreB.remove();
+    history.replaceState(null, '', `#/podcast/${state.podPage.id}?sort=${sort}&n=${n}`);
+    paintEpisodes();
+    return;
+  }
+  const un = e.target.closest('[data-unclamp]');
+  if (un) {
+    const d = un.parentElement.querySelector('[data-clamp]');
+    const open = d?.classList.toggle('clamp') === false;
+    un.textContent = t(open ? 'podShowLess' : 'podShowMore');
+    return;
+  }
+  const pp = e.target.closest('[data-podplay]');
+  if (pp && state.podPage) {
+    const s = state.podPage;
+    const cur = s.episodes.find((x) => isCurrentEp(x));
+    if (cur) return player.toggle();
+    // like Spotify: the newest episode not heard yet, else the newest one
+    const pick = s.episodes.findIndex((x) => !epNow(x).done);
+    return playEpisode(s.episodes, Math.max(0, pick), s);
+  }
+  const sm = e.target.closest('[data-podshowmore]');
+  if (sm && state.podPage) {
+    const s = state.podPage;
+    menu(sm, [
+      { label: t(isPodFollowed(s.id) ? 'podUnfollow' : 'follow'), icon: isPodFollowed(s.id) ? 'minusCircle' : 'plus', run: () => document.querySelector(`[data-podfollow="${s.id}"]`)?.click() },
+      s.link ? { label: t('podWebsite'), icon: 'link', run: () => openExt(s.link) } : null,
+      { label: t('podRefresh'), icon: 'refresh', run: async () => { await get(`/api/podcasts/show/${s.id}?fresh=1`); render(); } }
+    ]);
+  }
+});
+
+/** One episode: big cover, the show, play, date and length, the whole description. */
+views.episode = async (params, sid) => {
+  const ep = location.hash.split('?')[0].split('/')[3] || '';
+  const e = await get(`/api/podcasts/episode/${Number(sid)}/${ep}`);
+  const show = { id: Number(sid), title: e.showTitle, author: e.author, cover: e.showCover };
+  state.podPage = { ...show, episodes: [e] };
+  const tr = epTrack(e, show);
+  const list = episodeList([e], { show });
+  const key = list.match(/data-eplist="([^"]+)"/)[1];
+  const x = epNow(e);
+  return `${detailHeader({
+    coverId: tr.id,
+    kind: t('podEpisode'),
+    title: e.title,
+    sub: `<a class="alink" href="#/podcast/${e.show}"><b>${esc(e.showTitle)}</b></a>`,
+    actions: `<button class="playround" data-epplay="${key}:0" title="${t('play')}">${icon('play')}</button><button class="btn ${x.done ? 'on' : ''}" data-epdone>${icon('check')}<span>${t(x.done ? 'podPlayed' : 'podMarkPlayed')}</span></button><button class="icon-btn lg" data-epmore="${key}:0" title="${t('more')}">${icon('more')}</button>`
+  })}<div class="ep-page"><div class="ep-foot solo"><span class="ep-meta">${epMeta(e)}</span></div>${list.replace('class="eplist"', 'class="eplist hidden"')}<section class="sec"><div class="sec-head"><h2>${t('podEpDesc')}</h2></div><div class="pod-desc">${esc(e.desc || '')}</div></section><a class="btn ghost" href="#/podcast/${e.show}">${t('podSeeAll')}</a></div>`;
+};
+document.addEventListener('click', (ev) => {
+  if (!ev.target.closest('[data-epdone]')) return;
+  const e = state.podPage?.episodes?.[0];
+  if (e) markEpisode(e, !epNow(e).done);
+});
+
+// ---------- in search, the library and the sidebar ----------
+async function searchPodcasts(q) {
+  const r = await get(`/api/podcasts/search?cc=${podCC()}&q=${encodeURIComponent(q)}`);
+  return { shows: (r.shows || []).map(podCard), episodes: r.episodes || [] };
+}
+async function libPodcasts() {
+  const [subs, cont] = await Promise.all([loadPodSubs(true), get('/api/podcasts/continue').catch(() => [])]);
+  let html = `<div class="libbar"><a class="sortbtn" href="#/podcasts">${icon('mic')}<span>${t('podBrowse')}</span></a></div>`;
+  if (cont.length) html += section(t('podContinue'), episodeList(cont, { showName: true }));
+  if (cont.length && subs.length) html += `<div class="sec-head"><h2>${t('podYourShows')}</h2></div>`;
+  html += subs.length ? `<div class="cards libgrid">${subs.map(podCard).map((a) => `<a class="card" href="${a.href}">${coverImg(a.cover, 'lg')}<div class="c-title">${esc(a.title)}</div><div class="c-sub">${esc(a.artist)}</div></a>`).join('')}</div>` : `<p class="muted empty">${t('podFollowNone')}</p>`;
+  return html;
+}
+async function sidePodcasts() {
+  const subs = await loadPodSubs().catch(() => []);
+  return (subs || [])
+    .map((s) => {
+      const c = podCard(s);
+      return `<a href="${c.href}" class="side-pl gpod${s.fresh ? ' fresh' : ''}" data-kind="podcast">${coverImg(c.cover, 'xs')}<span class="spl-t"><b>${esc(s.title || t('podcast'))}</b><small>${t('podcast')} · ${esc(s.author || '')}</small></span></a>`;
+    })
+    .join('');
+}
+
+// ---------- player: speed, 15 seconds back and forward, sleep timer, where it was left off ----------
+const POD_SPEEDS = [0.5, 0.8, 1, 1.2, 1.5, 1.8, 2, 2.5, 3];
+const speedLabel = (r) => `${String(r).replace('.', getLang() === 'de' ? ',' : '.')}×`;
+let podLast = null;
+let podSavedAt = 0;
+let sleepTimer = { id: 0, end: false, at: 0 };
+function savePodPos(tr, pos, dur, keepalive = false) {
+  if (!tr?.pod || !conn.token) return;
+  const done = dur > 0 && pos >= dur - 30;
+  podMemo.set(`${tr.pod.show}:${tr.pod.ep}`, { pos: done ? 0 : pos, duration: dur, done });
+  const body = { show: tr.pod.show, ep: tr.pod.ep, pos, dur, meta: { title: tr.title, showTitle: tr.pod.showTitle, author: tr.pod.author, cover: tr.pod.cover, date: tr.pod.date, desc: String(tr.pod.desc || '').slice(0, 300) } };
+  if (keepalive) {
+    try {
+      fetch(`${conn.server}/api/podcasts/progress`, { method: 'PUT', keepalive: true, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + conn.token }, body: JSON.stringify(body) });
+    } catch {}
+    return;
+  }
+  put('/api/podcasts/progress', body).catch(() => {});
+}
+function podBar() {
+  const cur = player.current;
+  const pod = !!cur?.pod;
+  document.body.classList.toggle('pod-playing', pod);
+  document.querySelectorAll('[data-act="speed"]').forEach((b) => {
+    b.textContent = speedLabel(player.speed);
+    b.classList.toggle('on', player.speed !== 1);
+  });
+  document.querySelectorAll('[data-act="sleep"]').forEach((b) => b.classList.toggle('on', !!(sleepTimer.id || sleepTimer.end)));
+}
+function setSleep(min) {
+  clearTimeout(sleepTimer.id);
+  sleepTimer = { id: 0, end: false, at: 0 };
+  if (min === 'end') sleepTimer.end = true;
+  else if (min > 0) sleepTimer = { id: setTimeout(() => { player.pause(); sleepTimer = { id: 0, end: false, at: 0 }; podBar(); }, min * 60000), end: false, at: Date.now() + min * 60000 };
+  podBar();
+  toast(min ? t('podSleepSet', { n: min === 'end' ? t('podSleepEnd') : t('podMinutesN', { n: min }) }) : t('podSleepOffDone'));
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('#player [data-act], #fs [data-act]');
+  if (!b) return;
+  const act = b.dataset.act;
+  if (act === 'back15') player.skipBy(-15);
+  else if (act === 'fwd15') player.skipBy(15);
+  else if (act === 'speed') menu(b, POD_SPEEDS.map((r) => ({ label: (r === player.speed ? '✓ ' : '') + speedLabel(r), icon: 'clock', run: () => player.setSpeed(r) })));
+  else if (act === 'sleep') {
+    const left = sleepTimer.id ? Math.max(1, Math.round((sleepTimer.at - Date.now()) / 60000)) : 0;
+    menu(b, [
+      ...[5, 10, 15, 30, 45, 60].map((n) => ({ label: t('podMinutesN', { n }), icon: 'moon', run: () => setSleep(n) })),
+      { label: t('podSleepEnd'), icon: 'moon', run: () => setSleep('end') },
+      sleepTimer.id || sleepTimer.end ? '-' : null,
+      sleepTimer.id || sleepTimer.end ? { label: sleepTimer.id ? t('podSleepOffLeft', { n: left }) : t('podSleepOff'), icon: 'close', run: () => setSleep(0) } : null
+    ]);
+  }
+});
+// New episodes arrive by themselves: the server looks at every followed feed every few minutes,
+// the app asks it once a minute and redraws what shows podcasts, like Spotify does.
+let podPulseLast = (() => {
+  try {
+    return Number(localStorage.getItem('musik.podPulse')) || 0;
+  } catch {
+    return 0;
+  }
+})();
+async function podPulse() {
+  if (document.hidden || !conn.token || offlineMode) return;
+  const p = await get('/api/podcasts/pulse').catch(() => null);
+  if (!p?.date || p.date <= podPulseLast) return;
+  const first = !podPulseLast;
+  podPulseLast = p.date;
+  try {
+    localStorage.setItem('musik.podPulse', String(p.date));
+  } catch {}
+  if (first) return;
+  toast(t('podNewEp', { show: p.showTitle || t('podcast'), title: p.title || '' }));
+  await loadPodSubs(true);
+  renderSidebarPlaylists();
+  if (['podcasts', 'podcast'].includes(state.route) || (state.route === 'library' && /tab=podcasts/.test(location.hash))) render();
+}
+setInterval(podPulse, 60000);
+document.addEventListener('visibilitychange', () => !document.hidden && podPulse());
+setTimeout(podPulse, 4000);
+function podBindPlayer() {
+  player.addEventListener('change', () => {
+    const cur = player.current;
+    // the episode before: where it stopped (or that it ran to the end)
+    if (podLast && podLast.tr.id !== cur?.id) {
+      const ended = podLast.dur && podLast.pos >= podLast.dur - 30;
+      savePodPos(podLast.tr, ended ? podLast.dur : podLast.pos, podLast.dur);
+      if (sleepTimer.end) {
+        sleepTimer.end = false;
+        setTimeout(() => player.pause(), 50);
+      }
+    }
+    podLast = cur?.pod ? { tr: cur, pos: player.position || 0, dur: cur.duration || 0 } : null;
+    podBar();
+    paintEpisodes();
+  });
+  player.addEventListener('state', () => {
+    podBar();
+    paintEpisodes();
+    const cur = player.current;
+    if (cur?.pod && !player.playing && podLast?.tr === cur && podLast.pos > 1) savePodPos(cur, podLast.pos, podLast.dur);
+  });
+  player.addEventListener('time', () => {
+    const cur = player.current;
+    if (!cur?.pod) return;
+    podLast = { tr: cur, pos: player.position || 0, dur: player.duration || cur.duration || 0 };
+    const now = Date.now();
+    if (player.playing && now - podSavedAt > 10000) {
+      podSavedAt = now;
+      savePodPos(cur, podLast.pos, podLast.dur);
+      paintEpisodes();
+    }
+  });
+  addEventListener('pagehide', () => podLast && savePodPos(podLast.tr, podLast.pos, podLast.dur, true));
+  document.addEventListener('visibilitychange', () => document.hidden && podLast && savePodPos(podLast.tr, podLast.pos, podLast.dur, true));
+  podBar();
+}
+
 // ---------- router ----------
 function go(hash) {
   if (location.hash === hash) render();
@@ -4185,6 +4666,7 @@ async function render() {
   // pages without their own tab (album, artist, playlist …) keep the tab they were opened from, so the blob never vanishes
   if (TABS.includes(state.route)) state.tab = state.route;
   else if (state.route === 'likes' || state.route === 'imported' || state.route === 'playlist' || state.route === 'topsongs') state.tab = 'library';
+  else if (state.route === 'podcasts' && !state.tab) state.tab = 'search';
   const tab = state.tab || 'home';
   document.querySelectorAll('.side-nav [data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === state.route));
   fsButtons();
@@ -4204,6 +4686,7 @@ async function render() {
     if (main.querySelector('[data-offpl]')) paintOffline();
     if (main.querySelector('[data-preload]')) paintPreload();
     paintPlayButtons();
+    paintEpisodes();
     main.scrollTop = 0;
     $('#content').scrollTop = 0;
     paintBars();
@@ -4434,6 +4917,7 @@ function bindPlayer() {
     if (e.target.closest('#np-cover, #np-title, .np-text')) openFs(true);
   });
   player.addEventListener('change', renderPlayer);
+  podBindPlayer();
   player.addEventListener('change', () => rememberPlay(player.current));
   player.addEventListener('state', renderState);
   player.addEventListener('state', paintPlayButtons);
@@ -4856,7 +5340,7 @@ async function renderSidebarPlaylists() {
     ];
     // the yearly top songs below, like Spotify keeps them in the library (no drag, no menu: they are made, not owned)
     const tops = (await loadTopSongs()).map((y) => `<a href="#/topsongs/${y.year}" class="side-pl gen">${coverImg(y.cover, 'xs')}<span class="spl-t"><b>${esc(y.title)}</b><small>${t('playlist')} · ${esc(t('forUser', { name: userName() }))}</small></span></a>`);
-    box.innerHTML = byPlOrder(all, (x) => x[0]).map((x) => x[1]()).join('') + tops.join('');
+    box.innerHTML = byPlOrder(all, (x) => x[0]).map((x) => x[1]()).join('') + tops.join('') + (await sidePodcasts());
     box.dataset.sortpl = '';
   } catch {
     box.innerHTML = '';
@@ -6854,6 +7338,22 @@ async function gRenderNp(box) {
     box.innerHTML = `${gHead(t('gNowPl'), more)}<div class="gp-scroll"><p class="gp-intro">${t('nothingPlaying')}</p></div>`;
     return;
   }
+  // a podcast episode: like Spotify, the episode description and the show with its Follow button
+  if (tr.pod) {
+    await loadPodSubs().catch(() => null);
+    if (box.dataset.id !== String(tr.id)) return;
+    const sc = podCard({ id: tr.pod.show, title: tr.pod.showTitle, author: tr.pod.author, cover: podSubs?.find((x) => x.id === tr.pod.show)?.cover || tr.pod.cover });
+    box.innerHTML = `${gHead(`<a href="${sc.href}" class="gp-ctx">${esc(tr.pod.showTitle || t('podcast'))}</a>`, more, true)}
+    <div class="gp-scroll">
+      <div class="gp-cover" data-act="open-fs">${coverImg(tr.id, 'xl')}</div>
+      <div class="gp-meta"><div class="gp-mt"><div class="gp-title"><a href="#/episode/${tr.pod.show}/${encodeURIComponent(tr.pod.ep)}">${esc(tr.title)}</a></div><div class="gp-artists">${artistLinks(tr)}</div></div></div>
+      ${tr.pod.desc ? `<div class="gp-card"><div class="gp-ch"><b>${t('podEpDesc')}</b></div><div class="gp-pdesc">${esc(tr.pod.desc)}</div><a class="gp-pmore" href="#/episode/${tr.pod.show}/${encodeURIComponent(tr.pod.ep)}">${t('podShowMore')}</a></div>` : ''}
+      <div class="gp-card"><div class="gp-ch"><b>${t('podAboutShow')}</b></div><div class="gp-cr"><a class="gp-pshow" href="${sc.href}">${coverImg(sc.cover, 'sm')}<div><b>${esc(sc.title || '')}</b><small>${esc(sc.artist || '')}</small></div></a>${podFollowBtn({ id: tr.pod.show })}</div></div>
+      <div class="gp-card gp-next" hidden></div>
+    </div>`;
+    gPaintNext();
+    return;
+  }
   await loadFollows().catch(() => null);
   if (box.dataset.id !== String(tr.id)) return;
   const refs = artistRefs(tr);
@@ -7505,7 +8005,7 @@ function buildShell() {
       <nav class="side-nav">${nav('home', 'home', t('home'))}${nav('search', 'search', t('search'))}${nav('library', 'library', t('library'))}${nav('likes', 'heart', t('likes'))}${nav('queue', 'queue', t('queue'))}</nav>
       <div class="side-head">${t('playlists')}<button class="icon-btn sm" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button></div>
       <div class="glib-head gonly"><button class="glib-tog" data-glibmin title="${t(prefs.gLibMin ? 'gShowLib' : 'gHideLib')}">${icon('libside')}<span>${t('gLibrary')}</span></button><button class="glib-create" data-gcreate title="${t('gCreate')}">${icon('plus')}<span>${t('gCreate')}</span></button><a class="icon-btn glib-open" href="#/library" title="${t('gOpenLib')}">${icon('expand')}</a></div>
-      <div class="glib-chips gonly"><button class="chip" data-glibchip="playlist">${t('gChipPl')}</button><button class="chip" data-glibchip="album">${t('gChipAl')}</button><button class="chip" data-glibchip="artist">${t('gChipAr')}</button></div>
+      <div class="glib-chips gonly"><button class="chip" data-glibchip="playlist">${t('gChipPl')}</button><button class="chip" data-glibchip="album">${t('gChipAl')}</button><button class="chip" data-glibchip="artist">${t('gChipAr')}</button><button class="chip" data-glibchip="podcast">${t('gChipPod')}</button></div>
       <div id="side-playlists" class="side-pls"></div>
     </aside>
     <header class="topbar"><button class="icon-btn" data-settings title="${t('settings')}">${icon('gear')}</button><a class="logo home-logo" href="#/home" title="${t('home')}"><span class="brandmark" aria-hidden="true"></span><span class="wordmark" role="img" aria-label="Streyn"></span></a><a class="icon-btn" href="#/queue" title="${t('queue')}">${icon('queue')}</a></header>
@@ -7519,15 +8019,20 @@ function buildShell() {
         <button class="icon-btn mobile-only devbtn" data-devsheet title="${t('devConnect')}">${icon('devices')}</button>
         <button class="icon-btn like" data-act="like" title="${t('like')}">${icon('heart')}</button>
         <button class="icon-btn mobile-only" data-act="toggle">${icon('play')}</button>
-        <button class="icon-btn mobile-only" data-act="next">${icon('next')}</button>
+        <button class="icon-btn mobile-only music-only" data-act="next">${icon('next')}</button>
+        <button class="icon-btn mobile-only pod-only" data-act="fwd15" title="${t('podFwd')}">${icon('fwd15')}</button>
       </div>
       <div class="controls desktop-only">
         <div class="buttons">
-          <button class="icon-btn" data-act="shuffle" title="${t('shuffle')}">${icon('shuffle')}</button>
-          <button class="icon-btn" data-act="prev" title="${t('prev')}">${icon('prev')}</button>
+          <button class="icon-btn music-only" data-act="shuffle" title="${t('shuffle')}">${icon('shuffle')}</button>
+          <button class="icon-btn pod-only speedbtn" data-act="speed" title="${t('podSpeed')}">1×</button>
+          <button class="icon-btn music-only" data-act="prev" title="${t('prev')}">${icon('prev')}</button>
+          <button class="icon-btn pod-only" data-act="back15" title="${t('podBack')}">${icon('back15')}</button>
           <button class="playpause" data-act="toggle">${icon('play')}</button>
-          <button class="icon-btn" data-act="next" title="${t('next')}">${icon('next')}</button>
-          <button class="icon-btn" data-act="repeat" title="${t('repeat')}">${icon('repeat')}</button>
+          <button class="icon-btn music-only" data-act="next" title="${t('next')}">${icon('next')}</button>
+          <button class="icon-btn pod-only" data-act="fwd15" title="${t('podFwd')}">${icon('fwd15')}</button>
+          <button class="icon-btn music-only" data-act="repeat" title="${t('repeat')}">${icon('repeat')}</button>
+          <button class="icon-btn pod-only" data-act="sleep" title="${t('podSleep')}">${icon('moon')}</button>
         </div>
         <div class="timeline"><span class="t-pos">0:00</span><input class="seek" type="range" min="0" max="1" step="0.1" value="0"><span class="t-dur">0:00</span></div>
       </div>
@@ -7552,11 +8057,15 @@ function buildShell() {
     <div class="fs-meta"><div><div id="fs-title" class="title"></div><div id="fs-artist" class="sub"></div></div><span class="fs-acts"><button class="icon-btn" data-act="share" title="${t('share')}" aria-label="${t('share')}">${icon('share')}</button><button class="icon-btn like" data-act="like">${icon('heart')}</button></span></div>
     <div class="timeline"><input class="seek" type="range" min="0" max="1" step="0.1" value="0"><div class="times"><span class="t-pos">0:00</span><span class="t-dur">0:00</span></div></div>
     <div class="fs-buttons">
-      <button class="icon-btn" data-act="shuffle">${icon('shuffle')}</button>
-      <button class="icon-btn lg" data-act="prev">${icon('prev')}</button>
+      <button class="icon-btn music-only" data-act="shuffle">${icon('shuffle')}</button>
+      <button class="icon-btn pod-only speedbtn" data-act="speed" title="${t('podSpeed')}">1×</button>
+      <button class="icon-btn lg music-only" data-act="prev">${icon('prev')}</button>
+      <button class="icon-btn lg pod-only" data-act="back15" title="${t('podBack')}">${icon('back15')}</button>
       <button class="playpause xl" data-act="toggle">${icon('play')}</button>
-      <button class="icon-btn lg" data-act="next">${icon('next')}</button>
-      <button class="icon-btn" data-act="repeat">${icon('repeat')}</button>
+      <button class="icon-btn lg music-only" data-act="next">${icon('next')}</button>
+      <button class="icon-btn lg pod-only" data-act="fwd15" title="${t('podFwd')}">${icon('fwd15')}</button>
+      <button class="icon-btn music-only" data-act="repeat">${icon('repeat')}</button>
+      <button class="icon-btn pod-only" data-act="sleep" title="${t('podSleep')}">${icon('moon')}</button>
     </div>
     <button class="fs-dev" data-devsheet>${icon('devices')}<span></span></button>
     <div class="fs-bottom"><button class="btn ghost" data-act="viz">${icon('viz')}${t('viz')}</button><button class="btn ghost" data-act="lyrics">${icon('lyrics')}${t('lyrics')}</button><button class="btn ghost" data-act="queue">${icon('queue')}${t('queue')}</button></div>

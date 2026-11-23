@@ -90,6 +90,7 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
     conn.execute_batch(crate::offline::SCHEMA)?;
     conn.execute_batch(crate::taste::SCHEMA)?;
     conn.execute_batch(crate::invite::SCHEMA)?;
+    conn.execute_batch(crate::podcast::SCHEMA)?;
     // columns added later (fails harmlessly when they exist)
     let _ = conn.execute("ALTER TABLE imports ADD COLUMN meta TEXT NOT NULL DEFAULT '{}'", []);
     let _ = conn.execute("ALTER TABLE imports ADD COLUMN kept INTEGER NOT NULL DEFAULT 0", []);

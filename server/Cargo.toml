@@ -31,6 +31,7 @@ ureq = { version = "2", features = ["json"] }
 sha2 = "0.10"
 flate2 = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = "0.37"
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"

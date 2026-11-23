@@ -851,7 +851,8 @@ async fn img_proxy(AuthQ(_u): AuthQ, Query(q): Query<HashMap<String, String>>) -
     let ok = ["i.scdn.co", "mosaic.scdn.co", "i.ytimg.com", "lh3.googleusercontent.com", "yt3.ggpht.com", "cdn-images.dzcdn.net", "e-cdns-images.dzcdn.net", "i1.sndcdn.com"]
         .iter()
         .any(|h| host == *h)
-        || host.ends_with(".spotifycdn.com");
+        || host.ends_with(".spotifycdn.com")
+        || host.ends_with(".mzstatic.com");
     if !ok {
         return Err(ApiError::new(400, "bad_request"));
     }
