@@ -1,0 +1,2567 @@
+//! Other platforms: per-user source settings, imported playlists (matched against the
+//! local library), fetching public playlist data, and share links.
+use crate::api::{
+    body_json, nf, serve_cover, serve_track, set_playlist_tracks, track_json, tracks_by_ids,
+    with_likes, ApiError, Auth, AuthQ, St, R, TRACK_COLS,
+};
+use crate::db::now_ms;
+use axum::extract::{Path, Query, Request, State};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use rusqlite::{params, Connection, OptionalExtension};
+use serde::Deserialize;
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::io::Read;
+use std::time::Duration;
+
+pub const SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS spotify_tokens (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  client_id TEXT NOT NULL,
+  access TEXT NOT NULL,
+  refresh TEXT NOT NULL DEFAULT '',
+  exp INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS art (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  ref_id INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  updated INTEGER NOT NULL,
+  PRIMARY KEY (kind, ref_id)
+);
+CREATE TABLE IF NOT EXISTS yt_find (
+  q TEXT PRIMARY KEY,
+  vid TEXT NOT NULL,
+  found INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_settings (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  data TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS imports (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL DEFAULT '',
+  cover TEXT NOT NULL DEFAULT '',
+  created INTEGER NOT NULL,
+  updated INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS import_items (
+  import_id INTEGER NOT NULL REFERENCES imports(id) ON DELETE CASCADE,
+  pos INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  ext_id TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL DEFAULT '',
+  album TEXT NOT NULL DEFAULT '',
+  duration REAL NOT NULL DEFAULT 0,
+  cover TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
+  track_id INTEGER REFERENCES tracks(id) ON DELETE SET NULL,
+  PRIMARY KEY (import_id, pos)
+);
+CREATE TABLE IF NOT EXISTS lyrics (
+  track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+  synced TEXT NOT NULL DEFAULT '',
+  plain TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  fetched INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS shares (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  created INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS share_signups (
+  token TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created INTEGER NOT NULL,
+  PRIMARY KEY (token, user_id)
+);
+CREATE TABLE IF NOT EXISTS follows (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  name TEXT NOT NULL,
+  cover TEXT NOT NULL DEFAULT '',
+  created INTEGER NOT NULL,
+  PRIMARY KEY (user_id, kind, ref)
+);
+CREATE TABLE IF NOT EXISTS ext_likes (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  data TEXT NOT NULL,
+  created INTEGER NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
+CREATE TABLE IF NOT EXISTS sp_covers (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
+"#;
+
+pub fn routes() -> Router<St> {
+    Router::new()
+        .route("/me/settings", get(get_settings).put(put_settings))
+        .route("/imports", get(list_imports).post(create_import))
+        .route(
+            "/imports/{id}",
+            get(get_import).put(replace_import).delete(delete_import),
+        )
+        .route("/imports/{id}/rematch", post(rematch))
+        .route("/imports/{id}/store", get(store_status).post(store_start))
+        .route("/imports/{id}/items", post(append_items))
+        .route("/imports/{id}/playlist", post(import_to_playlist))
+        .route("/fetch/deezer", get(fetch_deezer))
+        .route("/catalog/search", get(catalog_search))
+        .route("/catalog/artist/{id}", get(catalog_artist))
+        .route("/catalog/related", get(catalog_related))
+        .route("/catalog/sp-listeners/{id}", get(sp_listeners))
+        .route("/catalog/genre-artists", get(catalog_genre_artists))
+        .route("/catalog/preview/{id}", get(catalog_preview))
+        .route("/fetch/oembed", get(fetch_oembed))
+        .route("/ytfind", get(yt_find))
+        .route("/ytsearch", get(yt_search))
+        .route("/ytmsearch", get(ytm_search))
+        .route("/ytsong", get(yt_song))
+        .route("/imgproxy", get(img_proxy))
+        .route("/ytaudio/{id}", get(yt_audio))
+        .route("/ytprefetch", post(yt_prefetch))
+        .route("/ytcheck", get(yt_check))
+        .route("/art/{kind}/{id}", get(get_art).put(put_art).delete(delete_art))
+        .route("/lyrics", get(lyrics_lookup))
+        .route("/lyrics/{id}", get(lyrics))
+        .route("/follows", get(list_follows).put(follow).delete(unfollow))
+        .route("/extlikes", get(list_ext_likes).put(ext_like).delete(ext_unlike))
+        .route("/shares", post(create_share))
+        .route("/public/{token}", get(public_share))
+        .route("/public/{token}/save", post(save_share))
+        .route("/public/{token}/join", post(join_share))
+        .route("/public/{token}/signup", post(signup_share))
+        .route("/public/{token}/song/{k}", get(public_song))
+        .route("/public/{token}/stream/{i}", get(public_stream))
+        .route("/public/{token}/cover/{i}", get(public_cover))
+}
+
+// ---------- settings ----------
+async fn get_settings(State(st): State<St>, Auth(u, _): Auth) -> R {
+    let db = st.db.lock().unwrap();
+    let data: Option<String> = db
+        .query_row(
+            "SELECT data FROM user_settings WHERE user_id = ?",
+            [u.id],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap_or(None);
+    Ok(Json(
+        data.and_then(|d| serde_json::from_str(&d).ok())
+            .unwrap_or_else(|| json!({})),
+    ))
+}
+async fn put_settings(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    let v: Value = body_json(req).await?;
+    if !v.is_object() {
+        return Err(ApiError::new(400, "bad_json"));
+    }
+    let text = v.to_string();
+    if text.len() > 64 * 1024 {
+        return Err(ApiError::new(413, "too_large"));
+    }
+    let db = st.db.lock().unwrap();
+    db.execute("INSERT INTO user_settings (user_id, data) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET data = excluded.data", params![u.id, text]).ok();
+    Ok(Json(v))
+}
+
+// ---------- followed artists ----------
+const FOLLOW_KINDS: [&str; 3] = ["local", "spotify", "deezer"];
+
+async fn list_follows(State(st): State<St>, Auth(u, _): Auth) -> R {
+    let db = st.db.lock().unwrap();
+    let mut s = db
+        .prepare("SELECT kind, ref, name, cover, created FROM follows WHERE user_id = ? ORDER BY created DESC")
+        .unwrap();
+    let rows: Vec<Value> = s
+        .query_map([u.id], |r| {
+            Ok(json!({
+                "kind": r.get::<_, String>(0)?,
+                "ref": r.get::<_, String>(1)?,
+                "name": r.get::<_, String>(2)?,
+                "cover": r.get::<_, String>(3)?,
+                "created": r.get::<_, i64>(4)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    Ok(Json(json!(rows)))
+}
+async fn follow(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    let v: Value = body_json(req).await?;
+    let text = |k: &str| v[k].as_str().unwrap_or("").trim().to_string();
+    let (kind, rf, name, cover) = (text("kind"), text("ref"), text("name"), text("cover"));
+    if !FOLLOW_KINDS.contains(&kind.as_str()) || rf.is_empty() || name.is_empty() {
+        return Err(ApiError::new(400, "bad_json"));
+    }
+    if rf.len() > 300 || name.len() > 300 || cover.len() > 1000 {
+        return Err(ApiError::new(413, "too_large"));
+    }
+    st.db.lock().unwrap().execute(
+        "INSERT INTO follows (user_id, kind, ref, name, cover, created) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id, kind, ref) DO UPDATE SET name = excluded.name, cover = excluded.cover",
+        params![u.id, kind, rf, name, cover, now_ms()],
+    ).ok();
+    Ok(Json(json!({ "following": true })))
+}
+// ---------- liked songs from other platforms (Spotify, Deezer, YouTube): kept with their names and cover ----------
+async fn list_ext_likes(State(st): State<St>, Auth(u, _): Auth) -> R {
+    let db = st.db.lock().unwrap();
+    let mut s = db
+        .prepare("SELECT data, created FROM ext_likes WHERE user_id = ? ORDER BY created DESC")
+        .unwrap();
+    let rows: Vec<Value> = s
+        .query_map([u.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|(d, c)| {
+            let mut v: Value = serde_json::from_str(&d).ok()?;
+            v["liked_at"] = json!(c);
+            Some(v)
+        })
+        .collect();
+    Ok(Json(json!(rows)))
+}
+async fn ext_like(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    let v: Value = body_json(req).await?;
+    let key = v["key"].as_str().unwrap_or("").trim().to_string();
+    let data = &v["data"];
+    if key.is_empty() || key.len() > 300 || !data.is_object() {
+        return Err(ApiError::new(400, "bad_json"));
+    }
+    let text = data.to_string();
+    if text.len() > 8 * 1024 {
+        return Err(ApiError::new(413, "too_large"));
+    }
+    st.db.lock().unwrap().execute(
+        "INSERT INTO ext_likes (user_id, key, data, created) VALUES (?,?,?,?) ON CONFLICT(user_id, key) DO UPDATE SET data = excluded.data",
+        params![u.id, key, text, now_ms()],
+    ).ok();
+    Ok(Json(json!({ "liked": true })))
+}
+async fn ext_unlike(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let key = q.get("key").map(String::as_str).unwrap_or("");
+    st.db
+        .lock()
+        .unwrap()
+        .execute("DELETE FROM ext_likes WHERE user_id = ? AND key = ?", params![u.id, key])
+        .ok();
+    Ok(Json(json!({ "liked": false })))
+}
+async fn unfollow(
+    State(st): State<St>,
+    Auth(u, _): Auth,
+    Query(q): Query<HashMap<String, String>>,
+) -> R {
+    let kind = q.get("kind").map(String::as_str).unwrap_or("");
+    let rf = q.get("ref").map(String::as_str).unwrap_or("");
+    st.db
+        .lock()
+        .unwrap()
+        .execute(
+            "DELETE FROM follows WHERE user_id = ? AND kind = ? AND ref = ?",
+            params![u.id, kind, rf],
+        )
+        .ok();
+    Ok(Json(json!({ "following": false })))
+}
+
+// ---------- matching ----------
+/// Lowercase, no accents, no "(Remastered 2011)", "- Live", "feat. X", no punctuation.
+pub fn norm(s: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0;
+    for c in s.chars() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = (depth - 1i32).max(0),
+            _ if depth > 0 => {}
+            _ => out.push(c),
+        }
+    }
+    let lower = out.to_lowercase();
+    // drop " - remastered ...", " - live ..." style suffixes and featured artists
+    let mut base = lower.as_str();
+    for cut in [" - ", " feat.", " feat ", " ft.", " ft ", " featuring "] {
+        if let Some(i) = base.find(cut) {
+            base = &base[..i];
+        }
+    }
+    base.chars()
+        .map(fold)
+        .filter(|c| c.is_alphanumeric() || *c == ' ')
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+fn fold(c: char) -> char {
+    match c {
+        'à' | 'á' | 'â' | 'ã' | 'å' | 'ā' => 'a',
+        'ä' => 'a',
+        'ç' => 'c',
+        'è' | 'é' | 'ê' | 'ë' => 'e',
+        'ì' | 'í' | 'î' | 'ï' => 'i',
+        'ñ' => 'n',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ø' => 'o',
+        'ö' => 'o',
+        'ù' | 'ú' | 'û' => 'u',
+        'ü' => 'u',
+        'ß' => 's',
+        '&' => ' ',
+        _ => c,
+    }
+}
+fn artist_tokens(s: &str) -> Vec<String> {
+    s.to_lowercase()
+        .replace(" & ", ",")
+        .replace(" and ", ",")
+        .replace(" x ", ",")
+        .replace(" feat. ", ",")
+        .replace(" feat ", ",")
+        .replace(" ft. ", ",")
+        .replace(';', ",")
+        .replace(" - topic", "")
+        .split(',')
+        .map(norm)
+        .filter(|a| !a.is_empty())
+        .collect()
+}
+
+struct Local {
+    id: i64,
+    artists: Vec<String>,
+    duration: f64,
+}
+/// Index of the library by normalised title.
+pub struct Matcher {
+    by_title: HashMap<String, Vec<Local>>,
+}
+impl Matcher {
+    pub fn new(db: &Connection) -> Self {
+        let mut by_title: HashMap<String, Vec<Local>> = HashMap::new();
+        let mut st = db
+            .prepare("SELECT id, title, artist, album_artist, duration FROM tracks")
+            .unwrap();
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, f64>(4)?,
+                ))
+            })
+            .unwrap();
+        for (id, title, artist, aa, duration) in rows.filter_map(Result::ok) {
+            let mut artists = artist_tokens(&artist);
+            artists.extend(artist_tokens(&aa));
+            by_title.entry(norm(&title)).or_default().push(Local {
+                id,
+                artists,
+                duration,
+            });
+        }
+        Matcher { by_title }
+    }
+    pub fn find(&self, title: &str, artist: &str, duration: f64) -> Option<i64> {
+        let cands = self.by_title.get(&norm(title))?;
+        let want = artist_tokens(artist);
+        let mut best: Option<(i64, f64)> = None;
+        for c in cands {
+            let artist_hit = want.is_empty()
+                || want.iter().any(|a| {
+                    c.artists
+                        .iter()
+                        .any(|b| b == a || b.contains(a.as_str()) || a.contains(b.as_str()))
+                });
+            let dur_ok =
+                duration <= 0.0 || c.duration <= 0.0 || (duration - c.duration).abs() <= 6.0;
+            if !artist_hit && !(dur_ok && duration > 0.0 && (duration - c.duration).abs() <= 2.0) {
+                continue;
+            }
+            let score = (if artist_hit { 2.0 } else { 0.0 }) + (if dur_ok { 1.0 } else { 0.0 })
+                - (duration - c.duration).abs().min(60.0) / 60.0;
+            if best.map(|b| score > b.1).unwrap_or(true) {
+                best = Some((c.id, score));
+            }
+        }
+        best.filter(|b| b.1 >= 2.0).map(|b| b.0)
+    }
+}
+
+// ---------- imports ----------
+#[derive(Deserialize, Default, Clone)]
+#[serde(default)]
+struct ItemIn {
+    source: String,
+    ext_id: String,
+    title: String,
+    artist: String,
+    album: String,
+    duration: f64,
+    cover: String,
+    url: String,
+}
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ImportIn {
+    source: String,
+    name: String,
+    url: String,
+    cover: String,
+    /// description, owner, followers … shown like on the platform
+    meta: Value,
+    items: Vec<ItemIn>,
+}
+fn meta_text(v: &Value) -> String {
+    let t = if v.is_object() { v.to_string() } else { "{}".into() };
+    if t.len() > 8000 { "{}".into() } else { t }
+}
+
+fn clip(s: &str, n: usize) -> String {
+    s.trim().chars().take(n).collect()
+}
+
+fn own_import(db: &Connection, uid: i64, id: i64) -> Result<(), ApiError> {
+    db.query_row(
+        "SELECT id FROM imports WHERE id = ? AND user_id = ?",
+        params![id, uid],
+        |r| r.get::<_, i64>(0),
+    )
+    .optional()
+    .unwrap_or(None)
+    .map(|_| ())
+    .ok_or_else(nf)
+}
+
+fn write_items(db: &mut Connection, id: i64, source: &str, items: &[ItemIn]) {
+    let m = Matcher::new(db);
+    let tx = db.transaction().unwrap();
+    tx.execute("DELETE FROM import_items WHERE import_id = ?", [id])
+        .ok();
+    for (i, it) in items.iter().take(10000).enumerate() {
+        let title = clip(&it.title, 300);
+        if title.is_empty() {
+            continue;
+        }
+        let local = m.find(&title, &it.artist, it.duration);
+        let src = if it.source.is_empty() {
+            source
+        } else {
+            it.source.as_str()
+        };
+        tx.execute(
+            "INSERT INTO import_items (import_id, pos, source, ext_id, title, artist, album, duration, cover, url, track_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            params![id, i as i64, clip(src, 20), clip(&it.ext_id, 200), title, clip(&it.artist, 300), clip(&it.album, 300), it.duration.max(0.0), clip(&it.cover, 1000), clip(&it.url, 1000), local],
+        )
+        .ok();
+    }
+    tx.execute(
+        "UPDATE imports SET updated = ? WHERE id = ?",
+        params![now_ms(), id],
+    )
+    .ok();
+    tx.commit().ok();
+}
+
+async fn create_import(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    let b: ImportIn = body_json_big(req).await?;
+    let name = clip(&b.name, 120);
+    if name.is_empty() || b.items.is_empty() {
+        return Err(ApiError::new(400, "empty_import"));
+    }
+    let mut db = st.db.lock().unwrap();
+    let now = now_ms();
+    // the same playlist imported again updates the one already there instead of adding a copy
+    let url = clip(&b.url, 1000);
+    if !url.is_empty() {
+        let old: Option<i64> = db
+            .query_row("SELECT id FROM imports WHERE user_id = ? AND url = ? ORDER BY id LIMIT 1", params![u.id, url], |r| r.get(0))
+            .optional()
+            .unwrap_or(None);
+        if let Some(id) = old {
+            db.execute(
+                "UPDATE imports SET name = ?, cover = ?, meta = ? WHERE id = ?",
+                params![name, clip(&b.cover, 1000), meta_text(&b.meta), id],
+            )
+            .ok();
+            write_items(&mut db, id, &b.source, &b.items);
+            return Ok(Json(json!({ "id": id, "existing": true })));
+        }
+    }
+    db.execute(
+        "INSERT INTO imports (user_id, source, name, url, cover, created, updated, meta) VALUES (?,?,?,?,?,?,?,?)",
+        params![u.id, clip(&b.source, 20), name, clip(&b.url, 1000), clip(&b.cover, 1000), now, now, meta_text(&b.meta)],
+    )
+    .ok();
+    let id = db.last_insert_rowid();
+    write_items(&mut db, id, &b.source, &b.items);
+    Ok(Json(json!({ "id": id })))
+}
+
+async fn replace_import(
+    State(st): State<St>,
+    Auth(u, _): Auth,
+    Path(id): Path<i64>,
+    req: Request,
+) -> R {
+    let b: ImportIn = body_json_big(req).await?;
+    let mut db = st.db.lock().unwrap();
+    own_import(&db, u.id, id)?;
+    if !b.name.trim().is_empty() {
+        db.execute(
+            "UPDATE imports SET name = ? WHERE id = ?",
+            params![clip(&b.name, 120), id],
+        )
+        .ok();
+    }
+    if b.meta.is_object() {
+        db.execute("UPDATE imports SET meta = ? WHERE id = ?", params![meta_text(&b.meta), id]).ok();
+    }
+    if !b.cover.trim().is_empty() {
+        db.execute("UPDATE imports SET cover = ? WHERE id = ?", params![clip(&b.cover, 1000), id]).ok();
+    }
+    if !b.items.is_empty() {
+        let src: String = db
+            .query_row("SELECT source FROM imports WHERE id = ?", [id], |r| {
+                r.get(0)
+            })
+            .unwrap_or_default();
+        write_items(&mut db, id, &src, &b.items);
+    }
+    Ok(Json(json!({ "id": id })))
+}
+
+/// Up to 16 MB, imports can be large.
+async fn body_json_big<T: serde::de::DeserializeOwned + Default>(
+    req: Request,
+) -> Result<T, ApiError> {
+    let bytes = axum::body::to_bytes(req.into_body(), 16 << 20)
+        .await
+        .map_err(|_| ApiError::new(413, "too_large"))?;
+    if bytes.is_empty() {
+        return Ok(T::default());
+    }
+    serde_json::from_slice(&bytes).map_err(|_| ApiError::new(400, "bad_json"))
+}
+
+async fn list_imports(State(st): State<St>, Auth(u, _): Auth) -> R {
+    let db = st.db.lock().unwrap();
+    let mut s = db
+        .prepare(
+            "SELECT i.id, i.source, i.name, i.url, i.cover, i.updated, COUNT(it.pos), COUNT(it.track_id),
+                    (SELECT cover FROM import_items WHERE import_id = i.id AND cover != '' ORDER BY pos LIMIT 1),
+                    (SELECT track_id FROM import_items WHERE import_id = i.id AND track_id IS NOT NULL ORDER BY pos LIMIT 1),
+                    (SELECT updated FROM art WHERE kind = 'import' AND ref_id = i.id), i.kept
+             FROM imports i LEFT JOIN import_items it ON it.import_id = i.id
+             WHERE i.user_id = ? GROUP BY i.id ORDER BY i.updated DESC",
+        )
+        .unwrap();
+    let rows: Vec<Value> = s
+        .query_map([u.id], |r| {
+            let cover: String = r.get(4)?;
+            let first: Option<String> = r.get(8)?;
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?, "source": r.get::<_, String>(1)?, "name": r.get::<_, String>(2)?,
+                "url": r.get::<_, String>(3)?, "cover": if cover.is_empty() { first.unwrap_or_default() } else { cover },
+                "updated": r.get::<_, i64>(5)?, "total": r.get::<_, i64>(6)?, "matched": r.get::<_, i64>(7)?,
+                "cover_id": r.get::<_, Option<i64>>(9)?, "art": r.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                "kept": r.get::<_, i64>(11)? != 0,
+            }))
+        })
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    Ok(Json(json!(rows)))
+}
+
+fn import_items(db: &Connection, u: &crate::auth::User, id: i64) -> Vec<Value> {
+    let mut s = db
+        .prepare("SELECT pos, source, ext_id, title, artist, album, duration, cover, url, track_id FROM import_items WHERE import_id = ? ORDER BY pos")
+        .unwrap();
+    let mut items: Vec<Value> = s
+        .query_map([id], |r| {
+            Ok(json!({
+                "pos": r.get::<_, i64>(0)?, "source": r.get::<_, String>(1)?, "ext_id": r.get::<_, String>(2)?,
+                "title": r.get::<_, String>(3)?, "artist": r.get::<_, String>(4)?, "album": r.get::<_, String>(5)?,
+                "duration": r.get::<_, f64>(6)?, "cover": r.get::<_, String>(7)?, "url": r.get::<_, String>(8)?,
+                "track_id": r.get::<_, Option<i64>>(9)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    let ids: Vec<i64> = items
+        .iter()
+        .filter_map(|i| i["track_id"].as_i64())
+        .collect();
+    let locals: HashMap<i64, Value> = with_likes(db, u, tracks_by_ids(db, &ids))
+        .into_iter()
+        .map(|t| (t["id"].as_i64().unwrap(), t))
+        .collect();
+    for it in items.iter_mut() {
+        if let Some(t) = it["track_id"].as_i64().and_then(|i| locals.get(&i)) {
+            it["local"] = t.clone();
+        }
+    }
+    items
+}
+
+/// Add songs to the end of an imported playlist ("add to playlist" for songs from other platforms too).
+async fn append_items(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>, req: Request) -> R {
+    let b: ImportIn = body_json_big(req).await?;
+    let mut db = st.db.lock().unwrap();
+    own_import(&db, u.id, id)?;
+    let src: String = db.query_row("SELECT source FROM imports WHERE id = ?", [id], |r| r.get(0)).unwrap_or_default();
+    let start: i64 = db.query_row("SELECT COALESCE(MAX(pos) + 1, 0) FROM import_items WHERE import_id = ?", [id], |r| r.get(0)).unwrap_or(0);
+    let m = Matcher::new(&db);
+    let tx = db.transaction().unwrap();
+    let mut n = 0;
+    for it in b.items.iter().take(2000) {
+        let title = clip(&it.title, 300);
+        if title.is_empty() {
+            continue;
+        }
+        let local = m.find(&title, &it.artist, it.duration);
+        let s = if it.source.is_empty() { src.as_str() } else { it.source.as_str() };
+        tx.execute(
+            "INSERT INTO import_items (import_id, pos, source, ext_id, title, artist, album, duration, cover, url, track_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            params![id, start + n, clip(s, 20), clip(&it.ext_id, 200), title, clip(&it.artist, 300), clip(&it.album, 300), it.duration.max(0.0), clip(&it.cover, 1000), clip(&it.url, 1000), local],
+        )
+        .ok();
+        n += 1;
+    }
+    tx.execute("UPDATE imports SET updated = ? WHERE id = ?", params![now_ms(), id]).ok();
+    tx.commit().ok();
+    Ok(Json(json!({ "ok": true, "added": n })))
+}
+
+async fn get_import(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
+    let db = st.db.lock().unwrap();
+    own_import(&db, u.id, id)?;
+    let (source, name, url, cover, updated, meta): (String, String, String, String, i64, String) = db
+        .query_row(
+            "SELECT source, name, url, cover, updated, meta FROM imports WHERE id = ?",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        )
+        .map_err(|_| nf())?;
+    let meta: Value = serde_json::from_str(&meta).unwrap_or_else(|_| json!({}));
+    let kept: bool = db.query_row("SELECT kept FROM imports WHERE id = ?", [id], |r| r.get::<_, i64>(0)).unwrap_or(0) != 0;
+    Ok(Json(
+        json!({ "id": id, "kept": kept, "source": source, "name": name, "url": url, "cover": cover, "updated": updated, "meta": meta, "art": art_version(&db, "import", id), "items": import_items(&db, &u, id) }),
+    ))
+}
+
+async fn delete_import(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
+    let db = st.db.lock().unwrap();
+    own_import(&db, u.id, id)?;
+    db.execute("DELETE FROM import_items WHERE import_id = ?", [id])
+        .ok();
+    db.execute("DELETE FROM imports WHERE id = ?", [id]).ok();
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn rematch(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
+    let mut db = st.db.lock().unwrap();
+    own_import(&db, u.id, id)?;
+    let m = Matcher::new(&db);
+    let rows: Vec<(i64, String, String, f64)> = {
+        let mut s = db
+            .prepare("SELECT pos, title, artist, duration FROM import_items WHERE import_id = ?")
+            .unwrap();
+        let v = s
+            .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        v
+    };
+    let tx = db.transaction().unwrap();
+    let mut matched = 0;
+    for (pos, title, artist, dur) in rows {
+        let local = m.find(&title, &artist, dur);
+        if local.is_some() {
+            matched += 1;
+        }
+        tx.execute(
+            "UPDATE import_items SET track_id = ? WHERE import_id = ? AND pos = ?",
+            params![local, id, pos],
+        )
+        .ok();
+    }
+    tx.commit().ok();
+    Ok(Json(json!({ "matched": matched })))
+}
+
+/// Save the songs that exist locally as a normal playlist.
+async fn import_to_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
+    let mut db = st.db.lock().unwrap();
+    own_import(&db, u.id, id)?;
+    let name: String = db
+        .query_row("SELECT name FROM imports WHERE id = ?", [id], |r| r.get(0))
+        .map_err(|_| nf())?;
+    let ids: Vec<i64> = {
+        let mut s = db.prepare("SELECT track_id FROM import_items WHERE import_id = ? AND track_id IS NOT NULL ORDER BY pos").unwrap();
+        let v = s
+            .query_map([id], |r| r.get(0))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        v
+    };
+    // songs from a platform stay where they are: the imported playlist itself becomes one of the own playlists
+    let total: i64 = db.query_row("SELECT COUNT(*) FROM import_items WHERE import_id = ?", [id], |r| r.get(0)).unwrap_or(0);
+    if (ids.len() as i64) < total || ids.is_empty() {
+        db.execute("UPDATE imports SET kept = 1, updated = ? WHERE id = ?", params![now_ms(), id]).ok();
+        return Ok(Json(json!({ "id": id, "name": name, "tracks": total, "kept": true })));
+    }
+    let now = now_ms();
+    db.execute(
+        "INSERT INTO playlists (user_id, name, created, updated) VALUES (?,?,?,?)",
+        params![u.id, name, now, now],
+    )
+    .ok();
+    let pid = db.last_insert_rowid();
+    set_playlist_tracks(&mut db, pid, &ids);
+    Ok(Json(
+        json!({ "id": pid, "name": name, "tracks": ids.len() }),
+    ))
+}
+
+// ---------- fetching public data (server side because these APIs have no CORS) ----------
+pub(crate) fn http_get(url: &str) -> Result<Value, ApiError> {
+    ureq::get(url)
+        .set("User-Agent", "Streyn-Server")
+        .timeout(Duration::from_secs(15))
+        .call()
+        .map_err(|e| match e {
+            ureq::Error::Status(404, _) => ApiError::new(404, "not_found"),
+            ureq::Error::Status(401 | 403, _) => ApiError::new(403, "private"),
+            _ => ApiError::new(502, "source_unreachable"),
+        })?
+        .into_json::<Value>()
+        .map_err(|_| ApiError::new(502, "bad_source_data"))
+}
+
+/// Deezer playlist or album: ?type=playlist|album&id=123
+async fn fetch_deezer(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let kind = match q.get("type").map(String::as_str) {
+        Some("album") => "album",
+        _ => "playlist",
+    };
+    let id: String = q
+        .get("id")
+        .map(|s| s.chars().filter(|c| c.is_ascii_digit()).collect())
+        .unwrap_or_default();
+    if id.is_empty() {
+        return Err(ApiError::new(400, "bad_link"));
+    }
+    let res = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
+        let head = http_get(&format!("https://api.deezer.com/{kind}/{id}"))?;
+        if head.get("error").is_some() {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        let name = head["title"].as_str().unwrap_or("Deezer").to_string();
+        let cover = head["picture_xl"].as_str().or(head["cover_xl"].as_str()).unwrap_or("").to_string();
+        let mut items = vec![];
+        let mut next = Some(format!("https://api.deezer.com/{kind}/{id}/tracks?limit=100"));
+        let mut pages = 0;
+        while let Some(url) = next.take() {
+            pages += 1;
+            let page = http_get(&url)?;
+            for t in page["data"].as_array().cloned().unwrap_or_default() {
+                items.push(json!({
+                    "source": "deezer", "ext_id": t["id"].to_string(), "title": t["title"].as_str().unwrap_or(""),
+                    "artist": t["artist"]["name"].as_str().unwrap_or(""),
+                    "album": t["album"]["title"].as_str().or(head["title"].as_str()).unwrap_or(""),
+                    "duration": t["duration"].as_f64().unwrap_or(0.0),
+                    "cover": t["album"]["cover_medium"].as_str().or(head["cover_medium"].as_str()).unwrap_or(""),
+                    "url": t["link"].as_str().unwrap_or(""),
+                }));
+            }
+            next = page["next"].as_str().map(str::to_string);
+            if pages >= 50 {
+                break;
+            }
+        }
+        Ok(json!({ "name": name, "cover": cover, "items": items }))
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))??;
+    Ok(Json(res))
+}
+
+// ---------- own covers for playlists and imports (cropped in the app, stored as JPEG) ----------
+fn art_kind(k: &str) -> Result<&'static str, ApiError> {
+    match k {
+        "playlist" => Ok("playlist"),
+        "import" => Ok("import"),
+        "user" => Ok("user"),
+        "likes" => Ok("likes"),
+        // generated lists (Streyn Mixes, Your Top Songs): id = user id << 32 | number of the list
+        "gen" => Ok("gen"),
+        _ => Err(nf()),
+    }
+}
+fn own_ref(db: &Connection, uid: i64, kind: &str, id: i64) -> Result<(), ApiError> {
+    // a profile picture belongs to the user with that id
+    if kind == "user" || kind == "likes" {
+        return if id == uid { Ok(()) } else { Err(nf()) };
+    }
+    if kind == "gen" {
+        return if id >> 32 == uid { Ok(()) } else { Err(nf()) };
+    }
+    let table = if kind == "playlist" { "playlists" } else { "imports" };
+    db.query_row(&format!("SELECT id FROM {table} WHERE id = ? AND user_id = ?"), params![id, uid], |r| r.get::<_, i64>(0))
+        .optional()
+        .unwrap_or(None)
+        .map(|_| ())
+        .ok_or_else(nf)
+}
+/// Version of an own cover (0 = none), for lists and cache busting.
+pub fn art_version(db: &Connection, kind: &str, id: i64) -> i64 {
+    db.query_row("SELECT updated FROM art WHERE kind = ? AND ref_id = ?", params![kind, id], |r| r.get(0))
+        .optional()
+        .unwrap_or(None)
+        .unwrap_or(0)
+}
+/// Covers of streaming songs for the device copy (offline): fetched by the server, only from the known image hosts.
+async fn img_proxy(AuthQ(_u): AuthQ, Query(q): Query<HashMap<String, String>>) -> Result<Response, ApiError> {
+    let u = q.get("u").cloned().unwrap_or_default();
+    let host = u.strip_prefix("https://").and_then(|r| r.split('/').next()).unwrap_or("").to_ascii_lowercase();
+    let ok = ["i.scdn.co", "mosaic.scdn.co", "i.ytimg.com", "lh3.googleusercontent.com", "yt3.ggpht.com", "cdn-images.dzcdn.net", "e-cdns-images.dzcdn.net", "i1.sndcdn.com"]
+        .iter()
+        .any(|h| host == *h)
+        || host.ends_with(".spotifycdn.com")
+        || host.ends_with(".mzstatic.com");
+    if !ok {
+        return Err(ApiError::new(400, "bad_request"));
+    }
+    let data = tokio::task::spawn_blocking(move || -> Option<Vec<u8>> {
+        let r = ureq::get(&u).timeout(std::time::Duration::from_secs(15)).call().ok()?;
+        let mut v = Vec::new();
+        r.into_reader().take(4 << 20).read_to_end(&mut v).ok()?;
+        Some(v)
+    })
+    .await
+    .ok()
+    .flatten()
+    .ok_or_else(|| ApiError::new(502, "unreachable"))?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "image/jpeg"), (axum::http::header::CACHE_CONTROL, "private, max-age=86400")], data).into_response())
+}
+async fn get_art(State(st): State<St>, a: crate::api::AuthQ, Path((kind, id)): Path<(String, i64)>) -> Result<Response, ApiError> {
+    let kind = art_kind(&kind)?;
+    let db = st.db.lock().unwrap();
+    let member = kind == "playlist"
+        && db.query_row("SELECT 1 FROM playlist_members WHERE playlist_id = ? AND user_id = ?", params![id, a.0.id], |r| r.get::<_, i64>(0)).is_ok();
+    // profile pictures are visible to everyone on the server
+    if !member && kind != "user" {
+        own_ref(&db, a.0.id, kind, id)?;
+    }
+    let data: Vec<u8> = db
+        .query_row("SELECT data FROM art WHERE kind = ? AND ref_id = ?", params![kind, id], |r| r.get(0))
+        .optional()
+        .unwrap_or(None)
+        .ok_or_else(nf)?;
+    use axum::response::IntoResponse;
+    Ok(([(axum::http::header::CONTENT_TYPE, "image/jpeg"), (axum::http::header::CACHE_CONTROL, "private, max-age=31536000")], data).into_response())
+}
+async fn put_art(State(st): State<St>, Auth(u, _): Auth, Path((kind, id)): Path<(String, i64)>, req: Request) -> R {
+    let kind = art_kind(&kind)?;
+    let bytes = axum::body::to_bytes(req.into_body(), 4 << 20).await.map_err(|_| ApiError::new(413, "too_large"))?;
+    // JPEG or PNG only
+    if !(bytes.starts_with(&[0xFF, 0xD8, 0xFF]) || bytes.starts_with(&[0x89, b'P', b'N', b'G'])) {
+        return Err(ApiError::new(400, "bad_image"));
+    }
+    let db = st.db.lock().unwrap();
+    own_ref(&db, u.id, kind, id)?;
+    let v = now_ms();
+    db.execute(
+        "INSERT INTO art (user_id, kind, ref_id, data, updated) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(kind, ref_id) DO UPDATE SET data = excluded.data, updated = excluded.updated",
+        params![u.id, kind, id, bytes.to_vec(), v],
+    )
+    .ok();
+    Ok(Json(json!({ "art": v })))
+}
+async fn delete_art(State(st): State<St>, Auth(u, _): Auth, Path((kind, id)): Path<(String, i64)>) -> R {
+    let kind = art_kind(&kind)?;
+    let db = st.db.lock().unwrap();
+    own_ref(&db, u.id, kind, id)?;
+    db.execute("DELETE FROM art WHERE kind = ? AND ref_id = ?", params![kind, id]).ok();
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ---------- YouTube video for a song (name + artist from Spotify), cached for every device ----------
+fn yt_key(st: &St, uid: i64) -> String {
+    let db = st.db.lock().unwrap();
+    let data: Option<String> = db
+        .query_row("SELECT data FROM user_settings WHERE user_id = ?", [uid], |r| r.get(0))
+        .optional()
+        .unwrap_or(None);
+    let k = data
+        .and_then(|d| serde_json::from_str::<Value>(&d).ok())
+        .and_then(|v| v["youtubeKey"].as_str().map(|s| s.trim().to_string()))
+        .unwrap_or_default();
+    if k.is_empty() {
+        std::env::var("YOUTUBE_KEY").unwrap_or_default().trim().to_string()
+    } else {
+        k
+    }
+}
+/// The YouTube video for a song. Like the Msik bot: one YouTube search for "<first artist> - <title>"
+/// and YouTube's first hit (versions that are not the original, like piano or karaoke, are passed
+/// over unless the song itself is one). With `embed`, only videos that may play inside other apps
+/// count (for the YouTube player fallback). Remembered per song.
+fn find_video(st: &St, uid: i64, title: &str, artist: &str, duration: f64, q: &str, skip: &[String], embed: bool) -> Result<String, ApiError> {
+    let first = artist.split(',').next().unwrap_or("").trim().to_string();
+    let term = if title.is_empty() { q.to_string() } else { format!("{first} - {title}").trim_matches(|c: char| c == ' ' || c == '-').to_string() };
+    if term.is_empty() {
+        return Err(ApiError::new(400, "bad_query"));
+    }
+    // the whole "artist - title" (ext::norm would cut at " - " and give every song of an artist one key)
+    let ck = format!("{}:{}|{}", if embed { "e" } else { "s" }, crate::yt::plain(&first), crate::yt::plain(if title.is_empty() { q } else { title }));
+    let cached: Option<(String, i64)> = {
+        let db = st.db.lock().unwrap();
+        db.query_row("SELECT vid, found FROM yt_find WHERE q = ?", [&ck], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()
+            .unwrap_or(None)
+    };
+    // misses are tried again after a quarter of an hour (YouTube sometimes answers with nothing for a moment)
+    if let Some((vid, found)) = cached {
+        if (!vid.is_empty() && !skip.contains(&vid)) || (vid.is_empty() && skip.is_empty() && now_ms() / 1000 - found < 900) {
+            return Ok(vid);
+        }
+    }
+    let t2 = if title.is_empty() { term.clone() } else { title.to_string() };
+    // only YouTube Music songs (the album tracks, the same recordings as on Spotify), no videos
+    let mut reached = false;
+    let mut cands: Vec<String> = Vec::new();
+    // the last try asks without additions like "(2011 Remaster)" or " - Remastered", which catalogs add to the name
+    let bare = norm(&t2);
+    let mut asked = std::collections::HashSet::new();
+    let mut heard: Vec<Value> = Vec::new();
+    for q in [format!("{first} {t2}"), format!("{t2} {artist}"), format!("{first} {bare}")] {
+        if !asked.insert(crate::yt::plain(&q)) {
+            continue;
+        }
+        if let Ok(sg) = crate::yt::music_search(&q) {
+            reached = true;
+            cands = crate::yt::pick_song(&sg, &t2, artist, duration);
+            heard.extend(sg);
+            if !cands.is_empty() {
+                break;
+            }
+        }
+    }
+    // a remaster or another edition can be a little longer or shorter than the catalog says:
+    // the same song of the same artist still counts, the closest length first
+    if cands.is_empty() && !heard.is_empty() {
+        cands = crate::yt::pick_song_loose(&heard, &t2, artist, duration);
+    }
+    // not on YouTube Music as a song: the artist's own upload on YouTube ("<artist> - Topic" or
+    // the artist's channel), never somebody else's version
+    if cands.is_empty() {
+        if let Ok(v) = crate::yt::search(&term) {
+            reached = true;
+            let fa = crate::yt::plain(&first);
+            let own: Vec<Value> = v
+                .into_iter()
+                .filter(|x| {
+                    let ch = crate::yt::plain(x["channel"].as_str().unwrap_or(""));
+                    !fa.is_empty() && (ch == fa || ch == format!("{fa} topic") || ch == format!("{fa}vevo") || ch == format!("{fa} vevo") || ch == format!("{fa} official"))
+                })
+                .collect();
+            cands = crate::yt::msik_order(&own, &t2, artist, duration);
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    cands.retain(|c| !skip.contains(c) && seen.insert(c.clone()));
+    let vid = if embed {
+        cands.truncate(6);
+        let ok: Vec<bool> = std::thread::scope(|sc| {
+            let hs: Vec<_> = cands.iter().map(|c| sc.spawn(move || crate::yt::embeddable(c))).collect();
+            hs.into_iter().map(|h| h.join().unwrap_or(true)).collect()
+        });
+        cands.iter().zip(ok).find(|(_, ok)| *ok).map(|(c, _)| c.clone()).unwrap_or_default()
+    } else {
+        cands.first().cloned().unwrap_or_default()
+    };
+    if vid.is_empty() && !reached {
+        // YouTube's own search is down: the official API with the user's key, if there is one
+        let key = yt_key(st, uid);
+        if key.is_empty() {
+            return Err(ApiError::new(502, "youtube_unreachable"));
+        }
+        let url = format!(
+            "https://www.googleapis.com/youtube/v3/search?part=id&type=video&videoEmbeddable=true&maxResults=1&q={}&key={}",
+            urlencode(&term),
+            urlencode(&key)
+        );
+        let res = ureq::get(&url)
+            .timeout(Duration::from_secs(15))
+            .call()
+            .map_err(|e| match e {
+                ureq::Error::Status(400, _) => ApiError::new(400, "youtube_key_bad"),
+                ureq::Error::Status(403, _) => ApiError::new(429, "youtube_quota"),
+                _ => ApiError::new(502, "youtube_unreachable"),
+            })?
+            .into_json::<Value>()
+            .map_err(|_| ApiError::new(502, "bad_source_data"))?;
+        let v = res["items"][0]["id"]["videoId"].as_str().unwrap_or("").to_string();
+        return Ok(v);
+    }
+    let db = st.db.lock().unwrap();
+    db.execute(
+        "INSERT INTO yt_find (q, vid, found) VALUES (?, ?, ?) ON CONFLICT(q) DO UPDATE SET vid = excluded.vid, found = excluded.found",
+        params![ck, vid, now_ms() / 1000],
+    )
+    .ok();
+    Ok(vid)
+}
+
+fn song_query(q: &HashMap<String, String>) -> (String, String, f64, String, Vec<String>) {
+    let g = |k: &str| q.get(k).map(|s| s.trim().chars().take(200).collect::<String>()).unwrap_or_default();
+    let skip = g("skip").split(',').map(|x| x.trim().to_string()).filter(|x| x.len() == 11).collect();
+    (g("title"), g("artist"), g("duration").parse().unwrap_or(0.0), g("q"), skip)
+}
+
+/// ?title=&artist=&duration= (or ?q=) [&skip=id,id] → { id } of a YouTube video that may be embedded
+async fn yt_find(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let (title, artist, duration, qq, skip) = song_query(&q);
+    let vid = tokio::task::spawn_blocking(move || find_video(&st, u.id, &title, &artist, duration, &qq, &skip, true))
+        .await
+        .map_err(|_| ApiError::new(500, "internal"))??;
+    Ok(Json(json!({ "id": vid })))
+}
+
+/// The sound of a song, streamed like the Msik bot: ?title=&artist=&duration=&t=
+async fn yt_song(State(st): State<St>, AuthQ(u): AuthQ, Query(q): Query<HashMap<String, String>>, headers: axum::http::HeaderMap) -> Response {
+    let (title, artist, duration, qq, skip) = song_query(&q);
+    let st2 = st.clone();
+    let vid = match tokio::task::spawn_blocking(move || find_video(&st2, u.id, &title, &artist, duration, &qq, &skip, false)).await {
+        Ok(Ok(v)) if !v.is_empty() => v,
+        Ok(Ok(_)) => return ApiError::new(404, "notfound").into_response(),
+        Ok(Err(e)) => return e.into_response(),
+        Err(_) => return ApiError::new(500, "internal").into_response(),
+    };
+    // the bot looks up the next songs ahead; here the app asks with ?next= (title|artist per line)
+    proxy_audio(vid, headers, q.get("q").cloned().unwrap_or_default()).await
+}
+
+/// The sound of one YouTube video: /api/ytaudio/{id}?t=
+async fn yt_audio(AuthQ(_): AuthQ, Path(vid): Path<String>, Query(q): Query<HashMap<String, String>>, headers: axum::http::HeaderMap) -> Response {
+    if vid.len() != 11 || !vid.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return ApiError::new(400, "bad_query").into_response();
+    }
+    proxy_audio(vid, headers, q.get("q").cloned().unwrap_or_default()).await
+}
+
+/// Passes the audio stream on, with Range so seeking works. The googlevideo link only works from
+/// this server's address, so the app can't fetch it itself.
+async fn proxy_audio(vid: String, headers: axum::http::HeaderMap, q: String) -> Response {
+    use axum::body::Body;
+    crate::ytdl::mark_play();
+    let vid2 = vid.clone();
+    use axum::http::{header, StatusCode};
+    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(String::from);
+    // the beginning was fetched ahead of time (next song): it plays at once, the rest follows behind it
+    let from_start = range.as_deref().map(|r| r.trim() == "bytes=0-").unwrap_or(true);
+    let q2 = q.clone();
+    // the whole song is on disk already (fetched ahead): no loading at all
+    if crate::ytdl::is_default_q(&q) {
+        if let Some((file, ctype, size)) = crate::ytdl::cached(&vid) {
+            return serve_cached(file, ctype, size, range.as_deref());
+        }
+    }
+    if from_start && crate::ytdl::is_default_q(&q) {
+        if let Some(h) = crate::ytdl::head(&vid) {
+            return head_then_rest(vid, h, range.is_some());
+        }
+    }
+    let res = tokio::task::spawn_blocking(move || {
+        for attempt in 0..2 {
+            // a link from the light way that does not play: ask yt-dlp the second time
+            let s = crate::ytdl::stream_with(&vid, attempt > 0).map_err(|e| {
+                eprintln!("yt-dlp {vid}: {e}");
+                ApiError::new(502, "youtube_unreachable")
+            })?;
+            let mut req = ureq::get(s.url_for(&q));
+            for (k, v) in &s.headers {
+                req = req.set(k, v);
+            }
+            req = req.set("range", range.as_deref().unwrap_or("bytes=0-"));
+            match req.call() {
+                Ok(r) => return Ok(r),
+                Err(ureq::Error::Status(416, r)) => return Ok(r),
+                // an old link: look it up again once
+                Err(_) if attempt == 0 => crate::ytdl::forget(&vid),
+                Err(e) => {
+                    eprintln!("stream {vid}: {e}");
+                    return Err(ApiError::new(502, "youtube_unreachable"));
+                }
+            }
+        }
+        Err(ApiError::new(502, "youtube_unreachable"))
+    })
+    .await;
+    let r = match res {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return e.into_response(),
+        Err(_) => return ApiError::new(500, "internal").into_response(),
+    };
+    let status = StatusCode::from_u16(r.status()).unwrap_or(StatusCode::OK);
+    let mut out = axum::http::HeaderMap::new();
+    for h in ["content-type", "content-length", "content-range", "accept-ranges"] {
+        if let Some(v) = r.header(h).and_then(|v| v.parse().ok()) {
+            out.insert(h, v);
+        }
+    }
+    if !out.contains_key("accept-ranges") {
+        out.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+    }
+    out.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    // where this answer starts and ends inside the file, for the chunked rest
+    let (pos, end) = match r.header("content-range").and_then(parse_content_range) {
+        Some(x) => x,
+        None => (0, r.header("content-length").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0).saturating_sub(1)),
+    };
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(8);
+    std::thread::spawn(move || pump(&vid2, &q2, Some(r), pos, end, &tx));
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
+    (status, out, Body::from_stream(stream)).into_response()
+}
+
+/// A song from the song cache, with Range so seeking works.
+fn serve_cached(file: std::path::PathBuf, ctype: String, size: u64, range: Option<&str>) -> Response {
+    use axum::http::{header, StatusCode};
+    use std::io::{Seek, SeekFrom};
+    let (a, b) = range
+        .and_then(|r| r.trim().strip_prefix("bytes="))
+        .and_then(|r| r.split(',').next())
+        .and_then(|r| {
+            let (x, y) = r.split_once('-')?;
+            let (x, y) = (x.trim(), y.trim());
+            if x.is_empty() {
+                let n: u64 = y.parse().ok()?;
+                Some((size.saturating_sub(n), size - 1))
+            } else {
+                Some((x.parse().ok()?, y.parse().unwrap_or(size - 1).min(size - 1)))
+            }
+        })
+        .unwrap_or((0, size - 1));
+    if a > b || a >= size {
+        return (StatusCode::RANGE_NOT_SATISFIABLE, [(header::CONTENT_RANGE, format!("bytes */{size}"))]).into_response();
+    }
+    let Ok(mut f) = std::fs::File::open(&file) else { return ApiError::new(500, "internal").into_response() };
+    if f.seek(SeekFrom::Start(a)).is_err() {
+        return ApiError::new(500, "internal").into_response();
+    }
+    let len = b - a + 1;
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(8);
+    std::thread::spawn(move || {
+        let mut left = len;
+        let mut buf = vec![0u8; 256 * 1024];
+        while left > 0 {
+            let n = match f.read(&mut buf[..(left.min(256 * 1024)) as usize]) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            if tx.blocking_send(Ok(buf[..n].to_vec())).is_err() {
+                break;
+            }
+            left -= n as u64;
+        }
+    });
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
+    let mut out = axum::http::HeaderMap::new();
+    out.insert(header::CONTENT_TYPE, ctype.parse().unwrap_or_else(|_| "audio/mp4".parse().unwrap()));
+    out.insert(header::CONTENT_LENGTH, len.into());
+    out.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+    out.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    let status = if range.is_some() {
+        out.insert(header::CONTENT_RANGE, format!("bytes {a}-{b}/{size}").parse().unwrap());
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
+    (status, out, axum::body::Body::from_stream(stream)).into_response()
+}
+
+/// "bytes a-b/total" -> (a, b)
+fn parse_content_range(v: &str) -> Option<(u64, u64)> {
+    let r = v.trim().strip_prefix("bytes ")?.split('/').next()?;
+    let (a, b) = r.split_once('-')?;
+    Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+}
+
+/// Size of one request to YouTube. One long open request gets slowed down to playback speed by
+/// YouTube after a while, which left the player without sound for a moment; short ranges in a row
+/// always come at full speed (yt-dlp does the same).
+const CHUNK: u64 = 1024 * 1024;
+
+/// Sends bytes `pos..=end` of a song to the app: first what is left of `first` (up to one chunk),
+/// then chunk after chunk, each one tried again with a fresh link when it breaks off.
+fn pump(vid: &str, q: &str, first: Option<ureq::Response>, mut pos: u64, end: u64, tx: &tokio::sync::mpsc::Sender<Result<Vec<u8>, std::io::Error>>) {
+    let mut buf = vec![0u8; 64 * 1024];
+    // returns false when the app stopped listening
+    let mut send = |rd: &mut dyn Read, limit: u64, pos: &mut u64| -> Result<bool, std::io::Error> {
+        let stop = *pos + limit;
+        while *pos < stop {
+            let want = ((stop - *pos) as usize).min(buf.len());
+            let n = rd.read(&mut buf[..want])?;
+            if n == 0 {
+                break;
+            }
+            *pos += n as u64;
+            if tx.blocking_send(Ok(buf[..n].to_vec())).is_err() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+    if let Some(r) = first {
+        let mut rd = r.into_reader();
+        match send(&mut rd, CHUNK.min(end + 1 - pos.min(end + 1)), &mut pos) {
+            Ok(false) => return,
+            Ok(true) => {}
+            Err(_) => {} // carried on below from where it broke off
+        }
+    }
+    let mut fails = 0;
+    while end > 0 && pos <= end {
+        let to = (pos + CHUNK - 1).min(end);
+        let r = (|| -> Result<ureq::Response, String> {
+            let s = crate::ytdl::stream_with(vid, false)?;
+            let mut req = ureq::get(s.url_for(q));
+            for (k, v) in &s.headers {
+                req = req.set(k, v);
+            }
+            req.set("range", &format!("bytes={pos}-{to}")).call().map_err(|e| e.to_string())
+        })();
+        let before = pos;
+        let ok = match r {
+            Ok(r) => {
+                let mut rd = r.into_reader();
+                match send(&mut rd, to + 1 - pos, &mut pos) {
+                    Ok(false) => return,
+                    Ok(true) => pos > before,
+                    Err(_) => pos > before,
+                }
+            }
+            Err(_) => false,
+        };
+        if ok {
+            fails = 0;
+            continue;
+        }
+        fails += 1;
+        crate::ytdl::forget(vid);
+        if fails > 3 {
+            tx.blocking_send(Err(std::io::Error::other("youtube_unreachable"))).ok();
+            return;
+        }
+    }
+}
+
+fn head_then_rest(vid: String, h: std::sync::Arc<crate::ytdl::Head>, ranged: bool) -> Response {
+    use axum::body::Body;
+    use axum::http::{header, StatusCode};
+    let mut out = axum::http::HeaderMap::new();
+    if let Ok(v) = h.ctype.parse() {
+        out.insert(header::CONTENT_TYPE, v);
+    }
+    out.insert(header::CONTENT_LENGTH, h.total.into());
+    out.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+    out.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    if ranged {
+        if let Ok(v) = format!("bytes 0-{}/{}", h.total.saturating_sub(1), h.total).parse() {
+            out.insert(header::CONTENT_RANGE, v);
+        }
+    }
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(8);
+    std::thread::spawn(move || {
+        if tx.blocking_send(Ok(h.bytes.clone())).is_err() {
+            return;
+        }
+        let start = h.bytes.len() as u64;
+        if start >= h.total {
+            return;
+        }
+        pump(&vid, "", None, start, h.total - 1, &tx);
+    });
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|x| (x, rx)) });
+    let status = if ranged { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK };
+    (status, out, Body::from_stream(stream)).into_response()
+}
+
+/// Checks the whole way for one known song: search on YouTube Music, pick, stream. For the settings.
+async fn yt_check(State(st): State<St>, Auth(u, _): Auth) -> R {
+    let out = tokio::task::spawn_blocking(move || {
+        let t = std::time::Instant::now();
+        let songs = crate::yt::music_search("Red Hot Chili Peppers Californication");
+        let search_ms = t.elapsed().as_millis() as u64;
+        let pick = songs.as_ref().ok().and_then(|s| crate::yt::pick_song(s, "Californication", "Red Hot Chili Peppers", 329.0).into_iter().next());
+        let title = pick.as_ref().and_then(|id| songs.as_ref().ok()?.iter().find(|s| s["id"] == id.as_str()).map(|s| format!("{} - {}", s["artist"].as_str().unwrap_or(""), s["title"].as_str().unwrap_or(""))));
+        let stream = pick.as_ref().map(|id| crate::ytdl::diagnose(id));
+        let cached: i64 = st.db.lock().unwrap().query_row("SELECT COUNT(*) FROM yt_find", [], |r| r.get(0)).unwrap_or(0);
+        let _ = u;
+        json!({ "search": songs.is_ok(), "search_error": songs.err(), "search_ms": search_ms, "pick": pick, "title": title, "stream": stream, "remembered": cached, "version": crate::api::VERSION })
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?;
+    Ok(Json(out))
+}
+
+/// POST {ids:[...]} or ?songs= : the next songs' streams are looked up ahead (like the bot does)
+async fn yt_prefetch(State(st): State<St>, Auth(u, _): Auth, Json(b): Json<Value>) -> R {
+    let songs: Vec<(String, String, f64)> = b["songs"]
+        .as_array()
+        .map(|a| a.iter().take(8).map(|x| (x["title"].as_str().unwrap_or("").to_string(), x["artist"].as_str().unwrap_or("").to_string(), x["duration"].as_f64().unwrap_or(0.0))).collect())
+        .unwrap_or_default();
+    let ids: Vec<String> = b["ids"].as_array().map(|a| a.iter().take(8).filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    let wait = b["wait"].as_bool().unwrap_or(false);
+    let ids: Vec<String> = ids.into_iter().filter(|i| i.len() == 11).collect();
+    if !wait {
+        for id in ids.iter().cloned() {
+            crate::ytdl::prefetch(id);
+        }
+    }
+    // videos given directly: the preload button waits for them too
+    let direct_ids = ids.clone();
+    // three at a time, each one finds its video and then its stream
+    let todo = std::sync::Arc::new(std::sync::Mutex::new(songs));
+    let found = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut workers = Vec::new();
+    // the preload button runs two at a time and steps aside whenever a song starts playing
+    for _ in 0..(if wait { 2 } else { 3 }) {
+        let (todo, st, found) = (todo.clone(), st.clone(), found.clone());
+        workers.push(std::thread::spawn(move || loop {
+            if wait {
+                crate::ytdl::yield_to_play();
+            }
+            let Some((t, a, d)) = todo.lock().unwrap().pop() else { break };
+            if let Ok(v) = find_video(&st, u.id, &t, &a, d, "", &[], false) {
+                if !v.is_empty() {
+                    found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    // the "preload" button: the whole song onto disk, so it never loads when played
+                    if wait {
+                        crate::ytdl::preload_full(&v);
+                    } else {
+                        crate::ytdl::prefetch(v);
+                    }
+                }
+            }
+        }));
+    }
+    // the playlist's "preload" button waits, so it can count along
+    if wait {
+        tokio::task::spawn_blocking(move || {
+            for v in direct_ids {
+                crate::ytdl::preload_full(&v);
+            }
+            workers.into_iter().for_each(|w| drop(w.join()))
+        })
+        .await
+        .ok();
+    }
+    Ok(Json(json!({ "ok": true, "found": found.load(std::sync::atomic::Ordering::Relaxed) })))
+}
+/// ?q= → YouTube videos (no key needed)
+async fn yt_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let term: String = q.get("q").map(|s| s.trim().chars().take(200).collect()).unwrap_or_default();
+    if term.is_empty() {
+        return Ok(Json(json!([])));
+    }
+    let v = tokio::task::spawn_blocking(move || crate::yt::search(&term))
+        .await
+        .map_err(|_| ApiError::new(500, "internal"))?
+        .map_err(|_| ApiError::new(502, "youtube_unreachable"))?;
+    Ok(Json(json!(v.into_iter().take(20).collect::<Vec<_>>())))
+}
+/// ?q= → songs on YouTube Music (no videos, no key needed)
+async fn ytm_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let term: String = q.get("q").map(|s| s.trim().chars().take(200).collect()).unwrap_or_default();
+    if term.is_empty() {
+        return Ok(Json(json!([])));
+    }
+    let v = tokio::task::spawn_blocking(move || crate::yt::music_search(&term))
+        .await
+        .map_err(|_| ApiError::new(500, "internal"))?
+        .map_err(|_| ApiError::new(502, "youtube_unreachable"))?;
+    Ok(Json(json!(v.into_iter().take(20).collect::<Vec<_>>())))
+}
+pub(crate) fn urlencode(s: &str) -> String {
+    let mut o = String::new();
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+            o.push(b as char);
+        } else {
+            o.push_str(&format!("%{b:02X}"));
+        }
+    }
+    o
+}
+
+// ---------- catalog: the public Deezer catalog (no key needed) for search like on Spotify ----------
+pub(crate) fn dz_track(t: &Value) -> Value {
+    json!({
+        "source": "deezer", "ext_id": t["id"].to_string(), "title": t["title"].as_str().unwrap_or(""),
+        "artist": t["artist"]["name"].as_str().unwrap_or(""),
+        "album": t["album"]["title"].as_str().unwrap_or(""),
+        "duration": t["duration"].as_f64().unwrap_or(0.0),
+        "cover": t["album"]["cover_medium"].as_str().unwrap_or(""),
+        "url": t["link"].as_str().unwrap_or(""),
+    })
+}
+fn dz_album(a: &Value) -> Value {
+    json!({ "id": a["id"].to_string(), "title": a["title"].as_str().unwrap_or(""), "artist": a["artist"]["name"].as_str().unwrap_or(""),
+            "cover": a["cover_medium"].as_str().unwrap_or(""), "url": a["link"].as_str().unwrap_or("") })
+}
+pub(crate) fn dz_artist(a: &Value) -> Value {
+    json!({ "id": a["id"].to_string(), "name": a["name"].as_str().unwrap_or(""), "picture": a["picture_medium"].as_str().unwrap_or(""),
+            "fans": a["nb_fan"].as_i64().unwrap_or(0) })
+}
+fn dz_list(v: &Value, f: fn(&Value) -> Value) -> Vec<Value> {
+    v["data"].as_array().map(|a| a.iter().map(f).collect()).unwrap_or_default()
+}
+
+/// ?q=… songs, artists and albums from the catalog
+async fn catalog_search(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let term = q.get("q").map(|s| s.trim().to_string()).unwrap_or_default();
+    if term.is_empty() {
+        return Ok(Json(json!({ "tracks": [], "artists": [], "albums": [] })));
+    }
+    let res = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
+        let enc: String = term.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+        let tracks = http_get(&format!("https://api.deezer.com/search/track?q={enc}&limit=20"))?;
+        let artists = http_get(&format!("https://api.deezer.com/search/artist?q={enc}&limit=8")).unwrap_or(Value::Null);
+        let albums = http_get(&format!("https://api.deezer.com/search/album?q={enc}&limit=12")).unwrap_or(Value::Null);
+        Ok(json!({ "tracks": dz_list(&tracks, dz_track), "artists": dz_list(&artists, dz_artist), "albums": dz_list(&albums, dz_album) }))
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))??;
+    Ok(Json(res))
+}
+
+/// Every release of an artist, newest first: albums, singles, EPs, compilations and the
+/// records of others the artist is on ("kind": album | single | ep | compilation | appears).
+fn dz_releases(id: &str, name: &Value) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut url = format!("https://api.deezer.com/artist/{id}/albums?limit=100");
+    for _ in 0..5 {
+        let Ok(page) = http_get(&url) else { break };
+        for x in page["data"].as_array().map(|l| l.as_slice()).unwrap_or(&[]) {
+            let mut v = dz_album(x);
+            if !seen.insert(v["id"].to_string()) {
+                continue;
+            }
+            // Deezer leaves the artist out of its own list; other names show up on features
+            let other = x["artist"]["name"].as_str().filter(|n| !n.is_empty());
+            let kind = match x["record_type"].as_str().unwrap_or("album") {
+                "single" => "single",
+                "ep" => "ep",
+                "compile" | "compilation" => "compilation",
+                _ => "album",
+            };
+            v["kind"] = json!(if other.is_some() && other != name.as_str() { "appears" } else { kind });
+            if other.is_none() {
+                v["artist"] = name.clone();
+            }
+            v["year"] = json!(x["release_date"].as_str().unwrap_or("").get(..4).unwrap_or(""));
+            v["date"] = json!(x["release_date"].as_str().unwrap_or(""));
+            v["fans"] = json!(x["fans"].as_i64().unwrap_or(0));
+            out.push(v);
+        }
+        match page["next"].as_str() {
+            Some(n) if n.starts_with("https://api.deezer.com/") => url = n.to_string(),
+            _ => break,
+        }
+    }
+    out.sort_by(|a, b| b["date"].as_str().unwrap_or("").cmp(a["date"].as_str().unwrap_or("")));
+    out
+}
+
+/// An artist like on a streaming page: popular songs, every release, similar artists
+async fn catalog_artist(Auth(_, _): Auth, Path(id): Path<String>) -> R {
+    let id: String = id.chars().filter(|c| c.is_ascii_digit()).collect();
+    if id.is_empty() {
+        return Err(ApiError::new(400, "bad_link"));
+    }
+    let res = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
+        let a = http_get(&format!("https://api.deezer.com/artist/{id}"))?;
+        if a.get("error").is_some() {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        let top = http_get(&format!("https://api.deezer.com/artist/{id}/top?limit=20")).unwrap_or(Value::Null);
+        let related = http_get(&format!("https://api.deezer.com/artist/{id}/related?limit=12")).unwrap_or(Value::Null);
+        let mut artist = dz_artist(&a);
+        artist["picture"] = json!(a["picture_xl"].as_str().unwrap_or(""));
+        let albums = dz_releases(&id, &artist["name"]);
+        Ok(json!({ "artist": artist, "tracks": dz_list(&top, dz_track), "albums": albums, "related": dz_list(&related, dz_artist) }))
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))??;
+    Ok(Json(res))
+}
+
+/// ?name=… → artists that fans of this one also listen to (for artist pages of other platforms)
+/// Monthly listeners of a Spotify artist.
+/// 1. kworb.net/spotify/listeners.html lists the exact count of the ~2500 biggest artists (refreshed daily
+///    from Spotify), so those get the full number ("94,117,336").
+/// 2. Everyone else: Spotify's own public artist page / link preview, which only carries a rounded value
+///    ("4M monthly listeners"); the answer says `exact: false` so the app shows it rounded like Spotify's header
+///    ("4 Mio.") instead of a fake "4.000.000".
+/// Numbers are kept 1 hour, misses 10 minutes; the kworb list is reloaded every 3 hours.
+static SP_LISTENERS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (std::time::Instant, Option<(u64, bool)>)>>> = std::sync::OnceLock::new();
+static KWORB: std::sync::OnceLock<std::sync::Mutex<(Option<std::time::Instant>, HashMap<String, u64>)>> = std::sync::OnceLock::new();
+
+/// exact counts from kworb's top list, loaded at most every 3 hours (a failed load retries after 10 minutes)
+fn kworb_exact(id: &str) -> Option<u64> {
+    let lock = KWORB.get_or_init(|| std::sync::Mutex::new((None, HashMap::new())));
+    let mut k = lock.lock().unwrap();
+    let stale = match k.0 {
+        None => true,
+        Some(at) => at.elapsed() > std::time::Duration::from_secs(if k.1.is_empty() { 600 } else { 3 * 3600 }),
+    };
+    if stale {
+        k.0 = Some(std::time::Instant::now());
+        let html = ureq::get("https://kworb.net/spotify/listeners.html")
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36")
+            .timeout(std::time::Duration::from_secs(10))
+            .call()
+            .ok()
+            .and_then(|r| r.into_string().ok());
+        if let Some(html) = html {
+            let map = parse_kworb(&html);
+            if map.len() > 100 {
+                k.1 = map;
+            }
+        }
+    }
+    k.1.get(id).copied()
+}
+
+/// rows look like `<a href="artist/<id>_songs.html">Name</a></div></td><td>94,117,336</td>`
+pub(crate) fn parse_kworb(html: &str) -> HashMap<String, u64> {
+    let mut out = HashMap::new();
+    for part in html.split("href=\"artist/").skip(1) {
+        let Some(end) = part.find("_songs.html\"") else { continue };
+        let id = &part[..end];
+        if id.len() != 22 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        let Some(td) = part.find("</td><td>") else { continue };
+        let n: String = part[td + 9..].chars().take_while(|c| c.is_ascii_digit() || *c == ',').filter(|c| *c != ',').collect();
+        if let Ok(v) = n.parse::<u64>() {
+            out.insert(id.to_string(), v);
+        }
+    }
+    out
+}
+
+async fn sp_listeners(Auth(_, _): Auth, Path(id): Path<String>) -> R {
+    if id.len() > 40 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(ApiError::new(400, "bad_query"));
+    }
+    let answer = |v: Option<(u64, bool)>| Json(json!({ "listeners": v.map(|x| x.0), "exact": v.map(|x| x.1).unwrap_or(false) }));
+    let cache = SP_LISTENERS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    if let Some((at, v)) = cache.lock().unwrap().get(&id).cloned() {
+        let keep = if v.is_some() { 3600 } else { 600 };
+        if at.elapsed() < std::time::Duration::from_secs(keep) {
+            return Ok(answer(v));
+        }
+    }
+    let id2 = id.clone();
+    let v = tokio::task::spawn_blocking(move || {
+        if let Some(n) = kworb_exact(&id2) {
+            return Some((n, true));
+        }
+        // Spotify answers link previews (Discord, Facebook) with a page that carries "… monthly listeners";
+        // the browser page and the embed are tried as well, the first page with the number wins
+        let tries: [(&str, &str); 4] = [
+            ("https://open.spotify.com/artist/{id}", "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)"),
+            ("https://open.spotify.com/artist/{id}", "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"),
+            ("https://open.spotify.com/artist/{id}", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"),
+            ("https://open.spotify.com/embed/artist/{id}", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"),
+        ];
+        tries.iter().find_map(|(url, ua)| {
+            let html = ureq::get(&url.replace("{id}", &id2))
+                .set("User-Agent", ua)
+                .set("Accept-Language", "en-US,en;q=0.9")
+                .timeout(std::time::Duration::from_secs(8))
+                .call()
+                .ok()?
+                .into_string()
+                .ok()?;
+            parse_listeners(&html)
+        })
+    })
+    .await
+    .unwrap_or(None);
+    let mut c = cache.lock().unwrap();
+    if c.len() > 2000 {
+        c.clear();
+    }
+    c.insert(id, (std::time::Instant::now(), v));
+    Ok(answer(v))
+}
+/// "monthlyListeners":4123456 in the page data (exact), otherwise "4.1M monthly listeners" in its description
+/// (exact only when written out in full, like "812,345 monthly listeners").
+pub(crate) fn parse_listeners(html: &str) -> Option<(u64, bool)> {
+    if let Some(i) = html.find("\"monthlyListeners\":") {
+        let n: String = html[i + 19..].chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(v) = n.parse() {
+            return Some((v, true));
+        }
+    }
+    for key in ["\"monthly_listeners\":", "\"monthlyListeners\" :"] {
+        if let Some(i) = html.find(key) {
+            let n: String = html[i + key.len()..].trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(v) = n.parse() {
+                return Some((v, true));
+            }
+        }
+    }
+    let i = html.find(" monthly listeners").or_else(|| html.find(" monthly listener"))?;
+    let head = &html[..i];
+    let start = head.rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == ',')).map(|p| p + 1).unwrap_or(0);
+    let tok = head[start..].replace(',', "");
+    let (num, mul) = match tok.chars().last()? {
+        'K' | 'k' => (&tok[..tok.len() - 1], 1e3),
+        'M' | 'm' => (&tok[..tok.len() - 1], 1e6),
+        'B' | 'b' => (&tok[..tok.len() - 1], 1e9),
+        _ => (tok.as_str(), 1.0),
+    };
+    num.parse::<f64>().ok().map(|v| ((v * mul).round() as u64, mul == 1.0))
+}
+
+#[cfg(test)]
+mod listeners_tests {
+    #[test]
+    fn reads_listeners() {
+        assert_eq!(super::parse_listeners(r#"x "monthlyListeners":4123456,"y"#), Some((4123456, true)));
+        assert_eq!(super::parse_listeners(r#"<meta property="og:description" content="Artist · 4.1M monthly listeners.">"#), Some((4_100_000, false)));
+        assert_eq!(super::parse_listeners(r#"content="Artist · 812,345 monthly listeners.""#), Some((812_345, true)));
+        assert_eq!(super::parse_listeners("nothing"), None);
+    }
+    #[test]
+    fn reads_kworb() {
+        let html = r#"<tr><td>8</td><td class="text"><div><a href="artist/3TVXtAsR1Inumwj472S9r4_songs.html">Drake</a></div></td><td>94,117,336</td><td>63,462</td><td>3</td><td class="smaller">100,057,064</td></tr>
+<tr><td>9</td><td class="text"><div><a href="artist/4gzpq5DPGxSnKTe4SA8HAU_songs.html">Coldplay</a></div></td><td>88,000,001</td></tr>"#;
+        let m = super::parse_kworb(html);
+        assert_eq!(m.get("3TVXtAsR1Inumwj472S9r4"), Some(&94_117_336));
+        assert_eq!(m.get("4gzpq5DPGxSnKTe4SA8HAU"), Some(&88_000_001));
+    }
+}
+
+async fn catalog_related(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let name = clip(q.get("name").map(|s| s.trim()).unwrap_or(""), 200);
+    if name.is_empty() {
+        return Ok(Json(json!({ "artists": [] })));
+    }
+    let res = tokio::task::spawn_blocking(move || -> Value {
+        let found = http_get(&format!("https://api.deezer.com/search/artist?limit=5&q={}", urlencode(&name))).unwrap_or(Value::Null);
+        let list = found["data"].as_array().cloned().unwrap_or_default();
+        let want = norm(&name);
+        let Some(hit) = list.iter().find(|a| norm(a["name"].as_str().unwrap_or("")) == want) else {
+            return json!({ "artists": [] });
+        };
+        let related = http_get(&format!("https://api.deezer.com/artist/{}/related?limit=12", hit["id"])).unwrap_or(Value::Null);
+        json!({ "artists": dz_list(&related, dz_artist), "fans": hit["nb_fan"].as_i64().unwrap_or(0) })
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?;
+    Ok(Json(res))
+}
+
+/// ?ids=132,116 → popular artists of these catalog genres, mixed (first start: "who do you like?")
+async fn catalog_genre_artists(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let ids: Vec<String> = q
+        .get("ids")
+        .map(|s| s.split(',').map(|x| x.chars().filter(|c| c.is_ascii_digit()).collect::<String>()).filter(|x| !x.is_empty()).take(8).collect())
+        .unwrap_or_default();
+    let res = tokio::task::spawn_blocking(move || {
+        let lists: Vec<Vec<Value>> = if ids.is_empty() {
+            vec![http_get("https://api.deezer.com/chart/0/artists?limit=30").map(|v| dz_list(&v, dz_artist)).unwrap_or_default()]
+        } else {
+            ids.iter()
+                .map(|id| http_get(&format!("https://api.deezer.com/genre/{id}/artists")).map(|v| dz_list(&v, dz_artist)).unwrap_or_default())
+                .collect()
+        };
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..40 {
+            for l in &lists {
+                if let Some(a) = l.get(i) {
+                    if seen.insert(a["id"].to_string()) {
+                        out.push(a.clone());
+                    }
+                }
+            }
+        }
+        json!(out.into_iter().take(36).collect::<Vec<_>>())
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?;
+    Ok(Json(res))
+}
+
+/// Fresh address of the official 30 second preview (the links expire)
+async fn catalog_preview(Auth(_, _): Auth, Path(id): Path<String>) -> R {
+    let id: String = id.chars().filter(|c| c.is_ascii_digit()).collect();
+    let res = tokio::task::spawn_blocking(move || http_get(&format!("https://api.deezer.com/track/{id}")))
+        .await
+        .map_err(|_| ApiError::new(500, "internal"))??;
+    let preview = res["preview"].as_str().unwrap_or("").to_string();
+    if preview.is_empty() {
+        return Err(ApiError::new(404, "not_found"));
+    }
+    Ok(Json(json!({ "preview": preview, "duration": 30 })))
+}
+
+/// Titles and channels for YouTube videos: ?ids=a,b,c (official oEmbed endpoint, no key needed)
+async fn fetch_oembed(Auth(_, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
+    let ids: Vec<String> = q
+        .get("ids")
+        .map(|s| {
+            s.split(',')
+                .map(|x| {
+                    x.chars()
+                        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                        .collect::<String>()
+                })
+                .filter(|x| x.len() == 11)
+                .take(60)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut handles = vec![];
+    for chunk in ids.chunks(8) {
+        let chunk = chunk.to_vec();
+        handles.push(tokio::task::spawn_blocking(move || {
+            chunk
+                .into_iter()
+                .map(|id| {
+                    let v = http_get(&format!("https://www.youtube.com/oembed?format=json&url=https://www.youtube.com/watch?v={id}")).ok();
+                    json!({ "id": id, "title": v.as_ref().and_then(|v| v["title"].as_str()), "author": v.as_ref().and_then(|v| v["author_name"].as_str()) })
+                })
+                .collect::<Vec<_>>()
+        }));
+    }
+    let mut out = vec![];
+    for h in handles {
+        out.extend(h.await.unwrap_or_default());
+    }
+    Ok(Json(json!(out)))
+}
+
+// ---------- lyrics ----------
+/// Lyrics for a local song: from the file's tags first, then LRCLIB (free, no key). Cached.
+async fn lyrics(
+    State(st): State<St>,
+    crate::api::AuthQ(_): crate::api::AuthQ,
+    Path(id): Path<i64>,
+) -> R {
+    let cached: Option<(String, String, String, i64)> = st
+        .db
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT synced, plain, source, fetched FROM lyrics WHERE track_id = ?",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()
+        .unwrap_or(None);
+    // a miss is retried after a week
+    if let Some((synced, plain, source, fetched)) = cached {
+        if !source.is_empty() || now_ms() - fetched < 7 * 86_400_000 {
+            return Ok(Json(
+                json!({ "synced": synced, "plain": plain, "source": source }),
+            ));
+        }
+    }
+    let row: (String, String, String, String, f64) = st
+        .db
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT path, title, artist, album, duration FROM tracks WHERE id = ?",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .optional()
+        .unwrap_or(None)
+        .ok_or_else(nf)?;
+    let (synced, plain, source) = tokio::task::spawn_blocking(move || {
+        let (path, title, artist, album, duration) = row;
+        // 1. embedded
+        if let Ok(tf) = lofty::read_from_path(&path) {
+            use lofty::file::TaggedFileExt;
+            for tag in tf.tags() {
+                if let Some(text) = tag.get_string(&lofty::tag::ItemKey::Lyrics) {
+                    let text = text.trim().to_string();
+                    if !text.is_empty() {
+                        let synced = if is_lrc(&text) {
+                            text.clone()
+                        } else {
+                            String::new()
+                        };
+                        let plain = if synced.is_empty() {
+                            text
+                        } else {
+                            strip_lrc(&text)
+                        };
+                        return (synced, plain, "file".to_string());
+                    }
+                }
+            }
+        }
+        // 2. LRCLIB
+        lrclib(&title, &artist, &album, duration)
+    })
+    .await
+    .unwrap_or_default();
+    st.db
+        .lock()
+        .unwrap()
+        .execute(
+            "INSERT OR REPLACE INTO lyrics (track_id, synced, plain, source, fetched) VALUES (?,?,?,?,?)",
+            params![id, synced, plain, source, now_ms()],
+        )
+        .ok();
+    Ok(Json(
+        json!({ "synced": synced, "plain": plain, "source": source }),
+    ))
+}
+/// LRCLIB lookup (free, no key): exact first, then a looser search. Returns (synced, plain, source).
+fn lrclib(title: &str, artist: &str, album: &str, duration: f64) -> (String, String, String) {
+    let enc = |s: &str| -> String {
+        s.bytes()
+            .map(|b| {
+                if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+                    (b as char).to_string()
+                } else {
+                    format!("%{b:02X}")
+                }
+            })
+            .collect()
+    };
+    if title.trim().is_empty() {
+        return Default::default();
+    }
+    let mut url = format!(
+        "https://lrclib.net/api/get?track_name={}&artist_name={}",
+        enc(title),
+        enc(artist)
+    );
+    if !album.is_empty() {
+        url += &format!("&album_name={}", enc(album));
+    }
+    if duration > 0.0 {
+        url += &format!("&duration={}", duration.round() as i64);
+    }
+    let got = http_get(&url).ok().or_else(|| {
+        let list = http_get(&format!(
+            "https://lrclib.net/api/search?track_name={}&artist_name={}",
+            enc(title),
+            enc(artist)
+        ))
+        .ok()?;
+        list.as_array()?
+            .iter()
+            .find(|v| {
+                duration <= 0.0 || (v["duration"].as_f64().unwrap_or(0.0) - duration).abs() < 8.0
+            })
+            .cloned()
+    });
+    if let Some(v) = got {
+        let synced = v["syncedLyrics"].as_str().unwrap_or("").to_string();
+        let plain = v["plainLyrics"].as_str().unwrap_or("").to_string();
+        if !synced.is_empty() || !plain.is_empty() {
+            return (synced, plain, "lrclib".to_string());
+        }
+    }
+    Default::default()
+}
+
+/// Lyrics for a song from another platform: ?title=&artist=&duration= (not cached, LRCLIB only).
+async fn lyrics_lookup(
+    crate::api::AuthQ(_): crate::api::AuthQ,
+    Query(q): Query<HashMap<String, String>>,
+) -> R {
+    let title = clip(q.get("title").map(String::as_str).unwrap_or(""), 300);
+    let artist = clip(q.get("artist").map(String::as_str).unwrap_or(""), 300);
+    let duration: f64 = q
+        .get("duration")
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(0.0);
+    let (synced, plain, source) =
+        tokio::task::spawn_blocking(move || lrclib(&title, &artist, "", duration))
+            .await
+            .unwrap_or_default();
+    Ok(Json(
+        json!({ "synced": synced, "plain": plain, "source": source }),
+    ))
+}
+
+fn is_lrc(t: &str) -> bool {
+    t.lines()
+        .filter(|l| {
+            l.starts_with('[')
+                && l.get(1..3)
+                    .map(|d| d.chars().all(|c| c.is_ascii_digit()))
+                    .unwrap_or(false)
+        })
+        .count()
+        >= 3
+}
+fn strip_lrc(t: &str) -> String {
+    t.lines()
+        .map(|l| {
+            if l.starts_with('[') {
+                l.rsplit(']').next().unwrap_or("").trim()
+            } else {
+                l.trim()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// ---------- share links ----------
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ShareIn {
+    kind: String,
+    #[serde(rename = "ref")]
+    reference: Value,
+}
+
+async fn create_share(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
+    let b: ShareIn = body_json(req).await?;
+    let reference = match &b.reference {
+        Value::String(s) => s.clone(),
+        v => v.to_string(),
+    };
+    let reference = if b.kind == "song" {
+        // only the fields a song needs, always in the same order, so the same song gets the same link
+        match serde_json::from_str::<Value>(&reference).ok().and_then(|v| song_item(&v)) {
+            Some(v) => v.to_string(),
+            None => return Err(ApiError::new(400, "bad_share")),
+        }
+    } else {
+        clip(&reference, 600)
+    };
+    let db = st.db.lock().unwrap();
+    // check the thing exists and belongs to the user where that matters
+    let ok = match b.kind.as_str() {
+        "track" => reference
+            .parse::<i64>()
+            .ok()
+            .map(|id| !tracks_by_ids(&db, &[id]).is_empty())
+            .unwrap_or(false),
+        "playlist" | "collab" | "listener" => reference
+            .parse::<i64>()
+            .ok()
+            .and_then(|id| {
+                db.query_row(
+                    "SELECT id FROM playlists WHERE id = ? AND user_id = ?",
+                    params![id, u.id],
+                    |r| r.get::<_, i64>(0),
+                )
+                .optional()
+                .ok()
+                .flatten()
+            })
+            .is_some(),
+        "album" => serde_json::from_str::<Value>(&reference)
+            .map(|v| v["album"].is_string())
+            .unwrap_or(false),
+        // a single platform song (Spotify, YouTube, ...): kept as its import item
+        "song" => serde_json::from_str::<Value>(&reference)
+            .ok()
+            .and_then(|v| song_item(&v))
+            .is_some(),
+        "import" => reference
+            .parse::<i64>()
+            .ok()
+            .map(|id| own_import(&db, u.id, id).is_ok())
+            .unwrap_or(false),
+        _ => false,
+    };
+    if !ok {
+        return Err(ApiError::new(400, "bad_share"));
+    }
+    let existing: Option<String> = db
+        .query_row(
+            "SELECT token FROM shares WHERE user_id = ? AND kind = ? AND ref = ?",
+            params![u.id, b.kind, reference],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap_or(None);
+    let token = existing.unwrap_or_else(|| {
+        let t: String = {
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            (0..12)
+                .map(|_| {
+                    b"abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+                        [rng.gen_range(0..56)] as char
+                })
+                .collect()
+        };
+        db.execute(
+            "INSERT INTO shares (token, user_id, kind, ref, created) VALUES (?,?,?,?,?)",
+            params![t, u.id, b.kind, reference, now_ms()],
+        )
+        .ok();
+        t
+    });
+    drop(db);
+    Ok(Json(
+        json!({ "token": token, "path": format!("/s/{token}"), "url": public_link(&st, &token) }),
+    ))
+}
+
+/// The download site that opens public links: musik.labtoso.de/s/#<token>@<host>
+const SITE: &str = "https://musik.labtoso.de";
+/// Link anyone can open, when the server has a public address.
+fn public_link(st: &St, token: &str) -> Option<String> {
+    let base = crate::api::public_url(st)?;
+    // the site is https, so it can only talk to an https server; otherwise link straight to it
+    // straight to the server: chat apps like Discord read the song's name and cover from that page and show a preview
+    let _ = SITE;
+    Some(format!("{base}/s/{token}"))
+}
+
+/// A shared platform song, cleaned up: every field a string (duration a number), sizes capped.
+fn song_item(v: &Value) -> Option<Value> {
+    let s = |k: &str, n: usize| clip(v[k].as_str().unwrap_or("").trim(), n);
+    let source = s("source", 20);
+    let title = s("title", 300);
+    if title.is_empty() || !matches!(source.as_str(), "spotify" | "youtube" | "ytmusic" | "soundcloud" | "deezer" | "apple" | "tidal") {
+        return None;
+    }
+    let cover = s("cover", 600);
+    let url = s("url", 600);
+    Some(json!({
+        "source": source,
+        "ext_id": s("ext_id", 120),
+        "title": title,
+        "artist": s("artist", 300),
+        "album": s("album", 300),
+        "duration": v["duration"].as_f64().filter(|d| d.is_finite() && *d >= 0.0 && *d < 86400.0).unwrap_or(0.0),
+        "cover": if cover.starts_with("https://") { cover } else { String::new() },
+        "url": if url.starts_with("https://") { url } else { String::new() },
+    }))
+}
+
+/// What a share link shows: (title, subtitle, kind, local tracks, external items)
+pub(crate) fn resolve_share(
+    db: &Connection,
+    token: &str,
+) -> Result<(String, String, String, Vec<Value>, Vec<Value>), ApiError> {
+    let (uid, kind, reference): (i64, String, String) = db
+        .query_row(
+            "SELECT user_id, kind, ref FROM shares WHERE token = ?",
+            [token],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .unwrap_or(None)
+        .ok_or_else(nf)?;
+    let owner: String = db
+        .query_row("SELECT name FROM users WHERE id = ?", [uid], |r| r.get(0))
+        .unwrap_or_default();
+    let q = |sql: &str, args: Vec<rusqlite::types::Value>| -> Vec<Value> {
+        let mut s = db.prepare(sql).unwrap();
+        let v = s
+            .query_map(rusqlite::params_from_iter(args.iter()), track_json)
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        v
+    };
+    // an invitation shows the same playlist as a listening link
+    let kind = if kind == "collab" || kind == "listener" { "playlist".to_string() } else { kind };
+    match kind.as_str() {
+        "track" => {
+            let id: i64 = reference.parse().map_err(|_| nf())?;
+            let t = tracks_by_ids(db, &[id]);
+            let first = t.first().ok_or_else(nf)?;
+            let sub = first["artist"].as_str().unwrap_or("").to_string();
+            Ok((
+                first["title"].as_str().unwrap_or("").to_string(),
+                sub,
+                kind,
+                t,
+                vec![],
+            ))
+        }
+        "song" => {
+            let v: Value = serde_json::from_str(&reference).map_err(|_| nf())?;
+            let item = song_item(&v).ok_or_else(nf)?;
+            let title = item["title"].as_str().unwrap_or("").to_string();
+            let artist = item["artist"].as_str().unwrap_or("").to_string();
+            // shown like a song from the server: one song, kind "track"
+            Ok((title, artist, "track".into(), vec![], vec![item]))
+        }
+        "album" => {
+            let v: Value = serde_json::from_str(&reference).map_err(|_| nf())?;
+            let album = v["album"].as_str().unwrap_or("").to_string();
+            let artist = v["artist"].as_str().unwrap_or("").to_string();
+            let t = q(
+                &format!("SELECT {TRACK_COLS} FROM tracks WHERE album = ? AND (album_artist = ? OR artist = ? OR ? = '') ORDER BY disc_no, track_no, title"),
+                vec![album.clone().into(), artist.clone().into(), artist.clone().into(), artist.clone().into()],
+            );
+            if t.is_empty() {
+                return Err(nf());
+            }
+            Ok((album, artist, kind, t, vec![]))
+        }
+        "playlist" => {
+            let id: i64 = reference.parse().map_err(|_| nf())?;
+            let name: String = db
+                .query_row("SELECT name FROM playlists WHERE id = ?", [id], |r| {
+                    r.get(0)
+                })
+                .map_err(|_| nf())?;
+            let ids: Vec<i64> = {
+                let mut s = db
+                    .prepare(
+                        "SELECT track_id FROM playlist_tracks WHERE playlist_id = ? ORDER BY pos",
+                    )
+                    .unwrap();
+                let v = s
+                    .query_map([id], |r| r.get(0))
+                    .unwrap()
+                    .filter_map(Result::ok)
+                    .collect();
+                v
+            };
+            Ok((
+                name,
+                format!("Playlist · {owner}"),
+                kind,
+                tracks_by_ids(db, &ids),
+                vec![],
+            ))
+        }
+        "import" => {
+            let id: i64 = reference.parse().map_err(|_| nf())?;
+            let name: String = db
+                .query_row("SELECT name FROM imports WHERE id = ?", [id], |r| r.get(0))
+                .map_err(|_| nf())?;
+            let user = crate::auth::User {
+                id: uid,
+                name: owner.clone(),
+                admin: false,
+                created: 0,
+            };
+            let items = import_items(db, &user, id);
+            let locals = items
+                .iter()
+                .filter_map(|i| i.get("local").cloned())
+                .collect();
+            let ext = items
+                .into_iter()
+                .filter(|i| i.get("local").is_none())
+                .collect();
+            Ok((name, format!("Playlist · {owner}"), kind, locals, ext))
+        }
+        _ => Err(nf()),
+    }
+}
+
+async fn public_share(State(st): State<St>, Path(token): Path<String>) -> R {
+    let db = st.db.lock().unwrap();
+    let (title, sub, kind, tracks, ext) = resolve_share(&db, &token)?;
+    // public view: no internal ids, songs are addressed by their position
+    let list: Vec<Value> = tracks
+        .iter()
+        .enumerate()
+        .map(|(i, t)| json!({ "i": i, "title": t["title"], "artist": t["artist"], "album": t["album"], "duration": t["duration"], "cover": t["has_cover"] }))
+        .collect();
+    let ext: Vec<Value> = ext.iter().map(|e| json!({ "title": e["title"], "artist": e["artist"], "source": e["source"], "url": e["url"], "cover": e["cover"], "ext_id": e["ext_id"], "duration": e["duration"] })).collect();
+    Ok(Json(
+        json!({ "title": title, "sub": sub, "kind": kind, "tracks": list, "external": ext, "server": st.name, "collab": share_is_collab(&db, &token), "invite": share_invite(&db, &token), "description": share_description(&db, &token) }),
+    ))
+}
+fn share_description(db: &Connection, token: &str) -> String {
+    db.query_row(
+        "SELECT p.description FROM shares s JOIN playlists p ON p.id = CAST(s.ref AS INTEGER) WHERE s.token = ? AND s.kind IN ('playlist','collab')",
+        [token],
+        |r| r.get(0),
+    )
+    .unwrap_or_default()
+}
+/// What an invitation makes of the person: "edit" (contributor), "listen" (listener), or null.
+fn share_invite(db: &Connection, token: &str) -> Value {
+    match db.query_row("SELECT kind FROM shares WHERE token = ?", [token], |r| r.get::<_, String>(0)).unwrap_or_default().as_str() {
+        "collab" => json!("edit"),
+        "listener" => json!("listen"),
+        _ => Value::Null,
+    }
+}
+/// Add someone to a playlist with the role of the invitation. An invitation never takes rights
+/// away: a contributor who opens a listener link stays a contributor.
+fn add_member(db: &Connection, pid: i64, uid: i64, role: &str) {
+    db.execute("INSERT OR IGNORE INTO playlist_members (playlist_id, user_id, added, role) VALUES (?,?,?,?)", params![pid, uid, now_ms(), role]).ok();
+    if role == "edit" {
+        db.execute("UPDATE playlist_members SET role = 'edit' WHERE playlist_id = ? AND user_id = ?", params![pid, uid]).ok();
+    }
+}
+fn share_is_collab(db: &Connection, token: &str) -> bool {
+    db.query_row("SELECT kind IN ('collab','listener') FROM shares WHERE token = ?", [token], |r| r.get(0)).unwrap_or(false)
+}
+/// Accept an invitation: the signed-in user becomes a collaborator of the playlist.
+async fn join_share(State(st): State<St>, Auth(u, _): Auth, Path(token): Path<String>) -> R {
+    let db = st.db.lock().unwrap();
+    let (owner, pid, kind): (i64, i64, String) = db
+        .query_row("SELECT user_id, CAST(ref AS INTEGER), kind FROM shares WHERE token = ? AND kind IN ('collab','listener')", [&token], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?)))
+        .optional()
+        .unwrap_or(None)
+        .ok_or_else(nf)?;
+    let name: String = db
+        .query_row("SELECT name FROM playlists WHERE id = ? AND user_id = ?", params![pid, owner], |r| r.get(0))
+        .optional()
+        .unwrap_or(None)
+        .ok_or_else(nf)?;
+    let role = if kind == "collab" { "edit" } else { "listen" };
+    if owner != u.id {
+        add_member(&db, pid, u.id, role);
+    }
+    Ok(Json(json!({ "kind": "playlist", "id": pid, "name": name, "role": role })))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct SignupIn {
+    name: String,
+    password: String,
+    client: String,
+}
+/// Someone without an account accepts an invitation: a normal (non-admin) account is made and
+/// joins the playlist. Only invitation links can do this, and each one at most 25 times.
+async fn signup_share(State(st): State<St>, Path(token): Path<String>, req: Request) -> R {
+    let b: SignupIn = body_json(req).await?;
+    let st2 = st.clone();
+    tokio::task::spawn_blocking(move || -> R {
+        let db = st2.db.lock().unwrap();
+        let (owner, pid, kind): (i64, i64, String) = db
+            .query_row("SELECT user_id, CAST(ref AS INTEGER), kind FROM shares WHERE token = ? AND kind IN ('collab','listener')", [&token], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?)))
+            .optional()
+            .unwrap_or(None)
+            .ok_or_else(nf)?;
+        let name: String = db
+            .query_row("SELECT name FROM playlists WHERE id = ? AND user_id = ?", params![pid, owner], |r| r.get(0))
+            .optional()
+            .unwrap_or(None)
+            .ok_or_else(nf)?;
+        let used: i64 = db.query_row("SELECT COUNT(*) FROM share_signups WHERE token = ?", [&token], |r| r.get(0)).unwrap_or(0);
+        if used >= 25 {
+            return Err(ApiError::new(403, "invite_used_up"));
+        }
+        let u = crate::auth::create_user(&db, &b.name, &b.password, false)?;
+        let now = now_ms();
+        db.execute("INSERT OR IGNORE INTO share_signups (token, user_id, created) VALUES (?,?,?)", params![token, u.id, now]).ok();
+        let role = if kind == "collab" { "edit" } else { "listen" };
+        add_member(&db, pid, u.id, role);
+        let session = crate::auth::issue(&db, u.id, if b.client.is_empty() { "Invite" } else { &b.client });
+        Ok(Json(json!({ "token": session, "user": u, "playlist": { "id": pid, "name": name }, "role": role })))
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "internal"))?
+}
+
+/// A platform song of a shared playlist, played like everywhere else: found on YouTube Music,
+/// streamed through this server. Only songs that are in the share can be asked for.
+async fn public_song(State(st): State<St>, Path((token, k)): Path<(String, usize)>, headers: axum::http::HeaderMap) -> Response {
+    let found = {
+        let db = st.db.lock().unwrap();
+        let owner: Option<i64> = db.query_row("SELECT user_id FROM shares WHERE token = ?", [&token], |r| r.get(0)).optional().unwrap_or(None);
+        owner.and_then(|uid| resolve_share(&db, &token).ok().and_then(|(_, _, _, _, ext)| ext.get(k).cloned().map(|e| (uid, e))))
+    };
+    let Some((uid, e)) = found else { return nf().into_response() };
+    let s = |k: &str| e[k].as_str().unwrap_or("").to_string();
+    let (title, artist, duration) = (s("title"), s("artist"), e["duration"].as_f64().unwrap_or(0.0));
+    // a YouTube song is its own video
+    let direct = if matches!(e["source"].as_str(), Some("youtube" | "ytmusic")) { s("ext_id") } else { String::new() };
+    let st2 = st.clone();
+    let vid = if direct.len() == 11 {
+        direct
+    } else {
+        match tokio::task::spawn_blocking(move || find_video(&st2, uid, &title, &artist, duration, "", &[], false)).await {
+            Ok(Ok(v)) if !v.is_empty() => v,
+            Ok(Err(e)) => return e.into_response(),
+            _ => return nf().into_response(),
+        }
+    };
+    proxy_audio(vid, headers, String::new()).await
+}
+
+/// Save a shared playlist / album / song into the own library: as a playlist when every song
+/// is on this server, otherwise as an imported playlist (platform songs stay playable there).
+async fn save_share(State(st): State<St>, Auth(u, _): Auth, Path(token): Path<String>) -> R {
+    let mut db = st.db.lock().unwrap();
+    let (title, _, kind, tracks, ext) = resolve_share(&db, &token)?;
+    let now = now_ms();
+    // a single song goes to "Liked Songs", like the heart in the app
+    if kind == "track" {
+        if let Some(id) = tracks.first().and_then(|t| t["id"].as_i64()) {
+            db.execute("INSERT OR IGNORE INTO likes (user_id, track_id, created) VALUES (?,?,?)", params![u.id, id, now]).ok();
+            return Ok(Json(json!({ "kind": "like", "name": title, "tracks": 1 })));
+        }
+        if let Some(e) = ext.first() {
+            let src = e["source"].as_str().unwrap_or("");
+            let ext_id = e["ext_id"].as_str().unwrap_or("");
+            let key = format!("{src}:{ext_id}");
+            let player = match src { "ytmusic" => "youtube", "spotify" => "ytfind", s => s };
+            let data = json!({ "id": key, "title": e["title"], "artist": e["artist"], "album": e["album"], "duration": e["duration"], "cover": e["cover"], "ext": { "source": src, "player": player, "id": ext_id, "url": e["url"] } });
+            db.execute(
+                "INSERT INTO ext_likes (user_id, key, data, created) VALUES (?,?,?,?) ON CONFLICT(user_id, key) DO UPDATE SET data = excluded.data",
+                params![u.id, key, data.to_string(), now],
+            )
+            .ok();
+            return Ok(Json(json!({ "kind": "like", "name": title, "tracks": 1 })));
+        }
+    }
+    if ext.is_empty() {
+        let ids: Vec<i64> = tracks.iter().filter_map(|t| t["id"].as_i64()).collect();
+        db.execute(
+            "INSERT INTO playlists (user_id, name, created, updated) VALUES (?,?,?,?)",
+            params![u.id, clip(&title, 120), now, now],
+        )
+        .ok();
+        let pid = db.last_insert_rowid();
+        set_playlist_tracks(&mut db, pid, &ids);
+        return Ok(Json(
+            json!({ "kind": "playlist", "id": pid, "name": title, "tracks": ids.len() }),
+        ));
+    }
+    let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+    let mut items: Vec<ItemIn> = tracks
+        .iter()
+        .map(|t| ItemIn {
+            source: "local".into(),
+            ext_id: String::new(),
+            title: s(&t["title"]),
+            artist: s(&t["artist"]),
+            album: s(&t["album"]),
+            duration: t["duration"].as_f64().unwrap_or(0.0),
+            cover: String::new(),
+            url: String::new(),
+        })
+        .collect();
+    items.extend(ext.iter().map(|e| ItemIn {
+        source: s(&e["source"]),
+        ext_id: s(&e["ext_id"]),
+        title: s(&e["title"]),
+        artist: s(&e["artist"]),
+        album: s(&e["album"]),
+        duration: e["duration"].as_f64().unwrap_or(0.0),
+        cover: s(&e["cover"]),
+        url: s(&e["url"]),
+    }));
+    db.execute(
+        "INSERT INTO imports (user_id, source, name, url, cover, created, updated) VALUES (?,?,?,?,?,?,?)",
+        params![u.id, "share", clip(&title, 120), format!("/s/{token}"), "", now, now],
+    )
+    .ok();
+    let id = db.last_insert_rowid();
+    write_items(&mut db, id, "share", &items);
+    Ok(Json(
+        json!({ "kind": "import", "id": id, "name": title, "tracks": items.len() }),
+    ))
+}
+
+fn share_track_id(st: &St, token: &str, i: usize) -> Result<i64, ApiError> {
+    let db = st.db.lock().unwrap();
+    let (_, _, _, tracks, _) = resolve_share(&db, token)?;
+    tracks.get(i).and_then(|t| t["id"].as_i64()).ok_or_else(nf)
+}
+
+async fn public_stream(
+    State(st): State<St>,
+    Path((token, i)): Path<(String, usize)>,
+    req: Request,
+) -> Result<Response, ApiError> {
+    let id = share_track_id(&st, &token, i)?;
+    serve_track(&st, id, req).await
+}
+async fn public_cover(
+    State(st): State<St>,
+    Path((token, i)): Path<(String, usize)>,
+) -> Result<Response, ApiError> {
+    let id = share_track_id(&st, &token, i)?;
+    serve_cover(&st, id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn normalises_titles() {
+        assert_eq!(
+            norm("Bohemian Rhapsody - Remastered 2011"),
+            "bohemian rhapsody"
+        );
+        assert_eq!(norm("Café del Mar (Energy 52 Remix)"), "cafe del mar");
+        assert_eq!(norm("Song feat. Someone"), "song");
+        assert_eq!(norm("  Don't Stop  Me Now! "), "dont stop me now");
+    }
+    #[test]
+    fn matches_library() {
+        let db = crate::db::open(None).unwrap();
+        db.execute("INSERT INTO tracks (path, title, artist, album, duration, size, mtime, added) VALUES ('/a.mp3', 'Nightdrive', 'Neon Coast', 'Nightdrive', 200, 1, 0, 0)", []).unwrap();
+        let m = Matcher::new(&db);
+        assert!(m
+            .find("Nightdrive (Official Video)", "Neon Coast - Topic", 0.0)
+            .is_some());
+        assert!(m.find("nightdrive", "Neon Coast, Someone", 201.0).is_some());
+        assert!(m.find("Nightdrive", "Other Band", 260.0).is_none());
+    }
+}
+
+// ---------- "Download to server": the songs of an imported playlist that only stream are fetched once
+// and kept in the library on this server, so they count as local and play without YouTube ----------
+static STORE: std::sync::OnceLock<std::sync::Mutex<HashMap<i64, Value>>> = std::sync::OnceLock::new();
+fn store_map() -> &'static std::sync::Mutex<HashMap<i64, Value>> {
+    STORE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+fn store_set(id: i64, f: impl FnOnce(&mut Value)) {
+    let mut m = store_map().lock().unwrap();
+    let v = m.entry(id).or_insert_with(|| json!({}));
+    f(v);
+}
+
+async fn store_status(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
+    {
+        let db = st.db.lock().unwrap();
+        own_import(&db, u.id, id)?;
+    }
+    let mut v = store_map().lock().unwrap().get(&id).cloned().unwrap_or_else(|| json!({ "state": "idle" }));
+    if v["state"] == "loading" {
+        // the song coming in right now counts with its bytes, so the bar moves smoothly
+        let part = v["vid"].as_str().and_then(crate::ytdl::progress).unwrap_or(0.0);
+        v["part"] = json!(part);
+    }
+    Ok(Json(v))
+}
+
+async fn store_start(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
+    let base = st.library.upload_dir.clone().or_else(|| st.library.roots().into_iter().next()).ok_or(ApiError::new(400, "no_upload_dir"))?;
+    let items: Vec<(i64, String, String, String, f64, String)> = {
+        let db = st.db.lock().unwrap();
+        own_import(&db, u.id, id)?;
+        let mut s = db
+            .prepare("SELECT pos, title, artist, album, duration, cover FROM import_items WHERE import_id = ? AND track_id IS NULL ORDER BY pos")
+            .unwrap();
+        let v = s
+            .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        v
+    };
+    {
+        let m = store_map().lock().unwrap();
+        if let Some(v) = m.get(&id).filter(|v| v["state"] == "loading") {
+            return Ok(Json(v.clone()));
+        }
+    }
+    let total = items.len();
+    let first = json!({ "state": "loading", "done": 0, "total": total, "failed": 0, "vid": "", "part": 0.0 });
+    store_map().lock().unwrap().insert(id, first.clone());
+    let uid = u.id;
+    std::thread::spawn(move || {
+        let dir = base.join("Streyn");
+        let mut failed = 0;
+        for (i, (pos, title, artist, album, dur, cover)) in items.into_iter().enumerate() {
+            crate::ytdl::yield_to_play();
+            let ok = (|| -> Option<()> {
+                let vid = find_video(&st, uid, &title, &artist, dur, "", &[], false).ok().filter(|v| !v.is_empty())?;
+                store_set(id, |v| v["vid"] = json!(vid));
+                let (file, ctype) = crate::ytdl::whole_song(&vid).ok()?;
+                let ext = if ctype.contains("webm") { "webm" } else if ctype.contains("ogg") || ctype.contains("opus") { "ogg" } else if ctype.contains("mpeg") { "mp3" } else { "m4a" };
+                let name = format!("{} - {}", crate::offline::clean(&artist), crate::offline::clean(&title));
+                let name = name.trim_start_matches(" - ").to_string();
+                let folder = dir.join(&name);
+                std::fs::create_dir_all(&folder).ok()?;
+                let dest = folder.join(format!("{name}.{ext}"));
+                std::fs::copy(&file, &dest).ok()?;
+                write_tags(&dest, &title, &artist, &album);
+                if cover.starts_with("https://") && !folder.join("cover.jpg").exists() {
+                    if let Ok(r) = ureq::get(&cover).timeout(Duration::from_secs(15)).call() {
+                        let mut buf = Vec::new();
+                        if r.into_reader().take(8 << 20).read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+                            std::fs::write(folder.join("cover.jpg"), &buf).ok();
+                        }
+                    }
+                }
+                let db = st.db.lock().unwrap();
+                let tid = st.library.add_file(&db, &dest)?;
+                db.execute(
+                    "UPDATE import_items SET track_id = ? WHERE track_id IS NULL AND import_id = ? AND pos = ?",
+                    params![tid, id, pos],
+                )
+                .ok();
+                Some(())
+            })();
+            if ok.is_none() {
+                failed += 1;
+            }
+            store_set(id, |v| {
+                v["done"] = json!(i + 1);
+                v["failed"] = json!(failed);
+                v["vid"] = json!("");
+                v["part"] = json!(0.0);
+            });
+        }
+        st.rec.invalidate();
+        store_set(id, |v| v["state"] = json!(if failed > 0 && failed == total { "error" } else { "ready" }));
+    });
+    Ok(Json(first))
+}
+
+/// Title, artist and album into the file itself, so the library shows it right on every device.
+fn write_tags(p: &std::path::Path, title: &str, artist: &str, album: &str) {
+    use lofty::file::TaggedFileExt;
+    use lofty::tag::{Accessor, Tag};
+    let Ok(mut tf) = lofty::read_from_path(p) else { return };
+    let tt = tf.primary_tag_type();
+    if tf.tag(tt).is_none() {
+        tf.insert_tag(Tag::new(tt));
+    }
+    let Some(tag) = tf.tag_mut(tt) else { return };
+    tag.set_title(title.to_string());
+    tag.set_artist(artist.to_string());
+    if !album.is_empty() {
+        tag.set_album(album.to_string());
+    }
+    use lofty::file::AudioFile;
+    let _ = tf.save_to_path(p, lofty::config::WriteOptions::default());
+}

@@ -1,0 +1,43 @@
+[package]
+name = "streyn-server"
+version = "1.0.0"
+edition = "2021"
+description = "Streyn server: library, streaming and recommendations"
+authors = ["LabtosoStudios"]
+license-file = "../LICENSE"
+
+[[bin]]
+name = "streyn-server"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "signal", "time", "io-util"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+tower = { version = "0.5", features = ["util"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+lofty = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+scrypt = "0.11"
+rand = "0.8"
+hex = "0.4"
+walkdir = "2"
+rust-embed = "8"
+mime_guess = "2"
+futures-util = "0.3"
+local-ip-address = "0.6"
+ureq = { version = "2", features = ["json"] }
+sha2 = "0.10"
+flate2 = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = "0.37"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
