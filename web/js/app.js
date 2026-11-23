@@ -2425,7 +2425,7 @@ function drawSearch(box, loading, done = false) {
     // top result: an artist that matches the words exactly, else the first song
     const topArtist = artists.find((a) => a.name.toLowerCase() === lq) || (!songs.length ? artists[0] : null);
     // a show whose name is the words (or nothing else was found) is the top result, like on Spotify
-    const topShow = !artists.some((a) => a.name.toLowerCase() === lq) ? pods.shows.find((x) => x.title.toLowerCase() === lq) || (!songs.length && !topArtist ? pods.shows[0] : null) : null;
+    const topShow = !artists.some((a) => a.name.toLowerCase() === lq) ? pods.shows.find((x) => podFold(x.title) === podFold(lq)) || (!songs.length && !topArtist ? pods.shows[0] : null) : null;
     const topSong = !topArtist && !topShow ? songs[0] : null;
     const top = topShow
       ? `<a class="topres" href="${topShow.href}">${coverImg(topShow.cover)}<div class="tr-text"><div class="tr-title">${esc(topShow.title)}</div><div class="tr-sub">${esc(topShow.artist)} <span class="pill">${t('podcast')}</span></div></div></a>`
@@ -4506,10 +4506,57 @@ document.addEventListener('click', (ev) => {
 });
 
 // ---------- in search, the library and the sidebar ----------
+/** Lower case without accents, like the server compares names ("Kâffchen" → "kaffchen"). */
+const podFold = (x) => String(x || '').toLowerCase().replace(/ß/g, 'ss').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 async function searchPodcasts(q) {
-  const r = await get(`/api/podcasts/search?cc=${podCC()}&q=${encodeURIComponent(q)}`);
-  return { shows: (r.shows || []).map(podCard), episodes: r.episodes || [] };
+  const [r, sp] = await Promise.all([get(`/api/podcasts/search?cc=${podCC()}&q=${encodeURIComponent(q)}`), spotifyShows(q)]);
+  const shows = (r.shows || []).map(podCard);
+  // shows that only Spotify has: shown too, they open in Spotify (no public feed to play them here)
+  const have = new Set((r.shows || []).map((x) => podFold(x.title)));
+  for (const x of sp) if (!have.has(podFold(x.title))) shows.push(x);
+  return { shows, episodes: r.episodes || [] };
 }
+async function spotifyShows(q) {
+  if (!spotify.connected()) return [];
+  try {
+    const j = await spotify.api(`/search?type=show&limit=10&market=from_token&q=${encodeURIComponent(q)}`);
+    return (j?.shows?.items || []).filter(Boolean).map((x) => {
+      const id = 'spshow:' + x.id;
+      const cover = spImg(x.images);
+      if (cover) extCovers.set(id, cover);
+      return { title: x.name, artist: x.publisher || t('podcast'), cover: id, href: `#/spshow?id=${encodeURIComponent(x.id)}` };
+    });
+  } catch {
+    return [];
+  }
+}
+/** A show found on Spotify: when it has a public feed it opens as a normal show, else it is a Spotify-only show. */
+views.spshow = async (params) => {
+  const id = params.get('id') || '';
+  const x = await spotify.api(`/shows/${encodeURIComponent(id)}?market=from_token`);
+  const name = x?.name || '';
+  const r = await get(`/api/podcasts/search?cc=${podCC()}&q=${encodeURIComponent(name)}`).catch(() => ({ shows: [] }));
+  const same = (r.shows || []).find((s) => podFold(s.title) === podFold(name));
+  if (same) {
+    location.replace(`#/podcast/${same.id}`);
+    return '<div class="loading"></div>';
+  }
+  const cid = 'spshow:' + id;
+  const cover = spImg(x?.images);
+  if (cover) extCovers.set(cid, cover);
+  const url = x?.external_urls?.spotify || `https://open.spotify.com/show/${id}`;
+  return `${detailHeader({
+    coverId: cid,
+    kind: t('podcast'),
+    title: name,
+    sub: `<b>${esc(x?.publisher || '')}</b>`,
+    actions: `<button class="btn primary" data-openext="${esc(url)}">${srcBadge('spotify')}${t('podOpenSpotify')}</button>`
+  })}<div class="ep-page"><p class="muted">${t('podSpotifyOnly')}</p>${x?.description ? `<section class="sec"><div class="sec-head"><h2>${t('podAbout')}</h2></div><div class="pod-desc">${esc(unhtml(x.description))}</div></section>` : ''}</div>`;
+};
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-openext]');
+  if (b) openExt(b.dataset.openext);
+});
 async function libPodcasts() {
   const [subs, cont] = await Promise.all([loadPodSubs(true), get('/api/podcasts/continue').catch(() => [])]);
   let html = `<div class="libbar"><a class="sortbtn" href="#/podcasts">${icon('mic')}<span>${t('podBrowse')}</span></a></div>`;

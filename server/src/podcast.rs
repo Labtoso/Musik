@@ -670,6 +670,81 @@ fn enc(s: &str) -> String {
     o
 }
 
+/// Lower case without accents: "Äffchen mit Kâffchen" → "affchen mit kaffchen" (ß → ss).
+pub fn fold(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for c in s.to_lowercase().chars() {
+        let r = match c {
+            'ä' | 'à' | 'á' | 'â' | 'ã' | 'å' | 'ā' => "a",
+            'ö' | 'ò' | 'ó' | 'ô' | 'õ' | 'ø' | 'ō' => "o",
+            'ü' | 'ù' | 'ú' | 'û' | 'ū' => "u",
+            'é' | 'è' | 'ê' | 'ë' | 'ē' => "e",
+            'í' | 'ì' | 'î' | 'ï' => "i",
+            'ñ' => "n",
+            'ç' => "c",
+            'ß' => "ss",
+            'æ' => "ae",
+            'œ' => "oe",
+            c if c.is_alphanumeric() => {
+                o.push(c);
+                continue;
+            }
+            _ => " ",
+        };
+        o.push_str(r);
+    }
+    o.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+/// The ways a search may have meant its words: as typed, the accents as German umlauts
+/// (â → ä), ae/oe/ue as umlauts, and without any accents.
+pub fn spellings(term: &str) -> Vec<String> {
+    let t = term.trim().to_lowercase();
+    let uml: String = t
+        .chars()
+        .map(|c| match c {
+            'à' | 'á' | 'â' | 'ã' | 'å' => 'ä',
+            'ò' | 'ó' | 'ô' | 'õ' => 'ö',
+            'ù' | 'ú' | 'û' => 'ü',
+            c => c,
+        })
+        .collect();
+    let ae = uml.replace("ae", "ä").replace("oe", "ö").replace("ue", "ü");
+    let mut out: Vec<String> = Vec::new();
+    for v in [t.clone(), uml, ae, fold(&t)] {
+        if !v.is_empty() && !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    out.truncate(4);
+    out
+}
+/// How alike two folded names are, 0 to 1: shared letter triples (forgives typos) and whole words.
+pub fn similarity(a: &str, b: &str) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    if a == b {
+        return 1.0;
+    }
+    let tri = |s: &str| -> Vec<String> {
+        let p: Vec<char> = format!("  {s} ").chars().collect();
+        p.windows(3).map(|w| w.iter().collect()).collect()
+    };
+    let (ta, tb) = (tri(a), tri(b));
+    let mut rest = tb.clone();
+    let mut common = 0;
+    for x in &ta {
+        if let Some(i) = rest.iter().position(|y| y == x) {
+            rest.swap_remove(i);
+            common += 1;
+        }
+    }
+    let dice = 2.0 * common as f64 / (ta.len() + tb.len()) as f64;
+    // all typed words inside the name ("kaffchen" in "affchen mit kaffchen podcast")
+    let inside = if a.split(' ').all(|w| b.split(' ').any(|x| x.starts_with(w))) { 0.9 } else { 0.0 };
+    dice.max(inside)
+}
+
 // ---------- handlers ----------
 /// Shows and episodes that match the words.
 async fn search(Auth(_u, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
@@ -683,10 +758,47 @@ async fn search(Auth(_u, _): Auth, Query(q): Query<HashMap<String, String>>) -> 
         return Ok(Json(v));
     }
     let v = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
-        let t = enc(&term);
-        let shows = http_json(&format!("https://itunes.apple.com/search?media=podcast&entity=podcast&limit=24&country={cc}&term={t}"))?;
-        let eps = http_json(&format!("https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit=20&country={cc}&term={t}")).unwrap_or(json!({}));
-        let shows: Vec<Value> = shows["results"].as_array().map(|a| a.iter().filter(|r| r["feedUrl"].is_string()).map(show_card).collect()).unwrap_or_default();
+        // like Spotify, typing does not have to be exact: other spellings of the words are asked too
+        // (â → ä, ae → ä, no accents at all), then the single words, and the best matches come first
+        let ask = |entity: &str, words: &str, limit: u32| -> Vec<Value> {
+            http_json(&format!("https://itunes.apple.com/search?media=podcast&entity={entity}&limit={limit}&country={cc}&term={}", enc(words)))
+                .ok()
+                .and_then(|j| j["results"].as_array().cloned())
+                .unwrap_or_default()
+        };
+        let variants = spellings(&term);
+        let mut found: Vec<Vec<Value>> = std::thread::scope(|sc| {
+            let hs: Vec<_> = variants.iter().map(|v| sc.spawn(|| ask("podcast", v, 24))).collect();
+            hs.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+        });
+        let want = fold(&term);
+        let close = |r: &Value| similarity(&want, &fold(r["collectionName"].as_str().unwrap_or(""))) >= 0.55;
+        if !found.iter().flatten().any(close) {
+            // a typo: look for the longer words one by one and keep what resembles the whole
+            let words: Vec<String> = want.split(' ').filter(|w| w.chars().count() >= 4).take(3).map(String::from).collect();
+            let more: Vec<Vec<Value>> = std::thread::scope(|sc| {
+                let hs: Vec<_> = words.iter().map(|w| sc.spawn(|| ask("podcast", w, 50))).collect();
+                hs.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+            });
+            found.extend(more);
+        }
+        let mut seen = std::collections::HashSet::new();
+        let mut shows: Vec<(f64, usize, Value)> = Vec::new();
+        for (i, r) in found.iter().flatten().enumerate() {
+            let id = r["collectionId"].as_i64().unwrap_or(0);
+            if id == 0 || !r["feedUrl"].is_string() || !seen.insert(id) {
+                continue;
+            }
+            let score = similarity(&want, &fold(r["collectionName"].as_str().unwrap_or(""))).max(similarity(&want, &fold(r["artistName"].as_str().unwrap_or(""))) * 0.8);
+            shows.push((score, i, show_card(r)));
+        }
+        // the ones that look like the words first, Apple's own order after that
+        shows.sort_by(|a, b| {
+            let (sa, sb) = (if a.0 >= 0.5 { a.0 } else { 0.0 }, if b.0 >= 0.5 { b.0 } else { 0.0 });
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal).then(a.1.cmp(&b.1))
+        });
+        let shows: Vec<Value> = shows.into_iter().filter(|x| x.0 >= 0.3 || x.1 < 24).take(30).map(|x| x.2).collect();
+        let eps = json!({ "results": variants.iter().map(|v| ask("podcastEpisode", v, 20)).find(|l| !l.is_empty()).unwrap_or_default() });
         let episodes: Vec<Value> = eps["results"]
             .as_array()
             .map(|a| {
@@ -1080,6 +1192,18 @@ mod tests {
         assert!(b.desc.contains("• one"));
         assert_eq!(a.date, parse_iso("2026-11-18T10:00:00Z"));
         assert_eq!(b.date, parse_iso("2026-11-16T05:00:00Z"));
+    }
+    #[test]
+    fn forgiving_search() {
+        assert_eq!(fold("Äffchen mit Kâffchen!"), "affchen mit kaffchen");
+        let v = spellings("äffchen mit kâffchen");
+        assert!(v.contains(&"äffchen mit käffchen".to_string()), "{v:?}");
+        assert!(v.contains(&"affchen mit kaffchen".to_string()));
+        assert!(spellings("aeffchen").contains(&"äffchen".to_string()));
+        assert!(similarity("affchen mit kaffchen", "affchen mit kaffchen") > 0.99);
+        assert!(similarity("afchen mit kaffchen", "affchen mit kaffchen") > 0.7);
+        assert!(similarity("affchen mit kafen", "affchen mit kaffchen") > 0.55);
+        assert!(similarity("affchen mit kaffchen", "die nachrichten") < 0.3);
     }
     #[test]
     fn dates_and_lengths() {
