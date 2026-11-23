@@ -384,12 +384,16 @@ async fn covers(State(st): State<St>, Auth(_, _): Auth, Query(q): Query<HashMap<
 mod embed_tests {
     #[test]
     fn reads_the_embed_page() {
-        let data = r#"{"props":{"pageProps":{"state":{"data":{"entity":{"name":"Rock","subtitle":"Spotify","coverArt":{"sources":[{"url":"s","maxWidth":60},{"url":"big","maxWidth":640}]},"trackList":[{"uri":"spotify:track:abc","title":"Song","subtitle":"Band A, Band B","duration":200000},{"uri":"spotify:episode:x","title":"Pod","subtitle":"","duration":1}]}}}}}}"#;
+        let data = r#"{"props":{"pageProps":{"state":{"data":{"entity":{"name":"Rock","subtitle":"Spotify","coverArt":{"sources":[{"url":"s","maxWidth":60},{"url":"big","maxWidth":640}]},"trackList":[{"uri":"spotify:track:abc","title":"Song","subtitle":"Band A, Band B","duration":200000},{"uri":"spotify:episode:x","title":"Pod","subtitle":"Show","duration":1000}]}}}}}}"#;
         let html = format!("<html><script id=\"__NEXT_DATA__\" type=\"application/json\">{data}</script></html>");
         let v = super::parse_embed(&html).unwrap();
         assert_eq!(v["name"], "Rock");
         assert_eq!(v["cover"], "big");
-        assert_eq!(v["tracks"].as_array().unwrap().len(), 1);
+        // podcast episodes come along, marked, with the show's name as the artist
+        assert_eq!(v["tracks"].as_array().unwrap().len(), 2);
+        assert_eq!(v["tracks"][1]["episode"], true);
+        assert_eq!(v["tracks"][1]["artist"], "Show");
+        assert!(v["tracks"][0]["episode"].is_null());
         assert_eq!(v["tracks"][0]["id"], "abc");
         assert_eq!(v["tracks"][0]["artist"], "Band A, Band B");
         assert_eq!(v["tracks"][0]["duration"], 200.0);
