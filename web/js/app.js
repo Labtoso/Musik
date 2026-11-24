@@ -2923,7 +2923,6 @@ const keptCard = (im) => `<a class="card" data-ref="import:${im.id}" href="#/imp
 const importCard = (im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${im.art ? coverImg(artKey('import', im.id, im.art), 'lg') : im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`;
 const showAllLink = (tab, extra = '') => `<a class="link" href="#/library?tab=${tab}${extra}">${t('showAll')}</a>`;
 /** The first page of the library: everything at a glance, each kind in its own row with a link to the full list, like Spotify's start page. */
-const libNewLists = new Map();
 async function libOverview() {
   const none = () => [];
   const [songs, albums, artists, fol, lists, imps, subs, cont, tops] = await Promise.all([
@@ -2962,12 +2961,7 @@ async function libOverview() {
   ].filter(Boolean);
   let html = stats.length ? `<div class="libstats">${stats.join('')}</div>` : '';
   html += `<div class="quick libquick">${tiles.join('')}</div>`;
-  // the list behind the play button belongs to this render, an older one that finishes late cannot replace it
-  const newKey = 'ln' + Math.random().toString(36).slice(2, 8);
-  libNewLists.set(newKey, songs.items);
-  // tidy up now and then: never the list of a button on screen, never this run's own
-  if (libNewLists.size > 12) for (const k of [...libNewLists.keys()]) if (k !== newKey && !document.querySelector(`[data-playlibnew="${k}"]`)) libNewLists.delete(k);
-  if (n) html += `<section class="sec libsongs"><div class="sec-head"><h2>${t('recentlyAdded')}</h2><button class="playround sm" data-playlibnew="${newKey}" title="${t('playAll')}">${icon('play')}</button>${showAllLink('tracks', '&sort=added')}</div>${trackList(songs.items.slice(0, 5))}</section>`;
+  if (n) html += `<section class="sec libsongs"><div class="sec-head"><h2>${t('recentlyAdded')}</h2><button class="playround sm" data-playlibnew title="${t('playAll')}">${icon('play')}</button>${showAllLink('tracks', '&sort=added')}</div>${trackList(songs.items.slice(0, 5))}</section>`;
   if (tops.length || pls.length) html += section(t('playlists'), `<div class="cards srow">${[...tops.map(topCard), ...pls.slice(0, 16).map(([, x, card]) => card(x))].join('')}</div>`, showAllLink('playlists'));
   if (cont.length) html += section(t('podContinue'), episodeList(cont.slice(0, 3), { showName: true }), showAllLink('podcasts'));
   if (subs.length) html += section(t('podcasts'), plainAlbumCards(subs.slice(0, 16).map(podCard), true), showAllLink('podcasts'));
@@ -2994,7 +2988,8 @@ async function libOverview() {
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-playlibnew]');
-  const list = b && libNewLists.get(b.dataset.playlibnew);
+  // plays the song list of its own section, so button and list always come from the same render
+  const list = b && state.lists?.[b.closest('.libsongs')?.querySelector('[data-list]')?.dataset.list];
   if (list?.length) player.playList(list, 0);
 });
 views.library = async (params) => {
