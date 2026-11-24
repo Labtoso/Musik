@@ -240,8 +240,8 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 @media (max-width: 1020px) {
   .links > a:not(.ib) { display: none; }
   #burger { display: inline-flex; }
-  .side { transform: translateX(-102%); transition: transform .3s cubic-bezier(.2,.8,.2,1); width: min(300px, 86vw); padding-left: 20px; }
-  body.nav .side { transform: none; }
+  .side { visibility: hidden; transform: translateX(-102%); transition: transform .3s cubic-bezier(.2,.8,.2,1), visibility .3s; width: min(300px, 86vw); padding-left: 20px; }
+  body.nav .side { visibility: visible; transform: none; }
   body.nav .scrim { opacity: 1; pointer-events: auto; }
   .page { padding-left: var(--gut); }
 }
@@ -316,7 +316,9 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 <div class="tabs"><div role="tablist"><button type="button" role="tab" id="sys-t0" aria-controls="sys-p0">Proxmox</button><button type="button" role="tab" id="sys-t1" aria-controls="sys-p1">Debian / Ubuntu</button><button type="button" role="tab" id="sys-t2" aria-controls="sys-p2">ZimaOS / CasaOS</button><button type="button" role="tab" id="sys-t3" aria-controls="sys-p3">Docker</button><button type="button" role="tab" id="sys-t4" aria-controls="sys-p4">Windows</button></div><div role="tabpanel" id="sys-p0" aria-labelledby="sys-t0"><p>On the Proxmox host: click the node, open <b>Shell</b> and paste:</p><pre data-lang="bash"><code>bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre><p>It creates a small Debian container (2 cores, 2 GB RAM, 8 GB disk), asks for an optional music folder on the host and whether you want Tailscale for listening on the go, and prints the address at the end.</p><div class="note "><b>Recommended</b><p>Proxmox is the easiest way. Backups and updates are one click. All options: <a href="#/proxmox">Proxmox in detail</a>.</p></div></div><div role="tabpanel" id="sys-p1" aria-labelledby="sys-t1"><pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash</code></pre><p>Installs the <code>streyn</code> service. Options go after <code>bash -s --</code>, for example <code>--music /path</code>, <code>--port 8484</code>, <code>--tailscale</code>.</p></div><div role="tabpanel" id="sys-p2" aria-labelledby="sys-t2"><pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash</code></pre><p>Streyn appears as an app on the dashboard. Put songs into <code>Media/Music</code>.</p></div><div role="tabpanel" id="sys-p3" aria-labelledby="sys-t3"><pre data-lang="bash"><code>git clone https://github.com/Labtoso/Musik.git &amp;&amp; cd Musik &amp;&amp; docker compose up -d --build</code></pre><p>Music goes into <code>music/</code>, the data into <code>data/</code>, port 8484.</p></div><div role="tabpanel" id="sys-p4" aria-labelledby="sys-t4"><p>In PowerShell, in the folder where the server should live:</p><pre data-lang="powershell"><code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe -ErrorAction Stop; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code></pre><p>This always fetches the newest server. Run it again to update. It uses your <b>Music</b> folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> file next to the exe.</p></div></div>
 <h2>What you should see</h2>
 <p>At the end the installer prints the address of your server, for example:</p>
-<pre data-lang="text"><code> Streyn 1.35.0 installed in new container 105.\n  Web app:              http://192.168.1.50:8484\n  Server address (app): http://192.168.1.50:8484</code></pre>
+<pre data-lang="text"><code> Streyn 1.35.0 installed in new container 105.
+  Web app:              http://192.168.1.50:8484
+  Server address (app): http://192.168.1.50:8484</code></pre>
 <p>Open it in a browser. If the setup page appears, the server works. Write the address down, the apps need it.</p>
 <div class="note warn"><b>No address or the page does not open?</b><p>See <a href="#/connection">Connection problems</a>.</p></div>
 </template>
@@ -368,9 +370,11 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 <p>The address is shown under <span class="path">Settings → On the go</span>.</p>
 <h2>Without opening a link</h2>
 <p>Create an auth key in the Tailscale admin under <b>Settings → Keys</b>, then:</p>
-<pre data-lang="bash"><code>read -rsp "Tailscale auth key: " key; echo\nTAILSCALE=1 TS_AUTHKEY="$key" bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"\nunset key</code></pre>
+<pre data-lang="bash"><code>read -rsp "Tailscale auth key: " key; echo
+TAILSCALE=1 TS_AUTHKEY="$key" bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
+unset key</code></pre>
 <h2>Docker and Windows</h2>
-<p>Install Tailscale on that computer from <a href="https://tailscale.com/download">tailscale.com/download</a>, then set the address in the settings file and restart the server:</p>
+<p>Install Tailscale on that computer from <a href="https://tailscale.com/download">tailscale.com/download</a>, then set the address and restart the server. Windows: in the <code>.env</code> next to the server. Docker: remove the <code>#</code> in front of <code>environment:</code> and <code>REMOTE_URL</code> in <code>docker-compose.yml</code>, then run <code>docker compose up -d</code>.</p>
 <pre data-lang="env"><code>REMOTE_URL=http://100.x.y.z:8484</code></pre>
 <div class="note warn"><b>Android battery saver</b><p>If Android stops Tailscale in the background, exclude the Tailscale app from battery optimisation.</p></div>
 </template>
@@ -384,18 +388,18 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 <h3>Docker and Windows</h3>
 <p>The server listens for public links on port 8485 (this computer only). On the computer with Tailscale:</p>
 <pre data-lang="bash"><code>tailscale funnel --bg --https=8443 http://127.0.0.1:8485</code></pre>
-<p>Then set <code>PUBLIC_URL=https://&lt;name&gt;.&lt;tailnet&gt;.ts.net:8443</code> in the settings file and restart the server.</p>
+<p>Then set <code>PUBLIC_URL=https://&lt;name&gt;.&lt;tailnet&gt;.ts.net:8443</code> the same way (<code>.env</code> on Windows, <code>environment:</code> in <code>docker-compose.yml</code> with Docker) and restart the server.</p>
 <h2>Invite people</h2>
 <table><thead><tr><th>What</th><th>Where</th></tr></thead><tbody><tr><td>A normal account on your server</td><td><span class="path">Settings → Users → Invite link</span> (works once, for 7 days)</td></tr><tr><td>Someone who edits a playlist</td><td><b>Share → Invite as contributor</b> in the playlist</td></tr><tr><td>Someone who only listens along</td><td><b>Share → Invite as listener</b></td></tr></tbody></table>
 <div class="note ok"><b>Safe by design</b><p>Through the public door, setup, updates, user management, scans, uploads and admin sign-ins are closed. Sign-ins are limited to 20 a minute, one invitation makes at most 25 accounts.</p></div>
 </template>
 
-<template data-l="en" data-p="settings" data-g="Detailed setup" data-t="Settings file"><p class="lead">The server reads its settings from <code>/etc/streyn.env</code> (container and Debian) or from a <code>.env</code> file next to the server (Docker, Windows).</p>
+<template data-l="en" data-p="settings" data-g="Detailed setup" data-t="Settings file"><p class="lead">The server reads its settings from <code>/etc/streyn.env</code> (container and Debian) or from a <code>.env</code> file next to the server (Windows). With Docker they go under <code>environment:</code> in <code>docker-compose.yml</code>.</p>
 <h2>Variables</h2>
 <table><thead><tr><th>Variable</th><th>Default</th><th>Meaning</th></tr></thead><tbody><tr><td><code>MUSIC_DIRS</code></td><td>music folder</td><td>Song folders, several separated by <code>:</code> (Windows <code>;</code>)</td></tr><tr><td><code>PORT</code></td><td>8484</td><td>Server port</td></tr><tr><td><code>DATA_DIR</code></td><td><code>data</code></td><td>Database, covers, uploads</td></tr><tr><td><code>SCAN_INTERVAL</code></td><td>30</td><td>Minutes between automatic scans</td></tr><tr><td><code>SERVER_NAME</code></td><td>Streyn</td><td>Name in the apps and on share pages</td></tr><tr><td><code>REMOTE_URL</code></td><td>–</td><td>Address on the go (the installer sets it)</td></tr><tr><td><code>PUBLIC_URL</code></td><td>–</td><td>Address for public links (the installer sets it)</td></tr><tr><td><code>HOST</code></td><td>0.0.0.0</td><td>Address the server listens on</td></tr></tbody></table>
 <h2>Apply a change</h2>
 <pre data-lang="bash"><code>sudo systemctl restart streyn</code></pre>
-<p>Docker: <code>docker compose restart</code>. Windows: close the server window and start <code>streyn-server.exe</code> again.</p>
+<p>Docker: <code>docker compose up -d</code> (creates the container again with the new settings). Windows: close the server window and start <code>streyn-server.exe</code> again.</p>
 <h2>Where things are</h2>
 <table><thead><tr><th>What</th><th>Container and Debian</th></tr></thead><tbody><tr><td>Settings</td><td><code>/etc/streyn.env</code></td></tr><tr><td>Data</td><td><code>/var/lib/streyn</code></td></tr><tr><td>Backups</td><td><code>/var/lib/streyn/backups</code></td></tr><tr><td>Music</td><td><code>/srv/streyn</code></td></tr><tr><td>Logs</td><td><code>journalctl -u streyn -f</code></td></tr></tbody></table>
 </template>
@@ -408,7 +412,8 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 <h2>Back up</h2>
 <p>The data folder is all you need: <code>/var/lib/streyn</code> or <code>data/</code>. It holds the database, covers and uploaded songs. On Proxmox the easiest is a backup of the whole container.</p>
 <h2>Restore a backup</h2>
-<ol class="steps"><li><b>Stop the server</b><pre data-lang="bash"><code>sudo systemctl stop streyn</code></pre></li><li><b>Pick a copy</b>Every folder in <code>/var/lib/streyn/backups</code> is named after its date and the version before the update.<pre data-lang="bash"><code>ls /var/lib/streyn/backups</code></pre></li><li><b>Copy it back and start</b><pre data-lang="bash"><code>sudo cp -p /var/lib/streyn/backups/FOLDER/streyn.db* /var/lib/streyn/\nsudo systemctl start streyn</code></pre></li></ol>
+<ol class="steps"><li><b>Stop the server</b><pre data-lang="bash"><code>sudo systemctl stop streyn</code></pre></li><li><b>Pick a copy</b>Every folder in <code>/var/lib/streyn/backups</code> is named after its date and the version before the update.<pre data-lang="bash"><code>ls /var/lib/streyn/backups</code></pre></li><li><b>Copy it back and start</b><pre data-lang="bash"><code>sudo cp -p /var/lib/streyn/backups/FOLDER/streyn.db* /var/lib/streyn/
+sudo systemctl start streyn</code></pre></li></ol>
 </template>
 
 <template data-l="en" data-p="connection" data-g="Fix problems" data-t="Connection"><p class="lead">The app or the browser cannot reach the server. Go through the checks from top to bottom.</p>
@@ -474,7 +479,9 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 <div class="tabs"><div role="tablist"><button type="button" role="tab" id="sys-t0" aria-controls="sys-p0">Proxmox</button><button type="button" role="tab" id="sys-t1" aria-controls="sys-p1">Debian / Ubuntu</button><button type="button" role="tab" id="sys-t2" aria-controls="sys-p2">ZimaOS / CasaOS</button><button type="button" role="tab" id="sys-t3" aria-controls="sys-p3">Docker</button><button type="button" role="tab" id="sys-t4" aria-controls="sys-p4">Windows</button></div><div role="tabpanel" id="sys-p0" aria-labelledby="sys-t0"><p>Auf dem Proxmox-Host: den Node anklicken, <b>Shell</b> öffnen und einfügen:</p><pre data-lang="bash"><code>bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre><p>Er legt einen kleinen Debian-Container an (2 Kerne, 2 GB RAM, 8 GB Speicher), fragt nach einem optionalen Musikordner auf dem Host und ob du Tailscale für unterwegs willst, und zeigt am Ende die Adresse.</p><div class="note "><b>Empfohlen</b><p>Proxmox ist der einfachste Weg. Backups und Updates gehen mit einem Klick. Alle Optionen: <a href="#/proxmox">Proxmox im Detail</a>.</p></div></div><div role="tabpanel" id="sys-p1" aria-labelledby="sys-t1"><pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/install.sh | sudo bash</code></pre><p>Installiert den Dienst <code>streyn</code>. Optionen kommen nach <code>bash -s --</code>, zum Beispiel <code>--music /pfad</code>, <code>--port 8484</code>, <code>--tailscale</code>.</p></div><div role="tabpanel" id="sys-p2" aria-labelledby="sys-t2"><pre data-lang="bash"><code>curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.sh | bash</code></pre><p>Streyn erscheint als App im Dashboard. Songs kommen nach <code>Media/Music</code>.</p></div><div role="tabpanel" id="sys-p3" aria-labelledby="sys-t3"><pre data-lang="bash"><code>git clone https://github.com/Labtoso/Musik.git &amp;&amp; cd Musik &amp;&amp; docker compose up -d --build</code></pre><p>Musik kommt nach <code>music/</code>, die Daten nach <code>data/</code>, Port 8484.</p></div><div role="tabpanel" id="sys-p4" aria-labelledby="sys-t4"><p>In PowerShell, in dem Ordner, in dem der Server liegen soll:</p><pre data-lang="powershell"><code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe -ErrorAction Stop; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code></pre><p>Das holt immer den neuesten Server. Nochmal ausführen aktualisiert ihn. Er nutzt deinen Ordner <b>Musik</b>. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine Datei <code>.env</code> neben die exe schreiben.</p></div></div>
 <h2>Was du sehen solltest</h2>
 <p>Am Ende zeigt der Installer die Adresse deines Servers, zum Beispiel:</p>
-<pre data-lang="text"><code> Streyn 1.35.0 installed in new container 105.\n  Web app:              http://192.168.1.50:8484\n  Server address (app): http://192.168.1.50:8484</code></pre>
+<pre data-lang="text"><code> Streyn 1.35.0 installed in new container 105.
+  Web app:              http://192.168.1.50:8484
+  Server address (app): http://192.168.1.50:8484</code></pre>
 <p>Öffne sie im Browser. Erscheint die Einrichtungsseite, läuft der Server. Schreib dir die Adresse auf, die Apps brauchen sie.</p>
 <div class="note warn"><b>Keine Adresse oder die Seite öffnet sich nicht?</b><p>Siehe <a href="#/connection">Verbindungsprobleme</a>.</p></div>
 </template>
@@ -526,9 +533,11 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 <p>Die Adresse steht unter <span class="path">Einstellungen → Unterwegs</span>.</p>
 <h2>Ohne Link öffnen</h2>
 <p>Leg im Tailscale-Admin unter <b>Settings → Keys</b> einen Auth-Key an, dann:</p>
-<pre data-lang="bash"><code>read -rsp "Tailscale auth key: " key; echo\nTAILSCALE=1 TS_AUTHKEY="$key" bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"\nunset key</code></pre>
+<pre data-lang="bash"><code>read -rsp "Tailscale auth key: " key; echo
+TAILSCALE=1 TS_AUTHKEY="$key" bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
+unset key</code></pre>
 <h2>Docker und Windows</h2>
-<p>Tailscale auf diesem Computer installieren (<a href="https://tailscale.com/download">tailscale.com/download</a>), dann die Adresse in die Einstellungsdatei schreiben und den Server neu starten:</p>
+<p>Tailscale auf diesem Computer installieren (<a href="https://tailscale.com/download">tailscale.com/download</a>), dann die Adresse eintragen und den Server neu starten. Windows: in die <code>.env</code> neben dem Server. Docker: in der <code>docker-compose.yml</code> das <code>#</code> vor <code>environment:</code> und <code>REMOTE_URL</code> entfernen, dann <code>docker compose up -d</code>.</p>
 <pre data-lang="env"><code>REMOTE_URL=http://100.x.y.z:8484</code></pre>
 <div class="note warn"><b>Android-Energiesparen</b><p>Stoppt Android Tailscale im Hintergrund, nimm die Tailscale-App von der Akku-Optimierung aus.</p></div>
 </template>
@@ -542,18 +551,18 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 <h3>Docker und Windows</h3>
 <p>Der Server wartet auf Port 8485 auf öffentliche Links (nur dieser Computer). Auf dem Computer mit Tailscale:</p>
 <pre data-lang="bash"><code>tailscale funnel --bg --https=8443 http://127.0.0.1:8485</code></pre>
-<p>Dann <code>PUBLIC_URL=https://&lt;name&gt;.&lt;tailnet&gt;.ts.net:8443</code> in die Einstellungsdatei schreiben und den Server neu starten.</p>
+<p>Dann <code>PUBLIC_URL=https://&lt;name&gt;.&lt;tailnet&gt;.ts.net:8443</code> genauso eintragen (<code>.env</code> unter Windows, <code>environment:</code> in der <code>docker-compose.yml</code> bei Docker) und den Server neu starten.</p>
 <h2>Leute einladen</h2>
 <table><thead><tr><th>Was</th><th>Wo</th></tr></thead><tbody><tr><td>Ein normales Konto auf deinem Server</td><td><span class="path">Einstellungen → Nutzer → Einladungslink</span> (einmal gültig, 7 Tage)</td></tr><tr><td>Jemand, der eine Playlist mitbearbeitet</td><td><b>Teilen → Als Mitwirkende*r einladen</b> in der Playlist</td></tr><tr><td>Jemand, der nur mithört</td><td><b>Teilen → Als Zuhörer*in einladen</b></td></tr></tbody></table>
 <div class="note ok"><b>Sicher gebaut</b><p>Durch die öffentliche Tür sind Einrichtung, Updates, Nutzerverwaltung, Scans, Uploads und Admin-Anmeldungen zu. Anmeldungen sind auf 20 pro Minute begrenzt, eine Einladung legt höchstens 25 Konten an.</p></div>
 </template>
 
-<template data-l="de" data-p="settings" data-g="Ausführliche Einrichtung" data-t="Einstellungsdatei"><p class="lead">Der Server liest seine Einstellungen aus <code>/etc/streyn.env</code> (Container und Debian) oder aus einer Datei <code>.env</code> neben dem Server (Docker, Windows).</p>
+<template data-l="de" data-p="settings" data-g="Ausführliche Einrichtung" data-t="Einstellungsdatei"><p class="lead">Der Server liest seine Einstellungen aus <code>/etc/streyn.env</code> (Container und Debian) oder aus einer Datei <code>.env</code> neben dem Server (Windows). Bei Docker kommen sie unter <code>environment:</code> in die <code>docker-compose.yml</code>.</p>
 <h2>Variablen</h2>
 <table><thead><tr><th>Variable</th><th>Standard</th><th>Bedeutung</th></tr></thead><tbody><tr><td><code>MUSIC_DIRS</code></td><td>Musikordner</td><td>Song-Ordner, mehrere getrennt mit <code>:</code> (Windows <code>;</code>)</td></tr><tr><td><code>PORT</code></td><td>8484</td><td>Server-Port</td></tr><tr><td><code>DATA_DIR</code></td><td><code>data</code></td><td>Datenbank, Cover, Uploads</td></tr><tr><td><code>SCAN_INTERVAL</code></td><td>30</td><td>Minuten zwischen automatischen Scans</td></tr><tr><td><code>SERVER_NAME</code></td><td>Streyn</td><td>Name in den Apps und auf Teilen-Seiten</td></tr><tr><td><code>REMOTE_URL</code></td><td>–</td><td>Adresse für unterwegs (setzt der Installer)</td></tr><tr><td><code>PUBLIC_URL</code></td><td>–</td><td>Adresse für öffentliche Links (setzt der Installer)</td></tr><tr><td><code>HOST</code></td><td>0.0.0.0</td><td>Adresse, auf der der Server lauscht</td></tr></tbody></table>
 <h2>Änderung übernehmen</h2>
 <pre data-lang="bash"><code>sudo systemctl restart streyn</code></pre>
-<p>Docker: <code>docker compose restart</code>. Windows: das Serverfenster schließen und <code>streyn-server.exe</code> neu starten.</p>
+<p>Docker: <code>docker compose up -d</code> (legt den Container mit den neuen Einstellungen neu an). Windows: das Serverfenster schließen und <code>streyn-server.exe</code> neu starten.</p>
 <h2>Wo was liegt</h2>
 <table><thead><tr><th>Was</th><th>Container und Debian</th></tr></thead><tbody><tr><td>Einstellungen</td><td><code>/etc/streyn.env</code></td></tr><tr><td>Daten</td><td><code>/var/lib/streyn</code></td></tr><tr><td>Backups</td><td><code>/var/lib/streyn/backups</code></td></tr><tr><td>Musik</td><td><code>/srv/streyn</code></td></tr><tr><td>Logs</td><td><code>journalctl -u streyn -f</code></td></tr></tbody></table>
 </template>
@@ -566,7 +575,8 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 <h2>Sichern</h2>
 <p>Der Datenordner reicht: <code>/var/lib/streyn</code> oder <code>data/</code>. Er enthält Datenbank, Cover und hochgeladene Songs. Auf Proxmox ist ein Backup des ganzen Containers am einfachsten.</p>
 <h2>Backup zurückspielen</h2>
-<ol class="steps"><li><b>Server stoppen</b><pre data-lang="bash"><code>sudo systemctl stop streyn</code></pre></li><li><b>Kopie wählen</b>Jeder Ordner in <code>/var/lib/streyn/backups</code> heißt nach Datum und der Version vor dem Update.<pre data-lang="bash"><code>ls /var/lib/streyn/backups</code></pre></li><li><b>Zurückkopieren und starten</b><pre data-lang="bash"><code>sudo cp -p /var/lib/streyn/backups/ORDNER/streyn.db* /var/lib/streyn/\nsudo systemctl start streyn</code></pre></li></ol>
+<ol class="steps"><li><b>Server stoppen</b><pre data-lang="bash"><code>sudo systemctl stop streyn</code></pre></li><li><b>Kopie wählen</b>Jeder Ordner in <code>/var/lib/streyn/backups</code> heißt nach Datum und der Version vor dem Update.<pre data-lang="bash"><code>ls /var/lib/streyn/backups</code></pre></li><li><b>Zurückkopieren und starten</b><pre data-lang="bash"><code>sudo cp -p /var/lib/streyn/backups/ORDNER/streyn.db* /var/lib/streyn/
+sudo systemctl start streyn</code></pre></li></ol>
 </template>
 
 <template data-l="de" data-p="connection" data-g="Fehlerbehebung" data-t="Verbindung"><p class="lead">Die App oder der Browser erreicht den Server nicht. Geh die Punkte von oben nach unten durch.</p>
@@ -826,7 +836,7 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
     box.classList.add('open');
   }
   function closeSearch() { $('#results').classList.remove('open'); document.body.classList.remove('find'); }
-  const openSearch = () => { document.body.classList.add('find'); $('#q').focus(); $('#q').select(); };
+  const openSearch = (all = true) => { document.body.classList.add('find'); $('#q').focus(); if (all) $('#q').select(); };
   $('#q').addEventListener('input', search);
   $('#q').addEventListener('focus', () => { if ($('#q').value) search(); });
   $('#q').addEventListener('keydown', (e) => {
@@ -843,8 +853,8 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
   });
   $('#results').addEventListener('click', (e) => { if (e.target.closest('a')) { $('#q').value = ''; closeSearch(); } });
   document.addEventListener('click', (e) => { if (!e.target.closest('.search') && !e.target.closest('#sbtn')) closeSearch(); });
-  $('#slabel').addEventListener('click', openSearch);
-  $('#sbtn').addEventListener('click', openSearch);
+  $('#slabel').addEventListener('click', () => openSearch(false));
+  $('#sbtn').addEventListener('click', () => openSearch());
   addEventListener('keydown', (e) => {
     const typing = /input|textarea/i.test(document.activeElement?.tagName);
     if ((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing)) { e.preventDefault(); openSearch(); }
