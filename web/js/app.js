@@ -1,6 +1,6 @@
 import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, sameInfo, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers, keepPodArt } from './api.js';
 import { LOGOS } from './logos.js';
-import { Player, EQ_FREQS, warmSongs, preloadSongs } from './player.js';
+import { Player, EQ_FREQS, warmSongs, preloadSongs, streams } from './player.js';
 import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong, DISCORD_URL, openExternal as openExt } from './sources.js';
 import { placeStage } from './engines.js';
 import { Visualizer, MiniViz, VIZ_MODES, MINI_MODES, vizTune } from './viz.js';
@@ -4933,7 +4933,7 @@ function bindPlayer() {
         const next = VIZ_MODES[(VIZ_MODES.indexOf(cur) + 1) % VIZ_MODES.length];
         if (next !== 'off') prefs.vizLast = next;
         setViz(next);
-        toast(t('viz_' + next) + (next !== 'off' && player.current?.ext ? ' · ' + t('vizPlatform') : ''));
+        toast(t('viz_' + next) + (next !== 'off' && player.current?.ext && !streams(player.current) ? ' · ' + t('vizPlatform') : ''));
       }
     } else if (a === 'open-fs') openFs(true);
     else if (a === 'close-fs') openFs(false);

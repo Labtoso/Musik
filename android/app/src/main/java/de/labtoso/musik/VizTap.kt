@@ -30,7 +30,12 @@ object VizTap {
     /** Only copy sound while a visualizer is on screen; switching on starts with fresh time marks. */
     @Volatile var wanted = false
         set(v) {
-            if (v && !field) synchronized(lock) { marks.clear() }
+            if (v && !field) synchronized(lock) {
+                // the ring went stale while off: start over so no old sound reaches the first window
+                marks.clear()
+                written = 0
+                mag.fill(0.0)
+            }
             field = v
         }
 
@@ -72,6 +77,10 @@ object VizTap {
 
     fun flush(sampleRateHz: Int, channelCount: Int, encoding: Int) {
         synchronized(lock) {
+            // a gapless change to the next song with the same format flushes the processors too, while the
+            // end of the old song still plays from the buffer: keep going (a seek clears via seeked())
+            val r = if (sampleRateHz > 0) sampleRateHz else 44100
+            if (written > 0 && r == rate && max(1, channelCount) == channels && encoding == this.encoding) return
             rate = if (sampleRateHz > 0) sampleRateHz else 44100
             channels = max(1, channelCount)
             this.encoding = encoding
@@ -108,6 +117,14 @@ object VizTap {
             val clock = System.nanoTime()
             marks.addLast(longArrayOf(if (pausedAt != 0L) pausedAt else clock, written))
             while (marks.size > 2 && (marks.size > 400 || marks[1][0] < clock - 3_000_000_000L)) marks.removeFirst()
+        }
+    }
+
+    /** A seek: the buffered sound is thrown away, so are the time marks (the sound itself goes on in the ring). */
+    fun seeked() {
+        synchronized(lock) {
+            marks.clear()
+            mag.fill(0.0)
         }
     }
 
