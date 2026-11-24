@@ -2434,6 +2434,7 @@ function searchFit(q, name) {
 /** The one thing the words mean most, like Spotify's top result. The order each source gave counts too
  *  (its first hits are the popular ones), and on a tie an artist beats a show, a show an album, an album a song. */
 function topPick(q, { songs, artists, albums, playlists, shows }) {
+  // every kind comes as its sources (own library, catalog, YouTube Music …): each source counts its own first hits
   const kinds = [
     ['artist', artists, (x) => x.name, 0.05],
     ['show', shows, (x) => x.title, 0.04],
@@ -2442,19 +2443,23 @@ function topPick(q, { songs, artists, albums, playlists, shows }) {
     ['playlist', playlists, (x) => x.title, -0.04]
   ];
   let best = null;
-  for (const [kind, list, name, bonus] of kinds) {
-    (list || []).slice(0, 12).forEach((item, i) => {
-      const fit = searchFit(q, name(item));
-      // a song named like the words but sung by the artist of the same name: the artist stays on top
-      const score = fit + bonus - i * 0.01;
-      if (fit >= 0.6 && (!best || score > best.score)) best = { kind, item, score };
-    });
+  for (const [kind, sources, name, bonus] of kinds) {
+    for (const list of sources) {
+      (list || []).slice(0, 12).forEach((item, i) => {
+        const fit = searchFit(q, name(item));
+        // a song named like the words but sung by the artist of the same name: the artist stays on top
+        const score = fit + bonus - i * 0.01;
+        if (fit >= 0.6 && (!best || score > best.score)) best = { kind, item, score };
+      });
+    }
   }
   if (best) return best;
   // nothing fits the words well: the first song, else the first artist or show, like before
-  if (songs.length) return { kind: 'song', item: songs[0] };
-  if (artists.length) return { kind: 'artist', item: artists[0] };
-  if (shows.length) return { kind: 'show', item: shows[0] };
+  const first = (sources) => sources.flat().find(Boolean);
+  for (const [kind, sources] of [['song', songs], ['artist', artists], ['show', shows]]) {
+    const item = first(sources);
+    if (item) return { kind, item };
+  }
   return null;
 }
 function drawSearch(box, loading, done = false) {
@@ -2484,7 +2489,8 @@ function drawSearch(box, loading, done = false) {
   let html = chips;
   if (f === 'all') {
     // top result like Spotify: whatever the words name best (a podcast, artist, song, album or playlist), big at the top
-    const best = topPick(d.q, { songs, artists, albums, playlists, shows: pods.shows });
+    const catArtists = cat.artists.filter((a) => !d.artists.some((x) => x.name.toLowerCase() === a.name.toLowerCase()));
+    const best = topPick(d.q, { songs: [d.tracks, cat.tracks, ytm], artists: [d.artists, catArtists], albums: [d.albums, cat.albums], playlists: [d.playlists, cat.playlists || []], shows: [pods.shows] });
     const topShow = best?.kind === 'show' ? best.item : null;
     const topArtist = best?.kind === 'artist' ? best.item : null;
     const topCard = best && (best.kind === 'album' || best.kind === 'playlist') ? best.item : null;
@@ -2508,7 +2514,7 @@ function drawSearch(box, loading, done = false) {
       episode: () => (pods.episodes.length ? section(t('episodes'), episodeList(pods.episodes.slice(0, 4), { showName: true }), pods.episodes.length > 4 ? `<button class="link" data-sfilter="episodes">${t('showAll')}</button>` : '') : ''),
       playlist: () => (playlists.length ? section(t('playlists'), plainAlbumCards(byFit(playlists, (a) => a.title).slice(0, 10), true)) : '')
     };
-    const order = best?.kind === 'show' ? ['show', 'episode', 'artist', 'album', 'playlist'] : best?.kind === 'playlist' ? ['playlist', 'artist', 'album', 'show', 'episode'] : ['artist', 'album', 'show', 'playlist', 'episode'];
+    const order = best?.kind === 'show' ? ['show', 'episode', 'artist', 'album', 'playlist'] : best?.kind === 'playlist' ? ['playlist', 'artist', 'album', 'show', 'episode'] : best?.kind === 'album' ? ['album', 'artist', 'show', 'playlist', 'episode'] : ['artist', 'album', 'show', 'playlist', 'episode'];
     for (const k of order) html += secs[k]();
   } else if (f === 'songs') html += trackList(songs);
   else if (f === 'podcasts') html += pods.shows.length ? plainAlbumCards(pods.shows) : done ? `<p class="muted empty">${t('noResultsFor', { q: d.q })}</p>` : '';
