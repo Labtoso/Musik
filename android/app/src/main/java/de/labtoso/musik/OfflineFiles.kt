@@ -27,12 +27,18 @@ class OfflineFiles : DocumentsProvider() {
 
     private fun base(): File = dir(context!!.filesDir).apply { mkdirs() }
 
+    /** The resolved file of an id, or null if it lies outside the songs folder. Existence is not checked. */
+    private fun resolve(id: String): File? {
+        val b = base().canonicalFile
+        val f = (if (id == ROOT) b else File(b, id.removePrefix("$ROOT/"))).canonicalFile
+        // never outside the songs folder (a sibling like "songs-other" does not count as inside)
+        return if (f.path == b.path || f.path.startsWith(b.path + File.separator)) f else null
+    }
+
     private fun fileOf(id: String): File {
-        val b = base()
-        val f = if (id == ROOT) b else File(b, id.removePrefix("$ROOT/"))
-        // never outside the songs folder
-        if (!f.canonicalPath.startsWith(b.canonicalPath)) throw FileNotFoundException(id)
-        if (!f.exists()) throw FileNotFoundException(id)
+        val f = resolve(id) ?: throw FileNotFoundException(id)
+        // unfinished downloads are hidden from the listing and are not reachable by id either
+        if (!f.exists() || f.name.endsWith(".part")) throw FileNotFoundException(id)
         return f
     }
 
@@ -80,11 +86,15 @@ class OfflineFiles : DocumentsProvider() {
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor =
         ParcelFileDescriptor.open(fileOf(documentId), ParcelFileDescriptor.MODE_READ_ONLY)
 
-    override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean =
-        documentId != parentDocumentId && (parentDocumentId == ROOT || documentId.startsWith("$parentDocumentId/"))
+    override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
+        // compared on the resolved paths, so "a/../b/x" is not a child of "a"
+        val parent = resolve(parentDocumentId) ?: return false
+        val child = resolve(documentId) ?: return false
+        return child.path.startsWith(parent.path + File.separator)
+    }
 
     override fun deleteDocument(documentId: String) {
         val f = fileOf(documentId)
-        if (f.isFile) f.delete()
+        if (f.isFile && !f.delete()) throw IllegalStateException("could not delete $documentId")
     }
 }

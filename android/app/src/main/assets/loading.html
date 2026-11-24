@@ -1,6 +1,8 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Streyn</title>
 <style>html,body{margin:0;height:100%;background:#111214}body{display:grid;place-items:center}
 i{grid-area:1/1;width:22px;height:22px;border-radius:50%;background:#8c6cff;animation:p 1.4s ease-in-out infinite}
 b{grid-area:1/1;width:96px;height:96px;border-radius:50%;border:3px solid rgba(255,255,255,.08);border-top-color:#8c6cff;animation:s .9s linear infinite}
-@keyframes s{to{transform:rotate(360deg)}}@keyframes p{50%{transform:scale(.7);opacity:.6}}</style></head>
-<body><i></i><b></b></body></html>
+@keyframes s{to{transform:rotate(360deg)}}@keyframes p{50%{transform:scale(.7);opacity:.6}}@media (prefers-reduced-motion:reduce){i,b{animation:none}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}</style></head>
+<body><div role="status" class="sr" id="st"></div><i aria-hidden="true"></i><b aria-hidden="true"></b>
+<script>setTimeout(function(){document.getElementById("st").textContent="Loading"},100)</script></body></html>
