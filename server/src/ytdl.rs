@@ -685,13 +685,14 @@ fn fetch_full(vid: &str) -> Result<(), String> {
     if !busy.lock().unwrap().insert(vid.to_string()) {
         return Ok(());
     }
+    let part = dir.join(format!("{vid}.part"));
     let r = (|| {
         let mut s = stream_with(vid, false)?;
-        let part = dir.join(format!("{vid}.part"));
         for attempt in 0..2 {
             match download_ranges(&s, &part, vid) {
                 Ok(ctype) => {
-                    std::fs::write(dir.join(format!("{vid}.type")), &ctype).ok();
+                    // the type file first: an .audio file is only published together with it
+                    std::fs::write(dir.join(format!("{vid}.type")), &ctype).map_err(|e| e.to_string())?;
                     std::fs::rename(&part, dir.join(format!("{vid}.audio"))).map_err(|e| e.to_string())?;
                     trim_cache(&dir);
                     return Ok(());
@@ -700,14 +701,15 @@ fn fetch_full(vid: &str) -> Result<(), String> {
                     forget(vid);
                     s = stream_with(vid, true).map_err(|e2| format!("{e}; {e2}"))?;
                 }
-                Err(e) => {
-                    std::fs::remove_file(&part).ok();
-                    return Err(e);
-                }
+                Err(e) => return Err(e),
             }
         }
         Err("failed".into())
     })();
+    // no half written file stays behind, whatever went wrong
+    if r.is_err() {
+        std::fs::remove_file(&part).ok();
+    }
     busy.lock().unwrap().remove(vid);
     if let Some(m) = DL_PROG.get() {
         m.lock().unwrap().remove(vid);

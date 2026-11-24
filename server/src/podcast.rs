@@ -548,7 +548,9 @@ static VALIDATORS: OnceLock<Mutex<HashMap<i64, (String, String)>>> = OnceLock::n
 const FEED_MAX: u64 = 40 << 20;
 /// The feed text with its ETag and Last-Modified, or None when the host says it did not change.
 /// The validators are only kept once the feed proved good (see load_show).
-fn fetch_feed(id: i64, url: &str) -> Result<Option<(String, (String, String))>, ApiError> {
+/// Feed text with its (ETag, Last-Modified).
+type FeedText = (String, (String, String));
+fn fetch_feed(id: i64, url: &str) -> Result<Option<FeedText>, ApiError> {
     let (etag, lm) = VALIDATORS.get_or_init(Default::default).lock().unwrap().get(&id).cloned().unwrap_or_default();
     let mut req = public_agent(Duration::from_secs(20)).get(url).set("user-agent", UA).timeout(Duration::from_secs(20));
     if !etag.is_empty() {
