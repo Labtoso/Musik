@@ -137,7 +137,8 @@ pub fn is_install_dir(dir: &Path) -> bool {
 /// the program files, the shortcuts and the "Installed apps" entry. Settings and offline downloads
 /// (in %APPDATA% / %LOCALAPPDATA%\de.labtoso.streyn) stay, like with Spotify.
 /// The running Streyn.exe cannot delete itself, so it is moved to %TEMP%, where Windows' own
-/// cleanup removes it. Nothing is started for that: no copy, no shell, no scheduled task.
+/// cleanup removes it (if %TEMP% is on another drive, it is left next to the install folder).
+/// Nothing is started for that: no copy, no shell, no scheduled task.
 /// Returns false only if the removal failed.
 pub fn uninstall(silent: bool) -> bool {
     let Some(exe) = std::env::current_exe().ok() else { return false };
@@ -153,8 +154,14 @@ pub fn uninstall(silent: bool) -> bool {
     }
     // The program file goes first: if it cannot be moved, nothing else is changed, so Streyn stays
     // complete and keeps its "Installed apps" entry.
-    let moved = std::env::temp_dir().join(format!("streyn-removed-{}.tmp", std::process::id()));
-    if let Err(e) = std::fs::rename(&exe, &moved) {
+    // %TEMP% is tried first; a move cannot cross drives, so if %TEMP% is on another drive the file
+    // goes next to the install folder (%LOCALAPPDATA%), which is always on the same drive.
+    let name = format!("streyn-removed-{}.tmp", std::process::id());
+    let moved = std::fs::rename(&exe, std::env::temp_dir().join(&name)).or_else(|e| match dir.parent() {
+        Some(parent) => std::fs::rename(&exe, parent.join(&name)),
+        None => Err(e),
+    });
+    if let Err(e) = moved {
         if !silent {
             uninstall::tell(&format!("Streyn could not be removed.\n\n{}: {e}", exe.display()));
         }

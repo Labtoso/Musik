@@ -40,11 +40,24 @@ fn save_config(app: &AppHandle, cfg: &Config) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     let data = serde_json::to_string_pretty(cfg).map_err(std::io::Error::other)?;
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, data)?;
-    std::fs::rename(&tmp, &p).inspect_err(|_| {
+    // Each save has its own temp file, so two saves at the same time never write into one file.
+    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = p.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
+    let result = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(data.as_bytes())?;
+            f.sync_all()
+        })
+        .and_then(|_| std::fs::rename(&tmp, &p));
+    if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
-    })
+    }
+    result
 }
 
 /// "192.168.1.50" -> "http://192.168.1.50:8484"

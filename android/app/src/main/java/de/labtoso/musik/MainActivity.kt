@@ -338,6 +338,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Errors in a row; a queue where nothing plays is not skipped through forever (repeat all).
+     *  Only touched on the main thread; a new queue starts again at 0. */
+    private var errorStreak = 0
+
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val c = controller ?: return
@@ -349,9 +353,6 @@ class MainActivity : ComponentActivity() {
             emit(JSONObject().put("type", "index").put("index", c.currentMediaItemIndex).put("reason", r))
             emitTime(c)
         }
-
-        /** Errors in a row; a queue where nothing plays is not skipped through forever (repeat all). */
-        private var errorStreak = 0
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) errorStreak = 0
@@ -471,17 +472,17 @@ class MainActivity : ComponentActivity() {
         main.post { web.evaluateJavascript(js, null) }
     }
 
-    /** The queue from the page; entries without an address are left out, invalid JSON gives null. */
+    /** The queue from the page; invalid JSON gives null. Every entry is kept, so indices stay the
+     *  same as in the page's queue; an entry without an address simply fails to play and is skipped. */
     private fun toItems(json: String): List<MediaItem>? {
         val arr = runCatching { JSONArray(json) }.getOrElse {
             emit(JSONObject().put("type", "error").put("message", "BAD_QUEUE"))
             return null
         }
-        return (0 until arr.length()).mapNotNull { i ->
-            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+        return (0 until arr.length()).map { i ->
+            val o = arr.optJSONObject(i) ?: JSONObject()
             val url = o.optString("url")
-            if (url.isEmpty()) return@mapNotNull null
-            val uri = Uri.parse(url)
+            val uri = if (url.isEmpty()) Uri.EMPTY else Uri.parse(url)
             val art = o.optString("artwork")
             val meta = MediaMetadata.Builder()
                 .setTitle(o.optString("title"))
@@ -530,6 +531,7 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun setQueue(json: String, index: Int, posMs: Long, autoplay: Boolean) {
             val items = toItems(json) ?: return
             withController { c ->
+                errorStreak = 0
                 c.setMediaItems(items, index.coerceIn(0, maxOf(0, items.size - 1)), posMs)
                 c.prepare()
                 c.playWhenReady = autoplay
