@@ -29,7 +29,16 @@ class PlaybackService : MediaSessionService() {
     private var crossfade = 0.0
     private var userVol = 1f
     private var lastK = 1f
+    /** The volume this service last gave the player (fade and ducking); anything else came from the app. */
+    private var lastSet = 1f
+    private fun applyVol(p: ExoPlayer) {
+        lastSet = (userVol * lastK * duckK).coerceIn(0f, 1f)
+        p.volume = lastSet
+    }
     private var fadeIn = false
+    /** Lowered while another app plays a short sound (1 = normal). */
+    private var duckK = 1f
+    private var focus: FocusKeeper? = null
     private val ui = android.os.Handler(android.os.Looper.getMainLooper())
     /** Crossfade: songs fade out at their end and in at their start (only when one runs into the next). */
     private val fadeTick = object : Runnable {
@@ -44,7 +53,7 @@ class PlaybackService : MediaSessionService() {
             }
             if (kotlin.math.abs(k - lastK) > 0.01f) {
                 lastK = k
-                p.volume = userVol * k
+                applyVol(p)
             }
             if (cf > 0) ui.postDelayed(this, 80)
         }
@@ -52,6 +61,10 @@ class PlaybackService : MediaSessionService() {
     private val prefs by lazy { getSharedPreferences("musik", Context.MODE_PRIVATE) }
     private val eqListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "eq") applyEq()
+        if (key == "userVol") {
+            userVol = prefs.getFloat(key, userVol).coerceIn(0f, 1f)
+            PlaybackService.player?.let { applyVol(it) }
+        }
         if (key == "playopts") applyOpts()
         if (key == "play_pauseOnDisconnect") (session?.player as? ExoPlayer)?.setHandleAudioBecomingNoisy(prefs.getBoolean(key, true))
     }
@@ -86,12 +99,27 @@ class PlaybackService : MediaSessionService() {
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .build(),
-                true
+                // focus is handled by FocusKeeper: games and app sounds must not stop the music
+                false
             )
             .setHandleAudioBecomingNoisy(prefs.getBoolean("play_pauseOnDisconnect", true))
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         PlaybackService.player = player
+        focus = FocusKeeper(this, player, prefs) { k ->
+            if (k != duckK) {
+                duckK = k
+                applyVol(player)
+            }
+        }
+        player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            override fun onAudioTrackInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
+                focus?.ownTrackChanged(+1)
+            }
+            override fun onAudioTrackReleased(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
+                focus?.ownTrackChanged(-1)
+            }
+        })
         // the output picked in the app (Bluetooth, headphones or the phone itself) survives a restart
         val pick = prefs.getInt("outputId", 0)
         if (pick != 0) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.id == pick }?.let { player.setPreferredAudioDevice(it) }
@@ -105,11 +133,15 @@ class PlaybackService : MediaSessionService() {
         // some devices only allow the equalizer once sound is playing: try again then
         player.addListener(object : androidx.media3.common.Player.Listener {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                focus?.onPlayWhenReady(playWhenReady)
                 lostAt = if (!playWhenReady && reason == androidx.media3.common.Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) System.currentTimeMillis() else 0
             }
             override fun onVolumeChanged(volume: Float) {
-                // a change from the app, not from the fade: remember it as the volume to fade from
-                if (kotlin.math.abs(volume - userVol * lastK) > 0.002f && lastK > 0.05f) userVol = (volume / lastK).coerceIn(0f, 1f)
+                // a change from the app, not from the fade or ducking: that is the volume the user wants
+                if (kotlin.math.abs(volume - lastSet) <= 0.002f) return
+                userVol = volume.coerceIn(0f, 1f)
+                lastSet = volume
+                if (lastK * duckK != 1f) PlaybackService.player?.let { applyVol(it) }
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 // a song that runs into the next one, or into itself again (repeat one), fades in
@@ -163,7 +195,7 @@ class PlaybackService : MediaSessionService() {
         if (crossfade > 0) ui.post(fadeTick)
         else if (lastK != 1f) {
             lastK = 1f
-            PlaybackService.player?.volume = userVol
+            PlaybackService.player?.let { applyVol(it) }
         }
         val norm = o.optBoolean("normalize", false)
         if (android.os.Build.VERSION.SDK_INT < 28 || audioSession <= 0) return
@@ -241,6 +273,8 @@ class PlaybackService : MediaSessionService() {
         audioSession = 0
         player = null
         prefs.unregisterOnSharedPreferenceChangeListener(eqListener)
+        focus?.stop()
+        focus = null
         runCatching { (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceCallback) }
         eq?.release()
         ui.removeCallbacks(fadeTick)

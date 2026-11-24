@@ -6320,6 +6320,7 @@ function devicesHtmlInner() {
       setRow(t('devSwitch'), `<div class="stack"><button class="btn" data-devout>${icon('speaker')}${t('devSwitchBtn')}</button><button class="btn" data-devbt>${icon('bluetooth')}${t('devBtSettings')}</button></div>`, { hint: t('devSwitchHint'), keys: 'bluetooth verbinden connect koppeln pair' }) +
       setRow(t('devPause'), sw('devpause', A.getPlayPref('pauseOnDisconnect')), { hint: t('devPauseHint'), keys: 'bluetooth pause trennen disconnect' }) +
       setRow(t('devResume'), sw('devresume', A.getPlayPref('resumeOnConnect')), { hint: t('devResumeHint'), keys: 'bluetooth weiter resume verbinden auto' }) +
+      setRow(t('devKeepApps'), sw('devkeepapps', A.getPlayPref('keepWithApps')), { hint: t('devKeepAppsHint'), keys: 'spiel game app pause stopp stop fokus focus weiter keep hintergrund background' }) +
       (A.resetAsks ? setRow(t('askAgain'), `<button class="btn" data-resetasks>${t('askAgainBtn')}</button>`, { hint: t('askAgainHint'), keys: 'erlaubnis permission fragen ask nein no mikrofon benachrichtigung notification' }) : '')
     );
   }
@@ -6630,6 +6631,7 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('change', (e) => {
   if (e.target.id === 'devpause') window.MusikAndroid?.setPlayPref?.('pauseOnDisconnect', e.target.checked);
   if (e.target.id === 'devresume') window.MusikAndroid?.setPlayPref?.('resumeOnConnect', e.target.checked);
+  if (e.target.id === 'devkeepapps') window.MusikAndroid?.setPlayPref?.('keepWithApps', e.target.checked);
 });
 function setCard(id, ic, title, rows) {
   return `<section class="set-card" id="set-${id}" data-k="${esc(title.toLowerCase())}"><h3>${icon(ic)}<span>${title}</span></h3>${rows}</section>`;
