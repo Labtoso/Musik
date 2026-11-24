@@ -1,4 +1,4 @@
-// Packs the two program files into the setup: streyn.exe (app) and streyn-server.exe (offline mode).
+// Embeds the two program files in the setup: streyn.exe (app) and streyn-server.exe (offline mode).
 // CI passes their paths in STREYN_APP_EXE and STREYN_SERVER_EXE. Without them (tests, local checks)
 // the setup is built with empty payloads and refuses to install.
 use sha2::{Digest, Sha256};
@@ -15,9 +15,10 @@ fn pack(env: &str, out: &Path, name: &str) -> Result<String, String> {
         None => Vec::new(),
     };
     let hash = format!("{:x}", Sha256::digest(&data));
-    let packed = if data.is_empty() { Vec::new() } else { miniz_oxide::deflate::compress_to_vec(&data, 10) };
+    // stored as they are, not compressed: packed data inside a program looks like a hidden payload
+    // to scanners ("software packing"), plain program files can be inspected like any other file
     let dest = out.join(name);
-    std::fs::write(&dest, packed).map_err(|e| format!("writing {}: {e}", dest.display()))?;
+    std::fs::write(&dest, &data).map_err(|e| format!("writing {}: {e}", dest.display()))?;
     Ok(hash)
 }
 
