@@ -605,8 +605,9 @@ body:has(.fs-queue.open) .ext-stage.in-fs { visibility: hidden; }
 .fs[data-viz='ring'] .fs-cover .cover.huge { transform: scale(calc(0.56 * var(--pulse, 1))); border-radius: 50%; transition: transform 0.08s linear, border-radius 0.35s; }
 .fs[data-viz='bars'] .fs-cover .cover.huge, .fs[data-viz='wave'] .fs-cover .cover.huge { opacity: 0.14; filter: blur(18px) saturate(1.4); transform: scale(0.9); }
 .fs[data-viz='bars'] canvas.viz, .fs[data-viz='wave'] canvas.viz { z-index: 2; }
-.fs-bottom { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; position: relative; z-index: 8; height: 44px; flex: none; }
-.fs-bottom .btn { justify-content: center; min-width: 0; height: 44px; white-space: nowrap; overflow: hidden; }
+/* the buttons share the row evenly and stay centred, also when one is hidden (no lyrics for podcasts) */
+.fs-bottom { display: flex; justify-content: center; gap: 6px; position: relative; z-index: 8; height: 44px; flex: none; }
+.fs-bottom .btn { flex: 1 1 0; max-width: 220px; justify-content: center; min-width: 0; height: 44px; white-space: nowrap; overflow: hidden; }
 .fs-bottom .btn.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 /* queue and lyrics lie over cover and visualizer and end above the three buttons, which never move */
 .fs-queue { z-index: 6; bottom: calc(22px + var(--safe-b) + 44px + 10px); border-radius: var(--r-win); border: 1px solid var(--line); left: 10px; right: 10px; visibility: hidden; transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1), visibility 0s 0.22s; }
