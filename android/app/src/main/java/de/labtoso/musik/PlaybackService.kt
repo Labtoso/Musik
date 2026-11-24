@@ -101,7 +101,10 @@ class PlaybackService : MediaSessionService() {
         }
         player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
             override fun onAudioTrackInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
-                focus?.ownTrackChanged()
+                focus?.ownTrackChanged(+1)
+            }
+            override fun onAudioTrackReleased(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
+                focus?.ownTrackChanged(-1)
             }
         })
         // the output picked in the app (Bluetooth, headphones or the phone itself) survives a restart

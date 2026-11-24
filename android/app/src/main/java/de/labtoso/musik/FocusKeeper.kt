@@ -48,13 +48,16 @@ class FocusKeeper(
     private val retakes = ArrayDeque<Long>()
     private var decide: Runnable? = null
     private var stopped = false
-    /** Our own player just opened a new output: playback changes until then are ours. */
+    /** Audio outputs our own player has open right now; they are taken out of every count. */
+    private var ownTracks = 0
+    /** Our player just opened or closed an output: the system's list may lag behind until then. */
     private var graceUntil = 0L
-    /** Grace over: take our new output into the base, but only one new music stream counts as ours. */
-    private val rebase = Runnable {
-        if (decide != null) return@Runnable
+    /** Grace over: judge what changed meanwhile with the same rule. The base keeps foreign streams out. */
+    private val recheck = Runnable {
+        if (stopped || decide != null) return@Runnable
         val now = count(am.activePlaybackConfigurations)
-        if (watching && player.playWhenReady && foreign(now, ownSlack = 1)) pauseFor(watchTransient) else base = now
+        if (!watching) base = now
+        else if (player.playWhenReady && foreign(now)) pauseFor(watchTransient)
     }
 
     private val keepOn get() = prefs.getBoolean("play_keepWithApps", true)
@@ -63,14 +66,21 @@ class FocusKeeper(
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>) {
             if (!watching || !player.playWhenReady || System.currentTimeMillis() < graceUntil) return
             // a music, video or podcast app started after all: give way to it
-            if (foreign(count(configs), ownSlack = 0)) pauseFor(watchTransient)
+            if (foreign(count(configs))) pauseFor(watchTransient)
         }
     }
 
     /** A recording that starts later (voice message, video) without asking for focus also pauses the music. */
     private val recordingCallback = object : AudioManager.AudioRecordingCallback() {
         override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>) {
-            if (stopped || !player.playWhenReady || !keepOn || configs.none(::realRecording)) return
+            if (stopped) return
+            // the recording ended after focus had already come back: carry on now
+            if (held && resumeOnGain && !inCall()) {
+                resumeOnGain = false
+                player.play()
+                return
+            }
+            if (!player.playWhenReady || !keepOn || configs.none(::realRecording)) return
             // focus already lost to the recording app: carry on once it gives focus back
             pauseFor(transient = !held)
         }
@@ -82,8 +92,8 @@ class FocusKeeper(
     }
 
     /** Same rule as the decision after a focus loss, so a late start is judged the same way. */
-    private fun foreign(now: Counts, ownSlack: Int): Boolean {
-        if (now.media > base.media + ownSlack) return true
+    private fun foreign(now: Counts): Boolean {
+        if (now.media > base.media) return true
         return !watchTransient && now.unknown > base.unknown && now.game <= base.game
     }
 
@@ -99,13 +109,14 @@ class FocusKeeper(
     }
 
     /**
-     * The player opened a new audio output (a new song with another sample rate, for example).
+     * The player opened (+1) or closed (-1) an audio output, for example for a song with another sample rate.
      * It belongs to us, so it must not look like another app starting to play.
      */
-    fun ownTrackChanged() {
-        graceUntil = System.currentTimeMillis() + 1500
-        main.removeCallbacks(rebase)
-        main.postDelayed(rebase, 1500)
+    fun ownTrackChanged(delta: Int) {
+        ownTracks = (ownTracks + delta).coerceAtLeast(0)
+        graceUntil = System.currentTimeMillis() + GRACE
+        main.removeCallbacks(recheck)
+        main.postDelayed(recheck, GRACE)
     }
 
     private fun obtain() {
@@ -163,8 +174,10 @@ class FocusKeeper(
         if (transient) duck(DUCK)
         val r = Runnable { decide = null; judge(transient) }
         decide = r
-        // the other app usually opens its audio a moment after it asked for focus
-        main.postDelayed(r, if (transient) 350 else 900)
+        // the other app usually opens its audio a moment after it asked for focus;
+        // and if our own output just changed, wait until the system's list has caught up
+        val wait = maxOf(if (transient) 350L else 900L, graceUntil - System.currentTimeMillis())
+        main.postDelayed(r, wait)
     }
 
     private fun judge(transient: Boolean) {
@@ -220,7 +233,7 @@ class FocusKeeper(
     fun stop() {
         stopped = true
         resumeOnGain = false
-        main.removeCallbacks(rebase)
+        main.removeCallbacks(recheck)
         release()
         runCatching { am.unregisterAudioPlaybackCallback(playbackCallback) }
         runCatching { am.unregisterAudioRecordingCallback(recordingCallback) }
@@ -242,11 +255,13 @@ class FocusKeeper(
                 AudioAttributes.USAGE_GAME -> game++
             }
         }
-        return Counts(media, unknown, game)
+        // our own player plays music: take its outputs out
+        return Counts((media - ownTracks).coerceAtLeast(0), unknown, game)
     }
 
     companion object {
         private const val DUCK = 0.25f
+        private const val GRACE = 1500L
         /** MediaRecorder.AudioSource.HOTWORD (hidden in the SDK). */
         private const val HOTWORD_SOURCE = 1999
     }
