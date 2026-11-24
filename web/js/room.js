@@ -1079,8 +1079,9 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   // ── layout / camera
   let wide = true, W = 1, H = 1, mx = 0, my = 0, tx = 0, ty = 0, scrollT = 0;
   function resize() {
+    // layout size, not the rendered one: a scale() animation on the way in must not shrink the drawing buffer
     const r = canvas.getBoundingClientRect();
-    W = Math.max(1, r.width); H = Math.max(1, r.height);
+    W = Math.max(1, canvas.offsetWidth || r.width); H = Math.max(1, canvas.offsetHeight || r.height);
     renderer.setSize(W, H, false);
     camera.aspect = W / H;
     wide = W / H > 1.15;
@@ -1102,6 +1103,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     const im = new Image();
     im.crossOrigin = 'anonymous';
     im.onload = () => {
+      if (tr.freed) return;
       covers[i] = im; texs[i] = vinylTexture(accentTo, true, im);
       if (i === cur) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
     };
@@ -1565,6 +1567,26 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   };
   (window.requestIdleCallback || setTimeout)(warm, { timeout: 1500 });
 
+  // ── GPU memory: every song of a long session would otherwise keep its cover and a 1536px record texture
+  function dropTex(t) {
+    if (!t || t === whiteTex || t === vinylMat.map || t === sleeveMat.map || coverTex.includes(t) || texs.includes(t) || decoTex.includes(t)) return;
+    t.dispose();
+  }
+  const liveTracks = new Set(tracks.map((_, i) => i));
+  function freeOldTracks(newest) {
+    liveTracks.add(newest);
+    // still needed: the record on the platter, the one waiting, and the two of the running change
+    const need = new Set([cur, pending, newest, chg.at(-1)?.to, chg.at(-2)?.to, chg.length ? -1 : 0]);
+    for (const i of liveTracks) {
+      if (need.has(i)) continue;
+      liveTracks.delete(i);
+      tracks[i].freed = true;
+      const ct = coverTex[i], vt = texs[i];
+      coverTex[i] = null; texs[i] = null; covers[i] = null;
+      dropTex(ct); dropTex(vt);
+    }
+  }
+
   const names = { crate, phones, cds, spk, tapes, mug, books, candles, tl, shelf, chair, side2, pouf, plinth };
   for (const k in names) names[k].name = k;
   const api = {
@@ -1579,10 +1601,18 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     setCover(url, i = 0) {
       if (!url || !tracks[i] || tracks[i].cover === url) return;
       tracks[i].cover = url;
-      loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; coverTex[i] = t; });
+      loader.load(url, (t) => {
+        if (tracks[i].cover !== url) return t.dispose();
+        t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+        const o = coverTex[i]; coverTex[i] = t; dropTex(o);
+      });
       const im = new Image();
       im.crossOrigin = 'anonymous';
-      im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
+      im.onload = () => {
+        if (tracks[i].cover !== url) return;
+        const o = texs[i]; covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); dropTex(o);
+        if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
+      };
       im.src = url;
     },
     // manual mode: the song changed → put the new record on with the full change animation
@@ -1594,9 +1624,14 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       coverTex[i] = loadTex(url);
       const im = new Image();
       im.crossOrigin = 'anonymous';
-      im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
+      im.onload = () => {
+        if (tracks[i].freed) return;
+        covers[i] = im; texs[i] = vinylTexture(accentTo, true, im);
+        if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
+      };
       im.src = url;
       if (!reduced) pending = i;
+      freeOldTracks(i);
       return i;
     },
     // the covers the room is decorated with (crate, CDs, shelf, wall), e.g. the upcoming songs
@@ -1607,8 +1642,11 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       if (names) { const nn = keep.map(([, n]) => n || { artist: '', title: '' }); if (JSON.stringify(nn) !== JSON.stringify(decoNames)) { decoNames = nn.length ? nn : decoNames; cdSpines.forEach(paintSpine); } }
       if (list.join('|') === (decoTex.urls || []).join('|')) return;
       const old = new Map((decoTex.urls || []).map((u, i) => [u, decoTex[i]]));
+      const was = decoTex;
       decoTex = list.length ? list.map((u) => old.get(u) || loadTex(u)) : coverTex.slice();
       decoTex.urls = list;
+      // covers of songs that left the queue are let go (unless a record still uses them)
+      was.forEach(dropTex);
       deco.forEach(paintDeco);
     },
     dispose() {
