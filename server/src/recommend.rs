@@ -564,7 +564,8 @@ impl Recommender {
         red.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         let rediscover = red.into_iter().take(12).map(|(id, _)| id).collect();
         drop(ctx);
-        let mix = self.mix(db, user_id, 12);
+        // like Spotify: a real list on the start page, the first ten shown, the rest behind "See more"
+        let mix = self.mix(db, user_id, 30);
         (p.cold, recent, mix, top_artists, rediscover)
     }
 }

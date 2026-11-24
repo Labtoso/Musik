@@ -1740,6 +1740,17 @@ function loadForYou(h) {
   if (!fyLoad || fyLoad.h !== h) fyLoad = { h, p: favouriteArtists(h).then((names) => get('/api/catalog/foryou?artists=' + encodeURIComponent(names.join('|')))).catch(() => null) };
   return fyLoad.p;
 }
+/** "Mix für dich" on the start page: the first ten songs, the rest behind "See more" (phone and desktop). */
+function mixList(tracks, opts) {
+  const long = tracks.length > 10;
+  return `<div class="mixlist${long ? ' short' : ''}">${trackList(tracks, opts)}${long ? `<button class="link morebtn" data-mixmore>${t('seeMore')}</button>` : ''}</div>`;
+}
+document.addEventListener('click', (e) => {
+  const more = e.target.closest('[data-mixmore]');
+  if (!more) return;
+  const short = more.parentElement.classList.toggle('short');
+  more.textContent = t(short ? 'seeMore' : 'seeLess');
+});
 /** "Mix für dich" from the catalog when the own files give too little: the Daily Mixes woven together. */
 async function catalogMixSection(h) {
   const r = await loadForYou(h);
@@ -1754,7 +1765,7 @@ async function catalogMixSection(h) {
     }
   state.homeMixExt = out;
   if (!out.length) return '';
-  return `<section class="sec home-mix"><div class="sec-head"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(out.slice(0, 12))}</section>`;
+  return `<section class="sec home-mix"><div class="sec-head"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${mixList(out.slice(0, 30))}</section>`;
 }
 async function forYouSections(h) {
   const r = await loadForYou(h);
@@ -2169,7 +2180,7 @@ async function buildHome() {
     <div class="hero-text"><h1>${t('mixForYou')}</h1><p class="muted">${h.cold ? t('coldHint') : esc(h.mix.slice(0, 4).map(artistName).filter((v, i, a) => a.indexOf(v) === i).join(', '))}</p></div>
     <button class="btn primary" data-playmix>${icon('play')}${t('playAll')}</button></div>`;
   html += ownMix
-    ? `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(h.mix, { reasons: true })}</section>`
+    ? `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${mixList(h.mix, { reasons: true })}</section>`
     : laterSection(() => catalogMixSection(h));
   const recentAll = [...h.recent, ...recentExt].slice(0, 14);
   if (recentAll.length) html += section(t('recent'), trackCards(recentAll, 'recent'), `<a class="link" href="#/recent">${t('showAll')}</a>`);

@@ -451,7 +451,6 @@ code.addr { display: inline-block; padding: 6px 10px; border-radius: 10px; backg
   .m-only { display: flex; }
   .hero { display: none; }
   .home-mix { margin-top: 0; }
-  .home-mix .row:nth-child(n + 6) { display: none; }
   .quick { grid-template-columns: 1fr 1fr; margin-bottom: 22px; }
   .qt { height: 54px; gap: 9px; font-size: 12.5px; }
   .qt .cover { width: 54px; height: 54px; }
@@ -1265,6 +1264,7 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 .relchips .chip { white-space: nowrap; font-size: 13px; padding: 6px 14px; }
 .chip.on { background: var(--text); color: var(--bg); }
 .pop.short .row:nth-child(n + 6) { display: none; }
+.mixlist.short .row:nth-child(n + 11) { display: none; }
 .morebtn { margin: 8px 0 0 12px; color: var(--muted); font-weight: 700; font-size: 13px; }
 .morebtn:hover { color: var(--text); }
 .cards.relgrid:not(.libgrid-m) { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
