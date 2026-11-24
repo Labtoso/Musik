@@ -173,7 +173,9 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
 .sec { margin-top: 30px; }
 .sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
-.card { display: block; text-align: left; padding: 10px; border-radius: var(--r-card); transition: background 0.12s; min-width: 0; }
+/* a button centres its content: cards start at the top, so a longer text never pushes the cover up */
+.card { display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; text-align: left; padding: 10px; border-radius: var(--r-card); transition: background 0.12s; min-width: 0; }
+.card > .c-title, .card > .c-sub { max-width: 100%; }
 .card:hover { background: var(--surface); }
 .c-title { font-weight: 600; margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .c-sub { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -605,8 +607,9 @@ body:has(.fs-queue.open) .ext-stage.in-fs { visibility: hidden; }
 .fs[data-viz='ring'] .fs-cover .cover.huge { transform: scale(calc(0.56 * var(--pulse, 1))); border-radius: 50%; transition: transform 0.08s linear, border-radius 0.35s; }
 .fs[data-viz='bars'] .fs-cover .cover.huge, .fs[data-viz='wave'] .fs-cover .cover.huge { opacity: 0.14; filter: blur(18px) saturate(1.4); transform: scale(0.9); }
 .fs[data-viz='bars'] canvas.viz, .fs[data-viz='wave'] canvas.viz { z-index: 2; }
-.fs-bottom { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; position: relative; z-index: 8; height: 44px; flex: none; }
-.fs-bottom .btn { justify-content: center; min-width: 0; height: 44px; white-space: nowrap; overflow: hidden; }
+/* the buttons share the row evenly and stay centred, also when one is hidden (no lyrics for podcasts) */
+.fs-bottom { display: flex; justify-content: center; gap: 6px; position: relative; z-index: 8; height: 44px; flex: none; }
+.fs-bottom .btn { flex: 1 1 0; max-width: 220px; justify-content: center; min-width: 0; height: 44px; white-space: nowrap; overflow: hidden; }
 .fs-bottom .btn.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 /* queue and lyrics lie over cover and visualizer and end above the three buttons, which never move */
 .fs-queue { z-index: 6; bottom: calc(22px + var(--safe-b) + 44px + 10px); border-radius: var(--r-win); border: 1px solid var(--line); left: 10px; right: 10px; visibility: hidden; transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1), visibility 0s 0.22s; }
@@ -1278,7 +1281,7 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 760px) {
   .dh-text h1 .src, .dh-text h1 .src svg { width: 24px; height: 24px; }
   .cards.relgrid { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; flex-direction: initial; }
-  .relgrid .card { display: block; padding: 0; }
+  .relgrid .card { display: flex; padding: 0; }
   .relgrid .card .cover { width: 100%; height: auto; aspect-ratio: 1; border-radius: 6px; }
   .relgrid .card .c-title { margin-top: 8px; }
   .dh-over { display: none; }
@@ -1929,15 +1932,15 @@ input[type='range']::-moz-range-thumb { cursor: pointer; }
   :root .cover.gen.year .gen-ov b { font-size: 30cqw; }
 }
 
-/* 1.27.1: Standard theme on Android phones: the page runs on behind the tab bar and mini player and stays visible there,
+/* 1.27.1 (Liquid Glass too since 1.33.4): Standard and Liquid Glass on Android phones: the page runs on behind the tab bar and mini player and stays visible there,
    but only the bars react to taps (the strip behind them is see-through and catches the taps) */
 @media (max-width: 899px) and (pointer: coarse) {
-  :root:not([data-theme='glass']):not([data-theme='green']) .shell { grid-template-rows: 1fr; grid-template-areas: 'main'; }
-  :root:not([data-theme='glass']):not([data-theme='green']) #content { grid-area: main; }
-  :root:not([data-theme='glass']):not([data-theme='green']) .player { grid-area: main; align-self: end; margin-bottom: calc(88px + var(--safe-b)); }
-  :root:not([data-theme='glass']):not([data-theme='green']) .bottomnav { grid-area: main; align-self: end; }
-  :root:not([data-theme='glass']):not([data-theme='green']) #view { padding-bottom: calc(182px + var(--safe-b)); }
-  :root:not([data-theme='glass']):not([data-theme='green']) .shell::after { background: none !important; }
+  :root:not([data-theme='green']) .shell { grid-template-rows: 1fr; grid-template-areas: 'main'; }
+  :root:not([data-theme='green']) #content { grid-area: main; }
+  :root:not([data-theme='green']) .player { grid-area: main; align-self: end; margin-bottom: calc(88px + var(--safe-b)); }
+  :root:not([data-theme='green']) .bottomnav { grid-area: main; align-self: end; }
+  :root:not([data-theme='green']) #view { padding-bottom: calc(182px + var(--safe-b)); }
+  :root:not([data-theme='green']) .shell::after { background: none !important; }
 }
 /* the Streyn logo is the home button on every device */
 a.home-logo { color: inherit; text-decoration: none; cursor: pointer; border-radius: 10px; transition: opacity 0.15s ease, transform 0.15s ease; -webkit-tap-highlight-color: transparent; }

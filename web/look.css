@@ -145,13 +145,13 @@ html[data-theme='glass'][data-oled] { background: #000; }
 [data-theme='glass'][data-oled] body { background: transparent; }
 [data-theme='glass'][data-oled] body::before { display: none; }
 [data-theme='glass'][data-oled] .settings { background: rgba(0, 0, 0, 0.78); }
-[data-theme='glass'][data-oled] .player, [data-theme='glass'][data-oled] .side { background: linear-gradient(180deg, rgba(20, 20, 24, 0.42), rgba(8, 8, 10, 0.55)); border-top-color: transparent; }
-[data-theme='glass'][data-oled].dyn .player { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 16%, rgba(20, 20, 24, 0.4)), rgba(8, 8, 10, 0.55)); }
+[data-theme='glass'][data-oled] .player, [data-theme='glass'][data-oled] .side { background: linear-gradient(180deg, rgba(20, 20, 24, 0.16), rgba(8, 8, 10, 0.28)); border-top-color: transparent; }
+[data-theme='glass'][data-oled].dyn .player { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 12%, rgba(20, 20, 24, 0.16)), rgba(8, 8, 10, 0.28)); }
 [data-theme='glass'][data-oled] #content, [data-theme='glass'][data-oled].dyn #content { background: transparent; }
-[data-theme='glass'][data-oled] .menu, [data-theme='glass'][data-oled] .modal { background: linear-gradient(180deg, rgba(24, 24, 28, 0.62), rgba(10, 10, 12, 0.72)); }
+[data-theme='glass'][data-oled] .menu, [data-theme='glass'][data-oled] .modal { background: linear-gradient(180deg, rgba(24, 24, 28, 0.42), rgba(10, 10, 12, 0.52)); }
 [data-theme='glass'][data-oled] .fs { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg, var(--accent)) 50%, #000) 0%, color-mix(in srgb, var(--dyn-bg, var(--accent)) 14%, #000) 50%, #000 100%); }
 @media (max-width: 899px) {
-  [data-theme='glass'][data-oled] .bottomnav { background: linear-gradient(180deg, rgba(20, 20, 24, 0.4), rgba(8, 8, 10, 0.55)); border-color: transparent; }
+  [data-theme='glass'][data-oled] .bottomnav { background: linear-gradient(180deg, rgba(20, 20, 24, 0.16), rgba(8, 8, 10, 0.28)); border-color: transparent; }
   [data-theme='glass'][data-oled] .navblob { background: linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.045)); }
 }
 /* Green on black: the panels lose their grey, thin lines keep the parts apart */
@@ -185,17 +185,20 @@ html[data-theme='glass'][data-oled] { background: #000; }
 [data-theme='glass'] .muted, [data-theme='glass'] .c-sub, [data-theme='glass'] .sr-hint { color: rgba(235, 235, 245, 0.6); }
 [data-theme='glass'][data-mode='light'] .muted, [data-theme='glass'][data-mode='light'] .c-sub, [data-theme='glass'][data-mode='light'] .sr-hint { color: rgba(60, 60, 67, 0.6); }
 
-/* bars: clear Liquid Glass (Sebastian 2026-11-17: must look like the real one, never just blur). What lies under the bar stays
+/* bars: clear Liquid Glass (Sebastian 2026-11-17: must look like the real one, never just blur; 2026-11-23: as see-through as on iOS 26). What lies under the bar stays
    visible and is bent at the rim; a thin veil and a soft shadow under the labels keep them readable over bright covers */
-[data-theme='glass'] .player, [data-theme='glass'] .side { background: linear-gradient(180deg, rgba(22, 22, 28, 0.2), rgba(10, 10, 14, 0.32)); }
-[data-theme='glass'].dyn .player { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 12%, rgba(22, 22, 28, 0.18)), rgba(10, 10, 14, 0.32)); }
+[data-theme='glass'] .player, [data-theme='glass'] .side { background: linear-gradient(180deg, rgba(30, 30, 38, 0.08), rgba(12, 12, 16, 0.16)); }
+[data-theme='glass'].dyn .player { background: linear-gradient(180deg, color-mix(in srgb, var(--dyn-bg) 10%, rgba(30, 30, 38, 0.08)), rgba(12, 12, 16, 0.16)); }
 @media (max-width: 899px) {
-  [data-theme='glass'] .bottomnav { background: linear-gradient(180deg, rgba(22, 22, 28, 0.2), rgba(10, 10, 14, 0.32)); }
+  [data-theme='glass'] .bottomnav { background: linear-gradient(180deg, rgba(30, 30, 38, 0.08), rgba(12, 12, 16, 0.16)); }
 }
-[data-theme='glass'] .toast { background: rgba(20, 20, 26, 0.36); }
+[data-theme='glass'] .toast { background: rgba(20, 20, 26, 0.24); }
+/* over an own bright background picture the bars keep a little more veil so their labels stay readable */
+html.has-wall[data-theme='glass']:not([data-mode='light']) .player, html.has-wall[data-theme='glass']:not([data-mode='light']) .side, html.has-wall[data-theme='glass']:not([data-mode='light']) .bottomnav { background: linear-gradient(180deg, rgba(20, 20, 26, 0.2), rgba(10, 10, 14, 0.3)); }
+html.has-wall[data-theme='glass'][data-mode='light'] .player, html.has-wall[data-theme='glass'][data-mode='light'] .side, html.has-wall[data-theme='glass'][data-mode='light'] .bottomnav { background: linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(246, 246, 250, 0.36)); }
 /* menus, sheets and dialogs are real Liquid Glass too: the page shows through and bends at the rim, a veil keeps the text readable */
-[data-theme='glass'] .menu { background: linear-gradient(180deg, rgba(34, 34, 42, 0.42), rgba(16, 16, 22, 0.52)); border-color: transparent; }
-[data-theme='glass'] .modal, [data-theme='glass'] .modal.devsheet { background: linear-gradient(180deg, rgba(30, 30, 38, 0.5), rgba(14, 14, 20, 0.62)); border-color: transparent; }
+[data-theme='glass'] .menu { background: linear-gradient(180deg, rgba(34, 34, 42, 0.3), rgba(16, 16, 22, 0.4)); border-color: transparent; }
+[data-theme='glass'] .modal, [data-theme='glass'] .modal.devsheet { background: linear-gradient(180deg, rgba(30, 30, 38, 0.34), rgba(14, 14, 20, 0.46)); border-color: transparent; }
 [data-theme='glass'] .menu, [data-theme='glass'] .modal { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
 [data-theme='glass'] .modal::after, [data-theme='glass'] .menu::after { opacity: 1; }
 /* behind a sheet the page only dims, it is not blurred away, so the glass has something to bend */
@@ -208,10 +211,10 @@ html[data-theme='glass'][data-oled] { background: #000; }
 [data-theme='glass'] .dev { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.12); }
 [data-theme='glass'] .player, [data-theme='glass'] .bottomnav, [data-theme='glass'] .toast { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 12px rgba(0, 0, 0, 0.35); }
 [data-theme='glass'] .player .ic, [data-theme='glass'] .bottomnav .ic { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5)); }
-[data-theme='glass'][data-mode='light'] .player, [data-theme='glass'][data-mode='light'].dyn .player, [data-theme='glass'][data-mode='light'] .bottomnav, [data-theme='glass'][data-mode='light'] .side { background: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(246, 246, 250, 0.42)); }
+[data-theme='glass'][data-mode='light'] .player, [data-theme='glass'][data-mode='light'].dyn .player, [data-theme='glass'][data-mode='light'] .bottomnav, [data-theme='glass'][data-mode='light'] .side { background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(246, 246, 250, 0.22)); }
 [data-theme='glass'][data-mode='light'] .player, [data-theme='glass'][data-mode='light'] .bottomnav, [data-theme='glass'][data-mode='light'] .toast { text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8), 0 0 10px rgba(255, 255, 255, 0.6); }
 [data-theme='glass'][data-mode='light'] .player .ic, [data-theme='glass'][data-mode='light'] .bottomnav .ic { filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.8)); }
-[data-theme='glass'][data-mode='light'] .menu, [data-theme='glass'][data-mode='light'] .modal, [data-theme='glass'][data-mode='light'] .modal.devsheet { background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(246, 246, 250, 0.6)); text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7); }
+[data-theme='glass'][data-mode='light'] .menu, [data-theme='glass'][data-mode='light'] .modal, [data-theme='glass'][data-mode='light'] .modal.devsheet { background: linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(246, 246, 250, 0.46)); text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7); }
 [data-theme='glass'][data-mode='light'] .modal-wrap, [data-theme='glass'][data-mode='light'] .devsheet-wrap { background: rgba(230, 233, 242, 0.25); }
 
 /* scroll edge on the desktop: a light shade under the player, no blur, so the glass still shows the content it bends.

@@ -354,8 +354,9 @@ pub fn html_to_text(s: &str) -> String {
     while let Some((i, c)) = chars.next() {
         if c == '<' {
             let rest = &s[i..];
-            let end = rest.find('>').unwrap_or(rest.len().saturating_sub(1));
-            let tag = rest[1..end.max(1)].trim().to_ascii_lowercase();
+            // byte positions only where a letter starts: a lone "<" before "ö" must not split the letter
+            let end = rest.find('>').unwrap_or(rest.len());
+            let tag = rest.get(1..end).unwrap_or("").trim().to_ascii_lowercase();
             let tname: String = tag.trim_start_matches('/').chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
             if matches!(tname.as_str(), "br" | "p" | "div" | "li" | "h1" | "h2" | "h3" | "h4" | "tr" | "ul" | "ol") {
                 out.push('\n');
@@ -407,7 +408,9 @@ pub fn decode_entities(s: &str) -> String {
     while let Some(i) = rest.find('&') {
         out.push_str(&rest[..i]);
         let tail = &rest[i..];
-        if let Some(j) = tail[..tail.len().min(12)].find(';') {
+        // look for the ";" within the next 12 letters (not bytes: "& Über" would cut the Ü in half)
+        let lim = tail.char_indices().nth(12).map(|(k, _)| k).unwrap_or(tail.len());
+        if let Some(j) = tail[..lim].find(';') {
             let ent = &tail[1..j];
             let rep = match ent {
                 "amp" => Some('&'),
@@ -596,7 +599,8 @@ fn load_show(st: &St, id: i64, fresh: bool) -> Result<Arc<Show>, ApiError> {
             return m.get(&id).map(|(_, s)| s.clone()).ok_or(e);
         }
     };
-    let show = parse_feed(&xml);
+    // a feed written in a way nobody thought of must never take the page down
+    let show = std::panic::catch_unwind(|| parse_feed(&xml)).map_err(|_| ApiError::new(502, "podcast_bad_feed"))?;
     if show.title.is_empty() && show.episodes.is_empty() {
         return Err(ApiError::new(502, "podcast_bad_feed"));
     }
@@ -1284,6 +1288,19 @@ mod tests {
         assert!(b.desc.contains("• one"));
         assert_eq!(a.date, parse_iso("2026-11-18T10:00:00Z"));
         assert_eq!(b.date, parse_iso("2026-11-16T05:00:00Z"));
+    }
+    #[test]
+    fn umlauts_never_break_the_text() {
+        // shows like Edeltalk: "&" or "<" right before umlauts and emoji
+        assert_eq!(decode_entities("Talk & Übermut äöü 🎙️ mehr"), "Talk & Übermut äöü 🎙️ mehr");
+        assert_eq!(decode_entities("A &amp; Ö"), "A & Ö");
+        assert_eq!(decode_entities("&ÖÖÖÖÖÖÖÖ;"), "&ÖÖÖÖÖÖÖÖ;");
+        assert_eq!(html_to_text("Hallo <ö"), "Hallo");
+        assert_eq!(html_to_text("<p>Grüße 👋</p><"), "Grüße 👋");
+        for i in 0..40 {
+            let t: String = "&ä<ö 🎙️&#x;é>".chars().cycle().skip(i).take(30).collect();
+            let _ = (decode_entities(&t), html_to_text(&t));
+        }
     }
     #[test]
     fn spotify_episode_to_feed() {

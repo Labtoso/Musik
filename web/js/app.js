@@ -479,7 +479,7 @@ const glassPanes = (() => {
   // every floating layer is real glass: it bends what lies under its rim (Chromium: Windows app, Android, browsers)
   // [selector, key, frost blur]: bars stay almost clear so the bend at the rim is plainly visible, big sheets frost more for reading
   // bars are clear glass like Apple's tab bar: you see what lies under them, bent at the rim, only a breath of blur (Sebastian: never just blur)
-  const PANES = [['.bottomnav', 'nav', 2], ['.player', 'player', 2], ['.toast', 'toast', 3], ['.menu', 'menu', 5], ['.side', 'side', 8], ['.modal', 'modal', 14], ['.profile', 'profile', 14], ['.devsheet', 'devsheet', 14]];
+  const PANES = [['.bottomnav', 'nav', 2], ['.player', 'player', 2], ['.toast', 'toast', 3], ['.menu', 'menu', 7], ['.side', 'side', 6], ['.modal', 'modal', 10], ['.profile', 'profile', 10], ['.devsheet', 'devsheet', 10]];
   const sizes = new Map();
   const seen = new WeakSet();
   let ro = null;
