@@ -7,7 +7,7 @@ use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoTaskMemFre
 use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ,
 };
-use windows::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_LocalAppData, FOLDERID_Programs, IShellLinkW, SHGetKnownFolderPath, ShellLink, KNOWN_FOLDER_FLAG};
+use windows::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_LocalAppData, FOLDERID_Programs, FOLDERID_RoamingAppData, IShellLinkW, SHGetKnownFolderPath, ShellLink, KNOWN_FOLDER_FLAG};
 use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_ICONINFORMATION, MB_OK};
 
 /// The "Installed apps" entry. The former NSIS setup used the same key, so it is simply replaced.
@@ -24,8 +24,14 @@ fn known_folder(id: &windows::core::GUID) -> Option<PathBuf> {
     }
 }
 
-/// %LOCALAPPDATA%\Streyn, the same folder the earlier versions used.
+/// %APPDATA%\Streyn, where Spotify keeps Spotify.exe as well (%APPDATA%\Spotify).
 pub fn install_dir() -> Option<PathBuf> {
+    known_folder(&FOLDERID_RoamingAppData).map(|d| d.join("Streyn"))
+}
+
+/// %LOCALAPPDATA%\Streyn: the program folder up to 1.33, now the app's data folder
+/// (Browser, Storage, Data), like %LOCALAPPDATA%\Spotify.
+pub fn old_install_dir() -> Option<PathBuf> {
     known_folder(&FOLDERID_LocalAppData).map(|d| d.join("Streyn"))
 }
 
@@ -114,6 +120,14 @@ pub fn shortcuts(dir: &Path, fresh: bool) {
         let lnk = d.join("Streyn.lnk");
         // an existing Desktop shortcut is refreshed so it points to Streyn.exe
         if fresh || lnk.exists() {
+            let _ = make_link(&lnk, &exe, dir);
+        }
+    }
+    // a Streyn the user pinned to the taskbar keeps working after the move to %APPDATA%\Streyn:
+    // only an existing Streyn.lnk there is pointed to the new file, nothing is pinned by the setup
+    if let Some(r) = known_folder(&FOLDERID_RoamingAppData) {
+        let lnk = r.join(r"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Streyn.lnk");
+        if lnk.is_file() {
             let _ = make_link(&lnk, &exe, dir);
         }
     }
