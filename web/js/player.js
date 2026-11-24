@@ -570,12 +570,14 @@ class DormantEngine extends EventTarget {
   }
   setQueue() {}
   insert() {}
-  remove(i) {
-    // the song that was waiting is gone: the next one starts at its beginning
-    if (i !== this.p.index) return;
+  remove(i, wasCurrent = false) {
+    // the song that was waiting is gone: the next one (or the last one left) starts at its beginning
+    if (!wasCurrent) return;
+    const p = this.p;
+    if (p.index >= p.queue.length) p.index = p.queue.length - 1;
     this.pos = 0;
-    this.p.position = 0;
-    this.p.duration = this.p.queue[this.p.index]?.duration || 0;
+    p.position = 0;
+    p.duration = p.queue[p.index]?.duration || 0;
   }
   move() {}
   jump(i) {
@@ -734,6 +736,7 @@ export class Player extends EventTarget {
         scope: this.sessionScope || '',
         queue: this.queue.slice(start, start + SESSION_MAX),
         index: this.index - start,
+        offset: start,
         shuffled: this.shuffled,
         original: this.shuffled && this.original ? this.original.slice(0, SESSION_MAX) : null,
         repeat: this.repeat,
@@ -756,10 +759,33 @@ export class Player extends EventTarget {
     // nothing more is written down until the next login asks for the session again
     this.sessionReady = false;
     this.sessionAsked = false;
+    // the queue of this account goes too, so the next account never finds or saves it
+    this.#finishListen('partial', true);
+    this.queueSeq = (this.queueSeq || 0) + 1;
+    this.shuffleSeq = (this.shuffleSeq || 0) + 1;
+    this.dormant = null;
+    this.engine = this.native ? this.nativeEngine : this.#html();
+    try {
+      this.engine.pause();
+      this.engine.setQueue([], -1, 0, false);
+    } catch {}
+    this.queue = [];
+    this.index = -1;
+    this.original = null;
+    this.shuffled = false;
+    this.position = 0;
+    this.duration = 0;
+    this.playing = false;
+    this.listen = null;
+    this.meta = {};
     try {
       localStorage.removeItem(SESSION_KEY);
       localStorage.removeItem(SPOT_KEY);
+      localStorage.removeItem(NQ_KEY);
     } catch {}
+    this.#emit('change');
+    this.#emit('state');
+    this.#updateSession();
   }
   /**
    * Brings back the last queue, song and position, paused, like Spotify after the app was closed completely.
@@ -814,13 +840,17 @@ export class Player extends EventTarget {
     // Android writes down where its background player was (in milliseconds), also while the app view slept
     try {
       const n = this.native ? JSON.parse(window.MusikAndroid.lastSpot?.() || 'null') : null;
-      if (n) spots.push({ id: n.id, pos: (Number(n.pos) || 0) / 1000, at: n.at });
+      if (n) spots.push({ id: n.id, pos: (Number(n.pos) || 0) / 1000, at: n.at, i: n.i });
     } catch {}
     const spot = spots.filter((x) => x && x.id != null).sort((a, b) => (b.at || 0) - (a.at || 0))[0];
     if (spot) {
       const id = String(spot.id);
       // the same song, or the background player went on to later songs of the queue
-      let i = String(queue[index].id) === id ? index : queue.findIndex((x, n) => n > index && String(x.id) === id);
+      // Android's index counts in the whole queue; the kept queue starts at `offset` of it
+      const mapped = Number.isInteger(spot.i) ? spot.i - Math.max(0, Number(s.offset) || 0) : -1;
+      let i = mapped >= 0 && mapped < queue.length && String(queue[mapped].id) === id
+        ? mapped
+        : String(queue[index].id) === id ? index : queue.findIndex((x, n) => n > index && String(x.id) === id);
       if (i < 0) i = queue.findIndex((x) => String(x.id) === id);
       if (i >= 0) {
         index = i;
@@ -1279,10 +1309,11 @@ export class Player extends EventTarget {
 
   removeAt(i) {
     if (i < 0 || i >= this.queue.length) return;
-    if (i === this.index) this.#finishListen('skip');
+    const wasCurrent = i === this.index;
+    if (wasCurrent) this.#finishListen('skip');
     this.queue.splice(i, 1);
     if (i < this.index) this.index--;
-    this.engine.remove(i);
+    this.engine.remove(i, wasCurrent);
     if (!this.queue.length) this.index = -1;
     this.#emit('change');
   }

@@ -332,6 +332,8 @@ class MainActivity : ComponentActivity() {
         if (c.mediaItemCount > 0) {
             emit(JSONObject().put("type", "index").put("index", c.currentMediaItemIndex).put("reason", "restore").put("count", c.mediaItemCount))
             emit(JSONObject().put("type", "playing").put("playing", c.isPlaying))
+            // also when paused: the page shows where the song stands, not 0:00
+            emitTime(c)
         }
         emit(JSONObject().put("type", "ready").put("count", c.mediaItemCount))
     }

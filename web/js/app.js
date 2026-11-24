@@ -5185,7 +5185,8 @@ function bindPlayer() {
   });
   player.addEventListener('change', renderPlayer);
   podBindPlayer();
-  player.addEventListener('change', () => rememberPlay(player.current));
+  // a song that only came back paused after a restart is not played yet: it counts once it starts
+  player.addEventListener('change', () => !player.dormant && rememberPlay(player.current));
   player.addEventListener('state', renderState);
   player.addEventListener('state', paintPlayButtons);
   player.addEventListener('change', paintPlayButtons);
