@@ -308,9 +308,13 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   .film-pin { grid-template-columns: 1fr; gap: 22px; }
   .film-txt { order: 2; }
   .js .film.live .film-pin { align-content: center; }
-  .js .film.live .film-txt { display: grid; }
-  .js .film.live .film-txt li { grid-area: 1 / 1; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .5s, visibility .5s; border-left-color: var(--accent); }
-  .js .film.live .film-txt li.on { opacity: 1; visibility: visible; pointer-events: auto; }
+  .js .film.live .film-txt { display: grid; grid-template-columns: repeat(3, 1fr); position: relative; padding-bottom: 5.2em; }
+  .js .film.live .film-txt li { padding: 12px 10px 0 0; border-left: 0; border-top: 2px solid var(--line2); transition: color .5s, border-color .5s; }
+  .js .film.live .film-txt li.on { border-top-color: var(--accent); }
+  .js .film.live .film-txt li::before { margin-bottom: 4px; }
+  .js .film.live .film-txt b { font-size: 15px; }
+  .js .film.live .film-txt span { position: absolute; left: 0; right: 0; top: calc(100% - 4.8em); margin: 0; opacity: 0; visibility: hidden; transition: opacity .5s, visibility .5s; }
+  .js .film.live .film-txt li.on span { opacity: 1; visibility: visible; }
   .js .film.live { height: 280vh; }
   .film-phone { width: 28%; }
 }
@@ -339,6 +343,20 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 /* chillscreen: the still on screen slowly zooms, like the real screen */
 .chill img { transform: scale(1.06); transition: opacity 1.4s ease, transform 9s ease-out; }
 .chill img.on { transform: scale(1); }
+
+/* free band under the hero: what it costs, in plain numbers */
+.free { padding: clamp(40px, 5vw, 64px) var(--gut); border-bottom: 1px solid var(--line); }
+.free .wrap { display: grid; grid-template-columns: repeat(3, 1fr); }
+.fr { padding: 0 32px; }
+.fr:first-child { padding-left: 0; }
+.fr + .fr { border-left: 1px solid var(--line); }
+.fr b { display: block; font: 500 clamp(40px, 4.4vw, 60px)/1 var(--serif); font-variation-settings: 'opsz' 144; letter-spacing: -.02em; color: var(--paper); }
+.fr span { display: block; margin-top: 12px; color: var(--muted); font-size: 16px; max-width: 300px; }
+@media (max-width: 760px) {
+  .free .wrap { grid-template-columns: 1fr; gap: 26px; }
+  .fr, .fr:first-child { padding: 0; }
+  .fr + .fr { border-left: 0; border-top: 1px solid var(--line); padding-top: 26px; }
+}
 
 /* scroll reveal: quiet fade and lift, only when JS runs and motion is fine */
 .js .rv { opacity: 0; transform: translateY(18px); transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); transition-delay: calc(var(--i, 0) * 70ms); }
@@ -458,6 +476,14 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   <div class="np" id="np" aria-live="polite">
     <img id="npc" alt="">
     <div class="npx"><small data-t="nowPlaying"></small><b id="npt"></b><span id="npa"></span><div class="npbar"><i id="npbar"></i></div></div>
+  </div>
+</section>
+
+<section class="free" id="free">
+  <div class="wrap">
+    <div class="fr rv"><b>0 €</b><span data-t="fr1"></span></div>
+    <div class="fr rv" style="--i:1"><b>0</b><span data-t="fr2"></span></div>
+    <div class="fr rv" style="--i:2"><b data-t="fr3b"></b><span data-t="fr3"></span></div>
   </div>
 </section>
 
@@ -636,8 +662,9 @@ const T = {
   en: {
     settings: 'Settings', close: 'Close', menu: 'Menu', lang: 'Language', accent: 'Accent colour', blue: 'Blue', green: 'Green', purple: 'Purple', dynColor: 'From the playing cover',
     nav1: 'How it works', navP: 'The app', nav2: 'The mix', nav3: 'Server', nav4: 'Download', nav5: 'Questions',
-    h1: 'Your music,<br>on your own <em>server.</em>',
-    lead: 'Streyn is a small server for your Proxmox host, with apps for <b>Android, Windows and Linux</b>. No subscription, no ads, no third-party cloud. It learns from what you actually play and builds your mix from that.',
+    h1: 'Stream like Spotify.<br><em>Completely free.</em>',
+    lead: 'Search any song and play it, get mixes built from what you like, on every device. Streyn runs on your own server with apps for <b>Android, Windows and Linux</b>. No subscription, no ads, no account anywhere else.',
+    fr1: 'a month. No subscription, no trial, no premium tier.', fr2: 'ads. Not in the apps, not between songs.', fr3b: '1 search', fr3: 'for Spotify, YouTube, SoundCloud and your own files.',
     dlFor: 'Download for {os}', dlAll: 'Download the apps', listen: 'Play a short demo loop', listenStop: 'Stop the demo loop',
     metaVer: 'Version', metaFree: 'Free', metaOs: 'Source available', nowPlaying: 'Now playing',
     a1h: 'Your files, a server,<br>and your apps.', a1p: 'Your files stay on your hardware. The server reads them in, keeps track of what you play and streams to every app you connect.',
@@ -699,8 +726,9 @@ const T = {
   de: {
     settings: 'Einstellungen', close: 'Schließen', menu: 'Menü', lang: 'Sprache', accent: 'Akzentfarbe', blue: 'Blau', green: 'Grün', purple: 'Lila', dynColor: 'Aus dem laufenden Cover',
     nav1: 'So funktioniert’s', navP: 'Die App', nav2: 'Der Mix', nav3: 'Server', nav4: 'Download', nav5: 'Fragen',
-    h1: 'Deine Musik,<br>auf deinem eigenen <em>Server.</em>',
-    lead: 'Streyn ist ein kleiner Server für deinen Proxmox-Host, mit Apps für <b>Android, Windows und Linux</b>. Kein Abo, keine Werbung, keine fremde Cloud. Er lernt aus dem, was du wirklich hörst, und baut daraus deinen Mix.',
+    h1: 'Streamen wie bei Spotify.<br><em>Komplett kostenlos.</em>',
+    lead: 'Jeden Song suchen und abspielen, Mixes nach deinem Geschmack, auf jedem Gerät. Streyn läuft auf deinem eigenen Server, mit Apps für <b>Android, Windows und Linux</b>. Kein Abo, keine Werbung, kein Konto bei irgendwem.',
+    fr1: 'im Monat. Kein Abo, keine Testphase, kein Premium.', fr2: 'Werbung. Nicht in den Apps, nicht zwischen den Songs.', fr3b: '1 Suche', fr3: 'für Spotify, YouTube, SoundCloud und deine eigenen Dateien.',
     dlFor: 'Für {os} herunterladen', dlAll: 'Apps herunterladen', listen: 'Kurze Demo-Schleife abspielen', listenStop: 'Demo-Schleife stoppen',
     metaVer: 'Version', metaFree: 'Kostenlos', metaOs: 'Quellcode einsehbar', nowPlaying: 'Läuft gerade',
     a1h: 'Deine Dateien, ein Server<br>und deine Apps.', a1p: 'Deine Dateien bleiben auf deiner Hardware. Der Server liest sie ein, merkt sich, was du hörst, und streamt an jede App, die du verbindest.',
