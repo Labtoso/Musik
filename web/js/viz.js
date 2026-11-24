@@ -1,6 +1,6 @@
 // Music visualizer for the full screen player: bars, ring around the cover, or layered waves.
-// Data comes from player.spectrum(): WebAudio in the browser / desktop, the system visualizer on
-// Android. Songs from other platforms give no audio access, then a calm decorative motion runs.
+// Data comes from player.spectrum(): the real sound that plays, read with WebAudio in the browser /
+// desktop and from the player itself on Android (songs and podcasts). Without sound the bars rest.
 export const VIZ_MODES = ['off', 'bars', 'ring', 'wave'];
 export const MINI_MODES = ['off', 'bars', 'wave', 'glow'];
 const N = 64;
@@ -118,33 +118,11 @@ export class Visualizer {
       return;
     }
     if (this.shared) this.shared.at = now;
-    const playing = this.player.playing;
     this.real = this.player.spectrum(this.bands);
     if (this.real) this.#delay(now);
-    if (!this.real && playing && performance.now() - (this.lastReal || 0) < 2500) {
-      // the real sound paused for a moment (seek, other screen, new song): let the bars sink, no imitation in between
-      this.bands.fill(0);
-    } else if (!this.real) {
-      // platform players (YouTube, Spotify) give no access to their sound: an imitation that
-      // follows a beat, with a kick in the lows, snare in the mids and shimmer in the highs
-      const t = performance.now() / 1000;
-      const bpm = 118;
-      const beat = (t * bpm) / 60;
-      const ph = beat % 1;
-      const kick = Math.exp(-ph * 7);
-      const snare = Math.floor(beat) % 2 ? Math.exp(-ph * 9) : 0;
-      if (!this.noise || this.frame % 3 === 0) this.noise = Array.from({ length: N }, () => Math.random());
-      for (let i = 0; i < N; i++) {
-        const x = i / N;
-        const body = 0.5 * Math.exp(-x * 2.4) + 0.14;
-        const wob = 0.5 + 0.5 * Math.sin(t * 1.7 + i * 0.45) * Math.sin(t * 0.53 + i * 0.13);
-        const k = kick * Math.max(0, 1 - x * 3.2) * 0.55;
-        const sn = snare * Math.exp(-((x - 0.42) ** 2) / 0.02) * 0.35;
-        const hat = x > 0.6 ? this.noise[i] * 0.22 * (0.4 + 0.6 * Math.exp(-((beat * 2) % 1) * 5)) : 0;
-        const v = body * (0.45 + 0.4 * wob) + k + sn + hat + (this.noise[i] - 0.5) * 0.08;
-        this.bands[i] = playing ? Math.min(1, Math.max(0, v)) : 0;
-      }
-    }
+    // no sound to read (song paused, still starting, or a platform player without access to its sound):
+    // the bars sink and rest, nothing is made up
+    if (!this.real) this.bands.fill(0);
     if (this.real) {
       // the real sound gets louder and quieter with the volume (and jumps after a seek): an automatic level
       // keeps the bars the same size whatever the volume is, and limits sudden jumps
@@ -288,15 +266,13 @@ export class Visualizer {
       [12, 36, 0.62, 0.7],
       [0, 16, 0.75, 0.9]
     ];
-    const t = performance.now() / 1000;
     layers.forEach(([a, b, amp, alpha], li) => {
       const pts = 9;
       const ys = [];
       for (let p = 0; p <= pts; p++) {
         const k = a + Math.floor((p / pts) * (b - a - 1));
         const v = this.smooth[k];
-        const drift = Math.sin(t * (0.6 + li * 0.3) + p * 0.9) * 0.04;
-        ys.push(h * (0.96 - (Math.sqrt(v) * amp + 0.1 + drift + (2 - li) * 0.05)));
+        ys.push(h * (0.96 - (Math.sqrt(v) * amp + 0.1 + (2 - li) * 0.05)));
       }
       g.beginPath();
       g.moveTo(0, h);
@@ -435,11 +411,10 @@ export class MiniViz extends Visualizer {
       }
     } else if (this.mode === 'wave') {
       const pts = 14;
-      const t = performance.now() / 1000;
       const ys = [];
       for (let p = 0; p <= pts; p++) {
         const v = Math.sqrt(this.smooth[Math.floor((p / pts) * 56)]);
-        ys.push(h * (1 - (0.12 + v * 0.8 + Math.sin(t * 1.3 + p) * 0.03)));
+        ys.push(h * (1 - (0.12 + v * 0.8)));
       }
       const path = () => {
         g.moveTo(0, ys[0]);

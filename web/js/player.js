@@ -715,7 +715,13 @@ export class Player extends EventTarget {
         const raw = window.MusikAndroid.vizBands?.();
         if (!raw) return false;
         const v = raw.split(',');
-        for (let i = 0; i < out.length; i++) out[i] = (Number(v[i]) || 0) / 255;
+        // Android sends 64 bands from 40 Hz to 16 kHz: fold them onto as many as asked (the room uses 32)
+        const k = v.length / out.length;
+        for (let i = 0; i < out.length; i++) {
+          let m = 0;
+          for (let j = Math.floor(i * k), e = Math.max(j + 1, Math.floor((i + 1) * k)); j < e && j < v.length; j++) m = Math.max(m, Number(v[j]) || 0);
+          out[i] = m / 255;
+        }
         return true;
       } catch {
         return false;
@@ -723,7 +729,7 @@ export class Player extends EventTarget {
     }
     return false;
   }
-  /** Android asks for the audio permission its visualizer needs; elsewhere nothing to do. */
+  /** Android: the player starts copying its sound for the visualizer (no permission); elsewhere nothing to do. */
   startViz() {
     if (this.native) {
       try {

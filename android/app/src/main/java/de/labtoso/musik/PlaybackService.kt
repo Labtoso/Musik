@@ -84,7 +84,16 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this)
+        // the visualizer hears a copy of the decoded sound (songs and podcasts), see VizTap
+        val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? =
+                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf(VizProcessor()))
+                    .build()
+        }
+        val player = ExoPlayer.Builder(this, renderers)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -138,7 +147,11 @@ class PlaybackService : MediaSessionService() {
                 // a song that runs into the next one, or into itself again (repeat one), fades in
                 fadeIn = reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
             }
+            override fun onPositionDiscontinuity(oldPosition: androidx.media3.common.Player.PositionInfo, newPosition: androidx.media3.common.Player.PositionInfo, reason: Int) {
+                if (reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK || reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) VizTap.seeked()
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                VizTap.playing(isPlaying)
                 if (!isPlaying) return
                 applyOpts()
                 if (eq == null && audioSession > 0) eq = runCatching { Equalizer(1000, audioSession) }.getOrNull()

@@ -1067,8 +1067,9 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   root.add(ringDots);
   const bandsArr = new Float32Array(32), bandsS = new Float32Array(32);
   function dotFrame(t, eS, real, on) {
-    // without real sound: a calm imitation that follows the energy
-    if (!real) for (let i = 0; i < 32; i++) { const x = i / 32; bandsArr[i] = on * (eS * (0.75 - x * 0.45) + 0.12 + 0.12 * Math.sin(t * (2 + x * 5) + i * 0.7) * Math.sin(t * 0.9 + i)); }
+    // in the app the dots only ever show the real sound (dark while there is none); the website has no
+    // sound at all, there a calm imitation follows the energy
+    if (!real) for (let i = 0; i < 32; i++) { const x = i / 32; bandsArr[i] = bands ? 0 : on * (eS * (0.75 - x * 0.45) + 0.12 + 0.12 * Math.sin(t * (2 + x * 5) + i * 0.7) * Math.sin(t * 0.9 + i)); }
     for (let i = 0; i < 32; i++) bandsS[i] += (Math.max(0, Math.min(1, bandsArr[i])) - bandsS[i]) * (bandsArr[i] > bandsS[i] ? 0.55 : 0.12);
     for (let i = 0; i < RING_N; i++) {
       // the spectrum runs once up and back down around the ring
@@ -1267,9 +1268,9 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const lerp = (a, b, k) => a + (b - a) * k;
   const smooth = (k) => k * k * (3 - 2 * k);
   // pose → { p: position, l: look-at, r: roll, f: fov }
-  function orbit(P, narrow) {
+  function orbit(P) {
     const [az, el, d0, T, r = 0, f = 30] = P;
-    const d = narrow ? d0 * 0.82 : d0;
+    const d = d0; // portrait screens widen the lens instead (fovFor), the camera keeps its place
     return { p: V(T[0] + Math.sin(az) * Math.cos(el) * d, T[1] + Math.sin(el) * d, T[2] + Math.cos(az) * Math.cos(el) * d), l: V(...T), r, f };
   }
   // keeps moving to the end of a shot instead of braking to a stop
@@ -1278,20 +1279,20 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     const k = Math.min(1, Math.max(0, (t - s) / (e - s)));
     if (name === 'intro') {
       const r = MV.room.a, w = MV.wide.a, i = sine(t / 8.5);
-      const P = [lerp(r[0], w[0], i) + Math.sin(i * Math.PI) * 0.35, lerp(r[1], w[1], i), lerp(r[2], wide ? w[2] : w[2] - 3, i), r[3].map((v, j) => lerp(v, w[3][j], i)), Math.sin(i * Math.PI) * -0.05, 30];
-      return orbit(P, false);
+      const P = [lerp(r[0], w[0], i) + Math.sin(i * Math.PI) * 0.35, lerp(r[1], w[1], i), lerp(r[2], w[2], i), r[3].map((v, j) => lerp(v, w[3][j], i)), Math.sin(i * Math.PI) * -0.05, 30];
+      return orbit(P);
     }
     const m = MV[name];
     if (m.path) {
       const q = st ? flow(k) : smooth(k) * 0.7 + k * 0.3;
-      return { p: m.pc.getPoint(q), l: m.lc.getPoint(q), r: lerp(m.roll[0], m.roll[1], smooth(k)) + (st ? st.spin * 0.16 * (k - 0.5) : 0), f: wide ? 30 : 38 };
+      return { p: m.pc.getPoint(q), l: m.lc.getPoint(q), r: lerp(m.roll[0], m.roll[1], smooth(k)) + (st ? st.spin * 0.16 * (k - 0.5) : 0), f: 30 };
     }
-    if (!m.b) return orbit(m.a, !wide && name !== 'wide');
+    if (!m.b) return orbit(m.a);
     const q = st ? flow(k) : smooth(k), A = m.a, B = m.b;
     // quick shots sweep further, turning shots circle around the subject and roll a little
     const qa = st ? 0.5 + (q - 0.5) * st.amp : q, sp = st ? st.spin * (q - 0.5) : 0;
     const P = [lerp(A[0], B[0], qa) + sp, lerp(A[1], B[1], qa), lerp(A[2], B[2], q), A[3].map((v, j) => lerp(v, B[3][j], q)), lerp(A[4], B[4], q) + sp * 0.12, lerp(A[5], B[5], q)];
-    return orbit(P, !wide);
+    return orbit(P);
   }
   // ── shot transitions: simple and calm. The old and the new shot are drawn into two images and mixed.
   // [name, seconds, fits a beat, shader mode]
@@ -1341,7 +1342,16 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     camera.position.copy(P.p).addScaledVector(_rt, mx * 0.35).addScaledVector(_up, -my * 0.2);
     camera.up.set(0, 1, 0).applyAxisAngle(_f, P.r);
     camera.lookAt(P.l);
-    if (Math.abs(camera.fov - P.f) > 0.01) { camera.fov = P.f; camera.updateProjectionMatrix(); }
+    const fv = fovFor(P.f);
+    if (Math.abs(camera.fov - fv) > 0.01) { camera.fov = fv; camera.updateProjectionMatrix(); }
+  }
+  // portrait screens (phones held upright): every shot keeps most of the width it has on a wide screen,
+  // so its subject stays whole in the picture instead of being cut off left and right
+  function fovFor(f) {
+    const a = W / H;
+    if (a >= 1.2) return f;
+    const half = Math.tan((f * Math.PI) / 360) * 1.6 * 0.68;
+    return Math.min(70, Math.max(f, (Math.atan(half / a) * 360) / Math.PI));
   }
 
   // ── animation timeline (seconds)
@@ -1358,7 +1368,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
 
   let heard = -1, playOn = true, playK = 1, changing = false, spinNow = 0;
   // beats: found in the lows of the music, used for the tempo display and (if wanted) to cut on the beat
-  let lowPrev = 0, fluxAvg = 0.02, lastBeat = -9, beatNow = false, barNow = false, bpm = 0, popK = 0;
+  let lowPrev = 0, fluxAvg = 0.02, lastBeat = -9, beatNow = false, barNow = false, bpm = 0, popK = 0, lowLvl = 0.3;
   // a small beat tracker: onsets in the lows give the tempo, then the beats are predicted ahead
   // (no lag, no missed beats) and pulled towards every real onset. Every 4th beat, on the strongest slot, is the bar.
   let period = 0, nextBeat = 0, beatNo = 0; const beatGaps = [], slotE = [0, 0, 0, 0];
@@ -1366,8 +1376,12 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     const real = bands ? !!bands(bandsArr) : false;
     beatNow = barNow = false;
     let onset = 0;
+    // with real sound (app) the speakers, needles and lights follow the lows of the music itself
+    if (bands && !real) energy = 0;
     if (real) {
       const low = (bandsArr[0] + bandsArr[1] + bandsArr[2] + bandsArr[3]) / 4, fl = Math.max(0, low - lowPrev);
+      lowLvl = Math.max(low, lowLvl * 0.998);
+      energy = Math.min(1, (0.75 * low) / Math.max(0.15, lowLvl));
       lowPrev = low; fluxAvg += (fl - fluxAvg) * 0.04;
       if (fl > fluxAvg * 2.3 + 0.025 && t - lastBeat > 0.28) {
         onset = fl;
@@ -1503,7 +1517,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     for (let i = 0; i < DUST; i++) { const d = dustSeed[i]; dustPos[i * 3] = d[0] + Math.sin(t * 0.07 + d[3]) * 0.8; dustPos[i * 3 + 1] = d[1] + Math.sin(t * 0.05 + d[3] * 2) * 0.6; dustPos[i * 3 + 2] = d[2] + Math.cos(t * 0.06 + d[3]) * 0.5; }
     dustGeo.attributes.position.needsUpdate = true;
     steam.forEach((st, i) => { const k = ((t * 0.18 + i / steam.length) % 1); st.position.set(Math.sin(t * 0.9 + i * 2.1) * 0.08 * k, 0.95 + k * 1.1, Math.cos(t * 0.7 + i) * 0.06 * k); st.material.opacity = Math.sin(k * Math.PI) * 0.09; const sc = 0.25 + k * 0.55; st.scale.set(sc, sc * 1.3, 1); });
-    needles.forEach((n, i) => { n.rotation.z = -0.8 + Math.min(1.5, eS * 2.4 + 0.15 + Math.sin(t * (7 + i * 3)) * 0.06 * (spin > 0.5 ? 1 : 0)) * spin; });
+    needles.forEach((n, i) => { n.rotation.z = -0.8 + Math.min(1.5, eS * 2.4 + 0.15 + Math.sin(t * (7 + i * 3)) * 0.06 * (spin > 0.5 && !bands ? 1 : 0)) * spin; });
     neon.material.opacity = 0.92 + Math.sin(t * 31) * 0.02 - Math.max(0, Math.sin(t * 1.7) - 0.99) * 30;
     woofer.position.z = eS * 0.03;
     cozyFrame(t, eS);
@@ -1522,7 +1536,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       shot = cur3[0]; shotS = cur3[1]; shotE = cur3[2];
     }
     let P = poseAt(cur3[0], t, cur3[1], cur3[2], cur3[4]);
-    if (shot === 'wide') { const o = orbit([MV.wide.a[0] + scrollT * 0.3, MV.wide.a[1] - scrollT * 0.1, wide ? MV.wide.a[2] : 9.9, MV.wide.a[3]], false); P = o; }
+    if (shot === 'wide') { const o = orbit([MV.wide.a[0] + scrollT * 0.3, MV.wide.a[1] - scrollT * 0.1, MV.wide.a[2], MV.wide.a[3]]); P = o; }
     const bk = Math.min(1, Math.max(0, (t - switchT) / glideT)), blend = from ? bk * bk * bk * (bk * (bk * 6 - 15) + 10) : 1;
     if (from && blend < 1) {
       // travel on an arc between the two moves instead of a straight line
@@ -1572,7 +1586,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const api = {
     scene,
     setAccent(hex) { accentTo.set(hex); },
-    setEnergy(v) { energy = v; },
+    setEnergy(v) { if (!bands) energy = v; },
     // paused music: the record slows down and stands still, like a real one
     setPlaying(on) { playOn = !!on; },
     // shot changes wait for the beat of the music

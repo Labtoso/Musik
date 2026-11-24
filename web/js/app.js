@@ -1,6 +1,6 @@
 import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, sameInfo, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers, keepPodArt } from './api.js';
 import { LOGOS } from './logos.js';
-import { Player, EQ_FREQS, warmSongs, preloadSongs } from './player.js';
+import { Player, EQ_FREQS, warmSongs, preloadSongs, streams } from './player.js';
 import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong, DISCORD_URL, openExternal as openExt } from './sources.js';
 import { placeStage } from './engines.js';
 import { Visualizer, MiniViz, VIZ_MODES, MINI_MODES, vizTune } from './viz.js';
@@ -4933,7 +4933,7 @@ function bindPlayer() {
         const next = VIZ_MODES[(VIZ_MODES.indexOf(cur) + 1) % VIZ_MODES.length];
         if (next !== 'off') prefs.vizLast = next;
         setViz(next);
-        toast(t('viz_' + next) + (next !== 'off' && player.current?.ext ? ' · ' + t('vizPlatform') : ''));
+        toast(t('viz_' + next) + (next !== 'off' && player.current?.ext && !streams(player.current) ? ' · ' + t('vizPlatform') : ''));
       }
     } else if (a === 'open-fs') openFs(true);
     else if (a === 'close-fs') openFs(false);
@@ -5030,12 +5030,13 @@ function miniVizSync() {
   miniViz.setMode(mode);
   const run = mode !== 'off' && player.playing && !document.hidden && !$('#fs').classList.contains('open');
   if (run) {
-    // Android asks once for the audio permission its visualizer needs: only after the big visualizer was used
-    if (!miniViz.running && !viz.running && prefs.vizAsked) player.startViz();
+    // Android: the player starts handing over a copy of its sound (no permission needed)
+    if (!miniViz.running && !viz.running) player.startViz();
     miniViz.start();
   } else {
     miniViz.stop();
-    if (!viz.running) player.stopViz();
+    // the chillscreen keeps reading the sound for its dots, beat and speakers
+    if (!viz.running && !chill) player.stopViz();
     // let the bars fall instead of freezing
     if (mode !== 'off' && miniViz.canvas) miniViz.canvas.getContext('2d').clearRect(0, 0, miniViz.canvas.width, miniViz.canvas.height);
   }
@@ -5047,14 +5048,13 @@ function vizSync() {
   const on = $('#fs').classList.contains('open') && (prefs.viz || 'off') !== 'off';
   viz.setMode(on ? prefs.viz : 'off');
   if (on) {
-    if (!prefs.vizAsked) (prefs.vizAsked = true), savePrefs();
     if (!viz.running) player.startViz();
     viz.start();
   } else {
     viz.stop();
     // the small one takes over first, so the sound reading is not switched off and on again in between
     miniVizSync();
-    if (!miniViz?.running) player.stopViz();
+    if (!miniViz?.running && !chill) player.stopViz();
   }
   miniVizSync();
 }
@@ -5198,16 +5198,12 @@ async function openChill() {
     chill.room = createTurntable(el.querySelector('canvas'), { accent, tracks: [{ cover: chill.first?.src || chillCover() }], center: true, follow: false, manual: true, beatSync: prefs.chillSync || 'beat', bands: (o) => player.spectrum(o), onTrack: (i) => { chillShow(chill?.meta[i]); chillRelease(chill?.meta[i]); }, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
     chillMeta();
     el.classList.add('ready');
-    // Android: its visualizer delivers the sound for the dots and the beat (only if the permission was given before)
-    if (prefs.vizAsked) player.startViz();
+    // the real sound drives the dots, the beat, the speakers and the needles (Android: copied from the player)
+    player.startViz();
     chill.tick = setInterval(() => {
       const r = chill?.room;
       if (!r) return;
       r.setAccent(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || accent);
-      // the speakers move with the music: real bands when the visualizer runs, otherwise a calm beat
-      const live = [viz, miniViz].find((v) => v?.running);
-      const e = live ? Array.from(live.smooth.slice(0, 10)).reduce((s, v) => s + v, 0) / 10 : player.playing ? 0.32 + Math.max(0, Math.sin(performance.now() / 260)) * 0.18 : 0;
-      r.setEnergy(player.playing ? Math.min(1, e) : 0);
       r.setPlaying?.(player.playing || player.buffering || chill.hold != null);
     }, 100);
   } catch (err) {

@@ -12,7 +12,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.media.audiofx.Visualizer
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -547,15 +546,11 @@ class MainActivity : ComponentActivity() {
                 else -> Player.REPEAT_MODE_OFF
             }
         }
-        // Visualizer: Android only hands out the spectrum with the record-audio permission (nothing is recorded)
-        @JavascriptInterface fun vizStart() = main.post {
-            vizWanted = true
-            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) attachViz()
-            else if (!prefs.getBoolean("deniedAudio", false)) askAudio.launch(Manifest.permission.RECORD_AUDIO)
-        }
+        // Visualizer: the player hands a copy of the sound it decodes (VizTap), no permission needed
+        @JavascriptInterface fun vizStart() { VizTap.wanted = true }
         /** Settings "ask again": forget every "no" so the app asks once more. */
         @JavascriptInterface fun resetAsks() = main.post {
-            prefs.edit().remove("askedNotif").remove("deniedAudio").remove("askedBt").apply()
+            prefs.edit().remove("askedNotif").remove("askedBt").apply()
             if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 prefs.edit().putBoolean("askedNotif", true).apply()
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
@@ -569,40 +564,8 @@ class MainActivity : ComponentActivity() {
             val wired = outs.any { it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET }
             return if (bt && !wired) 220 else 0
         }
-        @JavascriptInterface fun vizStop() = main.post { vizWanted = false; releaseViz() }
-        @JavascriptInterface fun vizBands(): String {
-            // a new song can bring a new audio session: follow it while a visualizer is shown
-            if (vizWanted && vizSession != PlaybackService.audioSession && PlaybackService.audioSession != 0 &&
-                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) main.post { attachViz() }
-            val v = viz ?: return ""
-            if (vizSession != PlaybackService.audioSession) return ""
-            return runCatching {
-                if (v.getFft(fft) != Visualizer.SUCCESS) return ""
-                val n = fft.size / 2
-                val rate = v.samplingRate / 1000.0 // mHz -> Hz
-                val hzPerBin = rate / 2 / n
-                val out = IntArray(64)
-                val lo = Math.log(40.0)
-                val hi = Math.log(16000.0)
-                for (i in 0 until 64) {
-                    val f0 = Math.exp(lo + (hi - lo) * i / 64)
-                    val f1 = Math.exp(lo + (hi - lo) * (i + 1) / 64)
-                    val b0 = maxOf(1, (f0 / hzPerBin).toInt())
-                    val b1 = minOf(n - 1, maxOf(b0, Math.ceil(f1 / hzPerBin).toInt()))
-                    var m = 0.0
-                    for (b in b0..b1) {
-                        val re = fft[2 * b].toDouble()
-                        val im = fft[2 * b + 1].toDouble()
-                        val mag = Math.hypot(re, im)
-                        if (mag > m) m = mag
-                    }
-                    // magnitude (0..~181) to a 0..255 level on a dB scale
-                    val db = 20 * Math.log10(m + 1) / 45.0
-                    out[i] = (db.coerceIn(0.0, 1.0) * 255).toInt()
-                }
-                out.joinToString(",")
-            }.getOrDefault("")
-        }
+        @JavascriptInterface fun vizStop() { VizTap.wanted = false }
+        @JavascriptInterface fun vizBands(): String = if (VizTap.wanted) VizTap.bands() else ""
         @JavascriptInterface fun setPlayOptions(json: String) {
             // crossfade and same song volume, picked up by the PlaybackService
             prefs.edit().putString("playopts", json).apply()
@@ -803,41 +766,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private var viz: Visualizer? = null
-    private var vizSession = 0
-    private var fft = ByteArray(1024)
-
-    private fun attachViz() {
-        val session = PlaybackService.audioSession
-        if (session == 0) return
-        if (viz != null && vizSession == session) return
-        releaseViz()
-        viz = runCatching {
-            Visualizer(session).apply {
-                setCaptureSize(Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024))
-                // the same picture at every volume: without this the bars grow and shrink with the volume keys
-                runCatching { setScalingMode(Visualizer.SCALING_MODE_NORMALIZED) }
-                fft = ByteArray(getCaptureSize())
-                setEnabled(true)
-            }
-        }.getOrNull()
-        vizSession = if (viz != null) session else 0
-    }
-
-    @Volatile private var vizWanted = false
-    private fun releaseViz() {
-        runCatching { viz?.release() }
-        viz = null
-        vizSession = 0
-    }
-
-    private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) attachViz() else prefs.edit().putBoolean("deniedAudio", true).apply()
-    }
-
     override fun onDestroy() {
         runCatching { audio.unregisterAudioDeviceCallback(deviceCallback) }
-        releaseViz()
+        VizTap.wanted = false
         main.removeCallbacks(ticker)
         controller?.removeListener(playerListener)
         MediaController.releaseFuture(controllerFuture)
