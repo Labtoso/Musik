@@ -71,7 +71,16 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this)
+        // the visualizer hears a copy of the decoded sound (songs and podcasts), see VizTap
+        val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? =
+                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf(androidx.media3.exoplayer.audio.TeeAudioProcessor(VizTap)))
+                    .build()
+        }
+        val player = ExoPlayer.Builder(this, renderers)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -107,6 +116,7 @@ class PlaybackService : MediaSessionService() {
                 fadeIn = reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                VizTap.playing(isPlaying)
                 if (!isPlaying) return
                 applyOpts()
                 if (eq == null && audioSession > 0) eq = runCatching { Equalizer(1000, audioSession) }.getOrNull()
