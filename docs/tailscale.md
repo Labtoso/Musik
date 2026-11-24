@@ -20,7 +20,7 @@ Führe in der Shell des Proxmox-Knotens den Installer aus, so wie bei der Instal
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
 ```
 
-Bei der Frage **„Set up Tailscale? [y/N]“** gibst du `y` ein. Das geht bei einer neuen Installation und auch bei einem schon laufenden Container.
+Bei der Frage **„Use Streyn away from home?“** wählst du **`2) With Tailscale`** (Eingabe `2`). Das geht bei einer neuen Installation und auch bei einem schon laufenden Container.
 
 1. Der Installer gibt dem Container Zugriff auf das Tunnel-Gerät, das Tailscale braucht, und startet ihn einmal neu.
 2. Danach erscheint ein Link `https://login.tailscale.com/a/...`. Öffne ihn, melde dich an und bestätige das Gerät **streyn**.
@@ -32,10 +32,12 @@ Bei der Frage **„Set up Tailscale? [y/N]“** gibst du `y` ein. Das geht bei e
 
 Du findest sie auch in der Proxmox-Oberfläche in den Notizen des Containers.
 
-Wenn du keinen Link öffnen willst, kannst du einen Auth-Key benutzen. Den legst du in der Tailscale-Verwaltung unter **Settings → Keys** an:
+Wenn du keinen Link öffnen willst, kannst du einen Auth-Key benutzen. Den legst du in der Tailscale-Verwaltung unter **Settings → Keys** an. Der Schlüssel wird verdeckt abgefragt, so landet er nicht im Befehlsverlauf:
 
 ```bash
-TAILSCALE=1 TS_AUTHKEY=tskey-auth-xxxxx bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
+read -rsp "Tailscale auth key: " key; echo
+TAILSCALE=1 TS_AUTHKEY="$key" bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
+unset key
 ```
 
 ### Debian oder Ubuntu (ohne Proxmox)
@@ -92,11 +94,13 @@ Von außen gesperrt sind die Ersteinrichtung, Updates, Nutzerverwaltung, Ordner-
 
 ### Einschalten
 
-Führe den Installer noch einmal aus (Proxmox wie oben) und antworte bei **„Switch on public links? [y/N]“** mit `y`. Ohne Frage geht es mit:
+Führe den Installer noch einmal aus (Proxmox wie oben) und antworte bei **„Switch on public links? [y/N]“** mit `y`. Ohne Frage geht es mit (schaltet Tailscale gleich mit ein, falls es im Container noch fehlt):
 
 ```bash
-PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
+TAILSCALE=1 PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
 ```
+
+Auch so kann Tailscale beim ersten Start noch nach einer Anmeldung oder einer Freigabe für Funnel fragen.
 
 Fragt Tailscale beim ersten Mal nach einer Freigabe für **Funnel**, öffnest du den angezeigten Link und bestätigst. Danach steht am Ende `Public links: https://streyn.….ts.net:8443`. In der App findest du die Adresse unter **Einstellungen → Unterwegs → Öffentliche Links**.
 
@@ -123,7 +127,7 @@ Dann `PUBLIC_URL=https://<name>.<tailnet>.ts.net:8443` in die Einstellungen (`do
 
 | Problem | Lösung |
 |---|---|
-| Kein Link erscheint, Fehler `/dev/net/tun` | Führe den Proxmox-Installer noch mal aus und antworte mit `y`. Er ergänzt das Gerät und startet den Container neu. |
+| Kein Link erscheint, Fehler `/dev/net/tun` | Führe den Proxmox-Installer noch mal aus und wähle **`2) With Tailscale`**. Er ergänzt das Gerät und startet den Container neu. |
 | Die Adresse beginnt mit `http://100.` statt `https://` | In der Tailscale-Verwaltung unter **DNS** sind MagicDNS oder HTTPS-Zertifikate aus. Das funktioniert trotzdem. Für den schöneren Namen schaltest du beides ein und führst den Installer noch mal aus. |
 | Unterwegs kommt „Server nicht erreichbar“ | Prüfe, ob Tailscale auf dem Handy eingeschaltet ist (Schlüssel-Symbol in der Statusleiste) und ob du dasselbe Konto benutzt. |
 | Akku-Sparmodus beendet Tailscale | Nimm Tailscale in den Android-Einstellungen von der Akku-Optimierung aus. |
