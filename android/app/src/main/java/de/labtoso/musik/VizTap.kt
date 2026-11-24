@@ -50,7 +50,8 @@ object VizTap : TeeAudioProcessor.AudioBufferSink {
     private var encoding = C.ENCODING_PCM_16BIT
     /** When which amount of sound went into the audio buffer: [System.nanoTime, samples written]. */
     private val marks = ArrayDeque<LongArray>()
-    private var pausedAt = 0L
+    /** Paused until the player says it plays (a queue can be prepared while paused). */
+    private var pausedAt = System.nanoTime()
     private var bufferNs = 250_000_000L
 
     private val window = DoubleArray(FFT) { i ->
@@ -101,9 +102,11 @@ object VizTap : TeeAudioProcessor.AudioBufferSink {
                 }
                 else -> return
             }
-            val now = System.nanoTime()
-            marks.addLast(longArrayOf(now, written))
-            while (marks.size > 2 && (marks.size > 400 || marks[1][0] < now - 3_000_000_000L)) marks.removeFirst()
+            // sound buffered while paused (seek, next song) starts playing at the resume: stamp it with the
+            // pause time, playing(true) then moves it to the moment the sound really starts
+            val clock = System.nanoTime()
+            marks.addLast(longArrayOf(if (pausedAt != 0L) pausedAt else clock, written))
+            while (marks.size > 2 && (marks.size > 400 || marks[1][0] < clock - 3_000_000_000L)) marks.removeFirst()
         }
     }
 

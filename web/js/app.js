@@ -5035,7 +5035,8 @@ function miniVizSync() {
     miniViz.start();
   } else {
     miniViz.stop();
-    if (!viz.running) player.stopViz();
+    // the chillscreen keeps reading the sound for its dots, beat and speakers
+    if (!viz.running && !chill) player.stopViz();
     // let the bars fall instead of freezing
     if (mode !== 'off' && miniViz.canvas) miniViz.canvas.getContext('2d').clearRect(0, 0, miniViz.canvas.width, miniViz.canvas.height);
   }
@@ -5053,7 +5054,7 @@ function vizSync() {
     viz.stop();
     // the small one takes over first, so the sound reading is not switched off and on again in between
     miniVizSync();
-    if (!miniViz?.running) player.stopViz();
+    if (!miniViz?.running && !chill) player.stopViz();
   }
   miniVizSync();
 }
