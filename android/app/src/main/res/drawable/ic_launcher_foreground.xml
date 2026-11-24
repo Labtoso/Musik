@@ -7,9 +7,9 @@
     android:viewportHeight="108">
     <group android:translateX="18" android:translateY="18" android:scaleX="0.0703125" android:scaleY="0.0703125">
         <group android:translateX="180" android:translateY="180" android:scaleX="1.296875" android:scaleY="1.296875">
-            <path android:fillColor="#FF203E37" android:fillType="evenOdd" android:pathData="M256 8a248 248 0 1 0 0 496 248 248 0 1 0 0-496Zm0 13a235 235 0 1 1 0 470 235 235 0 1 1 0-470Z" />
+            <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M256 8a248 248 0 1 0 0 496 248 248 0 1 0 0-496Zm0 13a235 235 0 1 1 0 470 235 235 0 1 1 0-470Z" />
             <group android:translateX="-4" android:translateY="16">
-                <path android:fillColor="#FF203E37" android:pathData="M149 151 404 78q6-2 7 4l24 214q3 32-24 52-30 22-74 18-34-3-52-24-14-18-4-38 14-26 52-32 30-5 54 8l-16-138-151 36 18 154q4 32-24 52-30 22-74 18-34-3-52-24-14-18-4-38 14-26 52-32 30-5 54 8L142 158q-1-6 7-7Z" />
+                <path android:fillColor="#FFFFFFFF" android:pathData="M149 151 404 78q6-2 7 4l24 214q3 32-24 52-30 22-74 18-34-3-52-24-14-18-4-38 14-26 52-32 30-5 54 8l-16-138-151 36 18 154q4 32-24 52-30 22-74 18-34-3-52-24-14-18-4-38 14-26 52-32 30-5 54 8L142 158q-1-6 7-7Z" />
             </group>
         </group>
     </group>
