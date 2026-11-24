@@ -230,8 +230,8 @@ details.q > div { padding: 0 16px 6px; }
 @media (max-width: 960px) {
   .burger { display: grid; }
   .brand { width: auto; }
-  .side { transform: translateX(-100%); transition: transform .22s ease; box-shadow: none; width: min(300px, 86vw); }
-  body.nav .side { transform: none; box-shadow: var(--shadow); }
+  .side { transform: translateX(-100%); visibility: hidden; transition: transform .22s ease, visibility 0s linear .22s; box-shadow: none; width: min(300px, 86vw); }
+  body.nav .side { transform: none; visibility: visible; transition: transform .22s ease, visibility 0s; box-shadow: var(--shadow); }
   .scrim { display: block; position: fixed; inset: var(--top) 0 0; background: rgba(0,0,0,.35); z-index: 25; opacity: 0; pointer-events: none; transition: opacity .2s; }
   body.nav .scrim { opacity: 1; pointer-events: auto; }
   .page { margin-left: 0; }
@@ -391,7 +391,7 @@ figure.one { margin: 18px 0 22px; }
     <p>Music goes into <code>music/</code>, data into <code>data/</code>, port 8484.</p>
   </div>
   <div role="tabpanel">
-    <p>In PowerShell: <code>Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.exe; .\streyn-server.exe</code>. That always loads the newest server; run it again to update. Or download <code>streyn-server-windows-x64.exe</code> from the <a href="https://github.com/Labtoso/Musik/releases/latest">latest release</a> and start it. It uses your Music folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> next to the exe.</p>
+    <p>In PowerShell: <code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe -ErrorAction Stop; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code>. That always loads the newest server; run it again to update. Or download <code>streyn-server-windows-x64.exe</code> from the <a href="https://github.com/Labtoso/Musik/releases/latest">latest release</a> and start it. It uses your Music folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> next to the exe.</p>
   </div>
 </div>
 <h2>Proxmox options</h2>
@@ -566,7 +566,9 @@ figure.one { margin: 18px 0 22px; }
 <p>The address is shown under <span class="path">Settings → On the go</span>.</p>
 <h2>Without a link</h2>
 <p>Create an auth key in the Tailscale admin under <strong>Settings → Keys</strong>:</p>
-<pre data-lang="bash"><code>TAILSCALE=1 TS_AUTHKEY=tskey-auth-xxxxx bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+<pre data-lang="bash"><code>read -rsp "Tailscale auth key: " key; echo
+TAILSCALE=1 TS_AUTHKEY="$key" bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
+unset key</code></pre>
 <h2>Docker and Windows</h2>
 <p>Install Tailscale on that computer from <a href="https://tailscale.com/download">tailscale.com/download</a>, then set the address and restart the server:</p>
 <pre data-lang="env"><code>REMOTE_URL=http://100.x.y.z:8484</code></pre>
@@ -590,7 +592,7 @@ figure.one { margin: 18px 0 22px; }
 <figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img" aria-label="Diagram: Friend&#x27;s browser (no app needed); musik.labtoso.de/s/ (the page); Tailscale Funnel (port 8443); Your server (public door: listen and join only)"><defs><marker id="dg7-6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="78.0" y="42.0" text-anchor="middle" style="font-size:14px">Friend&#x27;s browser</text><text class="sx" x="78.0" y="59.0" text-anchor="middle">no app needed</text><rect class="nd" x="192.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="266.0" y="42.0" text-anchor="middle" style="font-size:14px">musik.labtoso.de/s/</text><text class="sx" x="266.0" y="59.0" text-anchor="middle">the page</text><rect class="nd" x="380.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="454.0" y="42.0" text-anchor="middle" style="font-size:14px">Tailscale Funnel</text><text class="sx" x="454.0" y="59.0" text-anchor="middle">port 8443</text><rect class="nd acc" x="568.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="642.0" y="34.0" text-anchor="middle" style="font-size:14px">Your server</text><text class="sx" x="642.0" y="51.0" text-anchor="middle">public door: listen</text><text class="sx" x="642.0" y="66.0" text-anchor="middle">and join only</text><path class="ln" d="M152.0 45.0H172.0"/><path class="ln" d="M172.0 45.0H190.0" marker-end="url(#dg7-6)"/><path class="ln" d="M340.0 45.0H360.0"/><path class="ln" d="M360.0 45.0H378.0" marker-end="url(#dg7-6)"/><path class="ln" d="M528.0 45.0H548.0"/><path class="ln" d="M548.0 45.0H566.0" marker-end="url(#dg7-6)"/></svg><svg class="tall" viewBox="0 0 360 420" role="img" aria-label="Diagram: Friend&#x27;s browser (no app needed); musik.labtoso.de/s/ (the page); Tailscale Funnel (port 8443); Your server (public door: listen and join only)"><defs><marker id="dg7-6t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Friend&#x27;s browser</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">no app needed</text><rect class="nd" x="4.0" y="114" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="144.0" text-anchor="middle" style="font-size:13px">musik.labtoso.de/s/</text><text class="sx" x="180.0" y="161.0" text-anchor="middle">the page</text><rect class="nd" x="4.0" y="224" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="254.0" text-anchor="middle" style="font-size:13px">Tailscale Funnel</text><text class="sx" x="180.0" y="271.0" text-anchor="middle">port 8443</text><rect class="nd acc" x="4.0" y="334" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="363.0" text-anchor="middle" style="font-size:13px">Your server</text><text class="sx" x="180.0" y="380.0" text-anchor="middle">public door: listen</text><text class="sx" x="180.0" y="395.0" text-anchor="middle">and join only</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#dg7-6t)"/><path class="ln" d="M180.0 180V202.0"/><path class="ln" d="M180.0 202.0V222" marker-end="url(#dg7-6t)"/><path class="ln" d="M180.0 290V312.0"/><path class="ln" d="M180.0 312.0V332" marker-end="url(#dg7-6t)"/></svg></figure>
 <h2>Switch on public links</h2>
 <p>Run the Proxmox installer again and answer <code>y</code> to <strong>Switch on public links?</strong>, or:</p>
-<pre data-lang="bash"><code>PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+<pre data-lang="bash"><code>TAILSCALE=1 PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
 <p>See or change the address under <span class="path">Settings → On the go → Public links</span>. Switch off with <code>PUBLIC=0</code> or by clearing that field.</p>
 <h3>Docker and Windows</h3>
 <p>The server listens for public links on port 8485 (this computer only). On the computer with Tailscale:</p>
@@ -633,7 +635,7 @@ figure.one { margin: 18px 0 22px; }
   <thead><tr><th>What</th><th>How</th></tr></thead>
   <tbody>
   <tr><td>Proxmox</td><td>Run the installer again</td></tr>
-  <tr><td>Debian / Ubuntu</td><td><code>streyn-update</code></td></tr>
+  <tr><td>Debian / Ubuntu</td><td><code>sudo streyn-update</code></td></tr>
   <tr><td>Docker</td><td><code>git pull && docker compose up -d --build</code></td></tr>
   <tr><td>Apps</td><td>Install the new version from the website over the old one</td></tr>
   </tbody>
@@ -719,7 +721,7 @@ figure.one { margin: 18px 0 22px; }
     <p>Musik in <code>music/</code>, Daten in <code>data/</code>, Port 8484.</p>
   </div>
   <div role="tabpanel">
-    <p>In PowerShell: <code>Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.exe; .\streyn-server.exe</code>. Das lädt immer den neuesten Server; zum Updaten noch mal ausführen. Oder <code>streyn-server-windows-x64.exe</code> vom <a href="https://github.com/Labtoso/Musik/releases/latest">neuesten Release</a> laden und starten. Er nimmt deinen Musik-Ordner. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine <code>.env</code> neben der exe schreiben.</p>
+    <p>In PowerShell: <code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe -ErrorAction Stop; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code>. Das lädt immer den neuesten Server; zum Updaten noch mal ausführen. Oder <code>streyn-server-windows-x64.exe</code> vom <a href="https://github.com/Labtoso/Musik/releases/latest">neuesten Release</a> laden und starten. Er nimmt deinen Musik-Ordner. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine <code>.env</code> neben der exe schreiben.</p>
   </div>
 </div>
 <h2>Optionen für Proxmox</h2>
@@ -894,7 +896,9 @@ figure.one { margin: 18px 0 22px; }
 <p>Die Adresse steht unter <span class="path">Einstellungen → Unterwegs</span>.</p>
 <h2>Ohne Link</h2>
 <p>In der Tailscale-Verwaltung unter <strong>Settings → Keys</strong> einen Auth-Key anlegen:</p>
-<pre data-lang="bash"><code>TAILSCALE=1 TS_AUTHKEY=tskey-auth-xxxxx bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+<pre data-lang="bash"><code>read -rsp "Tailscale auth key: " key; echo
+TAILSCALE=1 TS_AUTHKEY="$key" bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"
+unset key</code></pre>
 <h2>Docker und Windows</h2>
 <p>Tailscale auf dem Rechner installieren (<a href="https://tailscale.com/download">tailscale.com/download</a>), dann die Adresse eintragen und den Server neu starten:</p>
 <pre data-lang="env"><code>REMOTE_URL=http://100.x.y.z:8484</code></pre>
@@ -918,7 +922,7 @@ figure.one { margin: 18px 0 22px; }
 <figure class="fig"><svg class="wide" viewBox="0 0 720 90" role="img" aria-label="Schaubild: Browser des Freundes (keine App nötig); musik.labtoso.de/s/ (die Seite); Tailscale Funnel (Port 8443); Dein Server (öffentliche Tür: nur hören und beitreten)"><defs><marker id="dg16-14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="78.0" y="42.0" text-anchor="middle" style="font-size:14px">Browser des Freundes</text><text class="sx" x="78.0" y="59.0" text-anchor="middle">keine App nötig</text><rect class="nd" x="192.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="266.0" y="42.0" text-anchor="middle" style="font-size:14px">musik.labtoso.de/s/</text><text class="sx" x="266.0" y="59.0" text-anchor="middle">die Seite</text><rect class="nd" x="380.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="454.0" y="42.0" text-anchor="middle" style="font-size:14px">Tailscale Funnel</text><text class="sx" x="454.0" y="59.0" text-anchor="middle">Port 8443</text><rect class="nd acc" x="568.0" y="14.0" width="148.0" height="62" rx="10"/><text class="tx" x="642.0" y="34.0" text-anchor="middle" style="font-size:14px">Dein Server</text><text class="sx" x="642.0" y="51.0" text-anchor="middle">öffentliche Tür: nur</text><text class="sx" x="642.0" y="66.0" text-anchor="middle">hören und beitreten</text><path class="ln" d="M152.0 45.0H172.0"/><path class="ln" d="M172.0 45.0H190.0" marker-end="url(#dg16-14)"/><path class="ln" d="M340.0 45.0H360.0"/><path class="ln" d="M360.0 45.0H378.0" marker-end="url(#dg16-14)"/><path class="ln" d="M528.0 45.0H548.0"/><path class="ln" d="M548.0 45.0H566.0" marker-end="url(#dg16-14)"/></svg><svg class="tall" viewBox="0 0 360 420" role="img" aria-label="Schaubild: Browser des Freundes (keine App nötig); musik.labtoso.de/s/ (die Seite); Tailscale Funnel (Port 8443); Dein Server (öffentliche Tür: nur hören und beitreten)"><defs><marker id="dg16-14t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs><rect class="nd" x="4.0" y="4" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="34.0" text-anchor="middle" style="font-size:13px">Browser des Freundes</text><text class="sx" x="180.0" y="51.0" text-anchor="middle">keine App nötig</text><rect class="nd" x="4.0" y="114" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="144.0" text-anchor="middle" style="font-size:13px">musik.labtoso.de/s/</text><text class="sx" x="180.0" y="161.0" text-anchor="middle">die Seite</text><rect class="nd" x="4.0" y="224" width="352.0" height="66" rx="10"/><text class="tx" x="180.0" y="254.0" text-anchor="middle" style="font-size:13px">Tailscale Funnel</text><text class="sx" x="180.0" y="271.0" text-anchor="middle">Port 8443</text><rect class="nd acc" x="4.0" y="334" width="352.0" height="80" rx="10"/><text class="tx" x="180.0" y="363.0" text-anchor="middle" style="font-size:13px">Dein Server</text><text class="sx" x="180.0" y="380.0" text-anchor="middle">öffentliche Tür: nur</text><text class="sx" x="180.0" y="395.0" text-anchor="middle">hören und beitreten</text><path class="ln" d="M180.0 70V92.0"/><path class="ln" d="M180.0 92.0V112" marker-end="url(#dg16-14t)"/><path class="ln" d="M180.0 180V202.0"/><path class="ln" d="M180.0 202.0V222" marker-end="url(#dg16-14t)"/><path class="ln" d="M180.0 290V312.0"/><path class="ln" d="M180.0 312.0V332" marker-end="url(#dg16-14t)"/></svg></figure>
 <h2>Öffentliche Links einschalten</h2>
 <p>Den Proxmox-Installer noch mal ausführen und bei <strong>Switch on public links?</strong> mit <code>y</code> antworten, oder:</p>
-<pre data-lang="bash"><code>PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
+<pre data-lang="bash"><code>TAILSCALE=1 PUBLIC=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/proxmox.sh)"</code></pre>
 <p>Die Adresse siehst und änderst du unter <span class="path">Einstellungen → Unterwegs → Öffentliche Links</span>. Ausschalten mit <code>PUBLIC=0</code> oder indem du das Feld leerst.</p>
 <h3>Docker und Windows</h3>
 <p>Der Server hört für öffentliche Links auf Port 8485 (nur auf diesem Rechner). Auf dem Rechner mit Tailscale:</p>
@@ -961,7 +965,7 @@ figure.one { margin: 18px 0 22px; }
   <thead><tr><th>Was</th><th>Wie</th></tr></thead>
   <tbody>
   <tr><td>Proxmox</td><td>Installer noch mal ausführen</td></tr>
-  <tr><td>Debian / Ubuntu</td><td><code>streyn-update</code></td></tr>
+  <tr><td>Debian / Ubuntu</td><td><code>sudo streyn-update</code></td></tr>
   <tr><td>Docker</td><td><code>git pull && docker compose up -d --build</code></td></tr>
   <tr><td>Apps</td><td>Neue Version von der Website drüber installieren</td></tr>
   </tbody>
@@ -1027,9 +1031,9 @@ figure.one { margin: 18px 0 22px; }
   let cur = '', spy = null, index = null;
 
   const route = () => {
-    const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
-    const [p, ...rest] = h.split('/');
-    return { p: p || '', a: rest.join('/') };
+    const [p, ...rest] = location.hash.replace(/^#\/?/, '').split('/');
+    const dec = (v) => { try { return decodeURIComponent(v); } catch { return ''; } };
+    return { p: dec(p || ''), a: dec(rest.join('/')) };
   };
 
   function sidebar() {
@@ -1084,8 +1088,15 @@ figure.one { margin: 18px 0 22px; }
     // tabs, the chosen one is kept
     $$('.tabs', doc).forEach((box) => {
       const tabs = $$('[role=tab]', box), panels = $$('[role=tabpanel]', box);
-      const pick = (i) => { tabs.forEach((t, j) => t.setAttribute('aria-selected', i === j)); panels.forEach((p, j) => (p.hidden = i !== j)); };
+      const pick = (i) => { tabs.forEach((t, j) => { t.setAttribute('aria-selected', i === j); t.tabIndex = i === j ? 0 : -1; }); panels.forEach((p, j) => (p.hidden = i !== j)); };
       tabs.forEach((t, i) => t.addEventListener('click', () => { pick(i); store('musik.docs.tab', i); }));
+      tabs.forEach((t, i) => t.addEventListener('keydown', (e) => {
+        const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        const k = (i + d + tabs.length) % tabs.length;
+        pick(k); store('musik.docs.tab', k); tabs[k].focus();
+      }));
       pick(Math.min(+store('musik.docs.tab') || 0, tabs.length - 1));
     });
   }
@@ -1205,7 +1216,14 @@ figure.one { margin: 18px 0 22px; }
       return { e, score };
     }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 12);
     sel = hits.length ? 0 : -1;
-    const hl = (s) => { let out = esc(s); words.forEach((w) => { if (w.length > 1) out = out.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>'); }); return out; };
+    const hl = (s) => {
+      // find all hits in the plain text first, then build the markup once (a word like "mark" never hits a tag)
+      const low = s.toLowerCase(), on = new Array(s.length).fill(false);
+      words.forEach((w) => { if (w.length > 1) for (let k = low.indexOf(w); k !== -1; k = low.indexOf(w, k + 1)) for (let j = k; j < k + w.length && j < s.length; j++) on[j] = true; });
+      let out = '', open = false;
+      for (let j = 0; j < s.length; j++) { if (on[j] !== open) { out += on[j] ? '<mark>' : '</mark>'; open = on[j]; } out += esc(s[j]); }
+      return open ? out + '</mark>' : out;
+    };
     const snip = (t) => { const k = t.toLowerCase().indexOf(words[0]); const s = Math.max(0, k - 50); return (s ? '…' : '') + t.slice(s, s + 150); };
     box.innerHTML = hits.length
       ? hits.map(({ e }, i) => `<a href="#/${e.p}${e.head ? '/' + slug(e.head) : ''}" class="${i === 0 ? 'sel' : ''}" role="option"><b>${hl(e.page)}${e.head ? ` <span>› ${hl(e.head)}</span>` : ''}</b><small>${hl(snip(e.text))}</small></a>`).join('')
@@ -1259,7 +1277,13 @@ figure.one { margin: 18px 0 22px; }
   }
   $$('.lang button').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.l === lang) return;
-    store('musik.site.lang', b.dataset.l); setLang(b.dataset.l); render(false);
+    store('musik.site.lang', b.dataset.l); setLang(b.dataset.l);
+    // ?lang= in the address follows the choice, and a section anchor of the other language is dropped
+    const u = new URL(location.href), r = route();
+    if (u.searchParams.has('lang')) u.searchParams.set('lang', b.dataset.l);
+    if (r.a) u.hash = '#/' + r.p;
+    history.replaceState(history.state, '', u);
+    render(false);
   }));
 
   // Discord invite from links.json, the same file the website and the apps read

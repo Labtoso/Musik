@@ -549,7 +549,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
         vec2 uv = vUv; vec2 a = vec2(${(WW / WH).toFixed(3)}, 1.0);
         // drops on the glass bend the view a little
         vec2 g = uv * vec2(26.0, 9.0); vec2 id = floor(g); float sp = 0.25 + h(id) * 0.5;
-        vec2 f = fract(g) - 0.5; float drop = smoothstep(0.09, 0.0, length(vec2(f.x * 1.6, (fract(uv.y * 9.0 + time * sp * 0.6 + h(id)) - 0.5))));
+        vec2 f = fract(g) - 0.5; float drop = 1.0 - smoothstep(0.0, 0.09, length(vec2(f.x * 1.6, (fract(uv.y * 9.0 + time * sp * 0.6 + h(id)) - 0.5))));
         float trail = 0.0;
         vec2 bend = vec2(f.x, 0.0) * (drop * 0.06 + trail * 0.01);
         vec2 p = uv + bend;
@@ -557,11 +557,11 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
         vec3 c = mix(vec3(0.006, 0.008, 0.022), vec3(0.022, 0.028, 0.065), p.y);
         // moon behind thin clouds
         vec2 mp = (p - vec2(0.76, 0.78)) * a; float md = length(mp);
-        c += vec3(0.85, 0.88, 1.0) * smoothstep(0.075, 0.068, md) * 0.9 + vec3(0.25, 0.3, 0.5) * exp(-md * 9.0) * 0.5;
+        c += vec3(0.85, 0.88, 1.0) * (1.0 - smoothstep(0.068, 0.075, md)) * 0.9 + vec3(0.25, 0.3, 0.5) * exp(-md * 9.0) * 0.5;
         // far city: blurred lights
         for (int i = 0; i < 26; i++) { float fi = float(i); vec2 lp = vec2(h(vec2(fi, 1.0)), 0.08 + h(vec2(fi, 2.0)) * 0.28);
           float r = 0.012 + h(vec2(fi, 3.0)) * 0.03; vec3 lc = mix(vec3(1.0, 0.62, 0.28), vec3(0.55, 0.7, 1.0), step(0.7, h(vec2(fi, 4.0))));
-          c += lc * smoothstep(r, r * 0.2, length((p - lp) * a)) * (0.35 + 0.25 * sin(time * (0.3 + h(vec2(fi, 5.0))) + fi)); }
+          c += lc * (1.0 - smoothstep(r * 0.2, r, length((p - lp) * a))) * (0.35 + 0.25 * sin(time * (0.3 + h(vec2(fi, 5.0))) + fi)); }
         // near rooftops with a few lit windows
         float roof = 0.1 + 0.12 * step(0.5, h(vec2(floor(p.x * 7.0), 9.0))) + 0.05 * h(vec2(floor(p.x * 13.0), 4.0));
         if (p.y < roof) { c = vec3(0.008, 0.009, 0.016); vec2 wq = floor(p * vec2(60.0, 40.0)); c += vec3(1.0, 0.7, 0.35) * step(0.93, h(wq)) * 0.35; }
@@ -570,7 +570,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
         c += vec3(0.25, 0.3, 0.42) * st * 0.08;
         c += vec3(0.6, 0.7, 0.9) * (drop * 0.12 + trail * 0.03);
         // a bit of fog on the glass towards the bottom
-        c = mix(c, vec3(0.05, 0.06, 0.1), smoothstep(0.35, 0.0, uv.y) * 0.5);
+        c = mix(c, vec3(0.05, 0.06, 0.1), (1.0 - smoothstep(0.0, 0.35, uv.y)) * 0.5);
         gl_FragColor = vec4(c * 1.25, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -1099,13 +1099,17 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
 
   // ── records
   const covers = tracks.map(() => null);
-  const texs = [];
-  const texFor = (i) => texs[i] || vinylMat.map;
+  // applied: the cover url whose image is on the record now
+  const texs = [], coverTok = [], applied = [];
+  // a track whose cover is not loaded (yet) gets the plain record, never the cover of another track
+  const blankTex = vinylMat.map;
+  const texFor = (i) => texs[i] || blankTex;
   tracks.forEach((tr, i) => {
     const im = new Image();
     im.crossOrigin = 'anonymous';
     im.onload = () => {
-      covers[i] = im; texs[i] = vinylTexture(accentTo, true, im);
+      if (coverTok[i]) return; // setCover() already replaced this cover
+      covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); applied[i] = tr.cover;
       if (i === cur) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
     };
     im.src = tr.cover;
@@ -1362,7 +1366,10 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   const accentTo = accentCol.clone(), _c = new THREE.Color();
   const accentMats = () => [rim, cart.material, strip.material, neonGlow, ...accentBits.map((m) => m.material)];
   let angle = 0, energy = 0, raf = 0, visible = true, lastT = 0, cur = 0, shown = -1;
-  const fixed = new URLSearchParams(location.search).get('tt'), testShot = new URLSearchParams(location.search).get('shot');
+  // preview parameters (?tt=, ?shot=, ?tr=): unknown values are ignored, the normal animation runs
+  const fixedQ = new URLSearchParams(location.search).get('tt'), shotQ = new URLSearchParams(location.search).get('shot');
+  const fixed = fixedQ !== null && Number.isFinite(+fixedQ) ? fixedQ : null;
+  const testShot = shotQ && (shotQ === 'intro' || Object.prototype.hasOwnProperty.call(MV, shotQ)) ? shotQ : null;
   const start = reduced ? -10 : 0;
   if (reduced) lastT = 10;
 
@@ -1524,7 +1531,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     deckFrame(t, up, eS, listen(t));
 
     // camera
-    let cur3 = testShot ? [testShot, 0, 1] : scrollT > 0.05 ? ['wide', t, t + 1] : shotAt(t);
+    let cur3 = testShot ? [testShot, 0, 1] : reduced ? ['wide', 0, 1] : scrollT > 0.05 ? ['wide', t, t + 1] : shotAt(t);
     if (cur3[0] !== shot || (cur3[1] !== shotS && shot !== 'wide')) {
       const m = cur3[0] === 'wide' || shot === 'wide' || !lastP ? 0 : pickTransition(beatMode !== 'off' && beatNow);
       if (TRN[m][3] === 0) { from = lastP; switchT = t; glideT = shot === 'wide' || cur3[0] === 'wide' ? 5 : TRN[0][1]; trn = null; }
@@ -1545,9 +1552,9 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       P = { p, l: from.l.clone().lerp(P.l, blend), r: lerp(from.r, P.r, blend), f: lerp(from.f, P.f, blend) };
     }
     lastP = P;
-    mx += (tx - mx) * 0.02; my += (ty - my) * 0.02;
+    if (!reduced) { mx += (tx - mx) * 0.02; my += (ty - my) * 0.02; }
     rim.intensity = 30 + eS * 90;
-    if (testTr !== null && testShot) trn = { m: TRN[+testTr][3], t0: t - (+new URLSearchParams(location.search).get('trp') || 0.5) * TRN[+testTr][1], d: TRN[+testTr][1], name: new URLSearchParams(location.search).get('from') || 'roomL', s: 0, e: 1 };
+    if (testTr !== null && testShot && TRN[+testTr]) trn = { m: TRN[+testTr][3], t0: t - (+new URLSearchParams(location.search).get('trp') || 0.5) * TRN[+testTr][1], d: TRN[+testTr][1], name: new URLSearchParams(location.search).get('from') || 'roomL', s: 0, e: 1 };
     // shadows: every frame while something big moves (record change, arm), otherwise every fourth
     renderer.shadowMap.needsUpdate = changing || up > 0.005 || ++shadowTick % 4 === 0;
     if (trn && t - trn.t0 < trn.d && t >= trn.t0) {
@@ -1572,14 +1579,17 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   });
   io.observe(canvas);
   raf = requestAnimationFrame(frame);
+  let disposed = false;
   const warm = () => {
+    if (disposed) return;
     try {
       renderer.compile(scene, camera);
       targets(); renderer.setRenderTarget(rtA); renderer.compile(scene, camera); renderer.setRenderTarget(null);
       renderer.compile(compScene, compCam);
     } catch {}
   };
-  (window.requestIdleCallback || setTimeout)(warm, { timeout: 1500 });
+  const idle = !!window.requestIdleCallback;
+  const warmId = idle ? requestIdleCallback(warm, { timeout: 1500 }) : setTimeout(warm, 0);
 
   const names = { crate, phones, cds, spk, tapes, mug, books, candles, tl, shelf, chair, side2, pouf, plinth };
   for (const k in names) names[k].name = k;
@@ -1592,13 +1602,33 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     // shot changes wait for the beat of the music
     setBeatSync(v) { beatMode = syncMode(v); },
     // swap the record (label and sleeve) for another cover, e.g. the song that plays now
+    // (only the newest request per record is applied; a failed one can be tried again)
     setCover(url, i = 0) {
       if (!url || !tracks[i] || tracks[i].cover === url) return;
+      const prev = tracks[i].cover;
       tracks[i].cover = url;
-      loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; coverTex[i] = t; });
+      const tok = (coverTok[i] = (coverTok[i] || 0) + 1);
+      // on failure the record goes back to the last cover that really loaded; a previous request
+      // that was dropped for this one before it loaded is started once more
+      const failed = () => {
+        if (coverTok[i] !== tok || tracks[i].cover !== url) return;
+        tracks[i].cover = applied[i] || '';
+        if (prev && prev !== applied[i]) api.setCover(prev, i);
+      };
+      loader.load(url, (t) => {
+        if (coverTok[i] !== tok) { t.dispose(); return; }
+        t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; coverTex[i] = t;
+      }, undefined, failed);
       const im = new Image();
       im.crossOrigin = 'anonymous';
-      im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
+      im.onload = () => {
+        if (coverTok[i] !== tok) return;
+        const old = texs[i];
+        covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); applied[i] = url;
+        if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
+        if (old && old !== vinylMat.map && old !== blankTex) old.dispose();
+      };
+      im.onerror = failed;
       im.src = url;
     },
     // manual mode: the song changed → put the new record on with the full change animation
@@ -1610,7 +1640,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       coverTex[i] = loadTex(url);
       const im = new Image();
       im.crossOrigin = 'anonymous';
-      im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
+      im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); applied[i] = url; if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
       im.src = url;
       if (!reduced) pending = i;
       return i;
@@ -1628,6 +1658,8 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       deco.forEach(paintDeco);
     },
     dispose() {
+      disposed = true;
+      if (idle) cancelIdleCallback(warmId); else clearTimeout(warmId);
       cancelAnimationFrame(raf); raf = 0; visible = false; io.disconnect();
       removeEventListener('resize', resize); removeEventListener('pointermove', onMove); removeEventListener('scroll', onScroll);
       rtA?.dispose(); rtB?.dispose();

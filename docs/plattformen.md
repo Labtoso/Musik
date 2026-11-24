@@ -20,7 +20,8 @@ Jeder importierte Song wird mit deiner Bibliothek abgeglichen (Titel, Künstler,
 ## Spotify einrichten
 1. Auf https://developer.spotify.com/dashboard eine App anlegen und **Web API** anhaken.
 2. Als Redirect URI `https://musik.labtoso.de/spotify.html` eintragen.
-3. Die Client-ID unter **Einstellungen → Quellen → Spotify** einfügen und **Mit Spotify verbinden** drücken. Die Verbindung bleibt auf dem Server gespeichert, für alle Apps.
+3. Jedes weitere Spotify-Konto, das die Verbindung nutzen soll, trägt der App-Besitzer im Dashboard unter **Users Management** ein (Name und E-Mail des Spotify-Kontos). Nur eingetragene Konten dürfen die Web API einer Entwicklungs-App benutzen.
+4. Die Client-ID unter **Einstellungen → Quellen → Spotify** einfügen und **Mit Spotify verbinden** drücken. Die Verbindung bleibt auf dem Server gespeichert, für alle Apps.
 
 Seit Februar 2026 gilt für neue Spotify-Apps: Der App-Besitzer braucht Premium, höchstens 5 Nutzer, und Playlist-Inhalte gibt es nur für eigene oder gemeinsame Playlists. Fremde Playlists also vorher in die eigene Bibliothek kopieren oder per Exportify als CSV importieren.
 

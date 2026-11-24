@@ -12,21 +12,28 @@ inside() { pct exec "$1" -- bash -c "$2" 2>/dev/null; }
 
 containers() {
   for id in $(pct list 2>/dev/null | awk 'NR>1 {print $1}'); do
-    pct config "$id" 2>/dev/null | grep -Eq '^tags:.*\b(streyn|musik)\b' && echo "$id"
+    if pct config "$id" 2>/dev/null | grep -Eq '^tags:(.*[;, ])? *(streyn|musik)([;, ]|$)'; then echo "$id"; fi
   done
+  return 0
 }
 
 version_of() { # id port
   inside "$1" "curl -fsS --max-time 5 http://127.0.0.1:$2/api/info" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p'
 }
 
+# values read from inside the container only keep characters that cannot change the Markdown
+# keeps non-ASCII (UTF-8) bytes so paths like /srv/Musik/Hörbücher stay as they are; ASCII is limited to safe characters
+clean() { printf '%s' "$1" | LC_ALL=C tr -cd 'A-Za-z0-9 ._:/@%+=,~\200-\377-'; }
+
 write_notes() { # id mode version port
   local id="$1" mode="$2" version="$3" port="$4" ip url remote music ts when
-  ip="$(inside "$id" 'hostname -I' | awk '{print $1}')"
+  version="$(clean "$version")"
+  [[ "$port" =~ ^[0-9]{1,5}$ ]] || port=8484
+  ip="$(inside "$id" 'hostname -I' | awk '{print $1}' | tr -cd '0-9a-fA-F.:')"
   url="http://${ip:-<container-ip>}:$port"
-  remote="$(inside "$id" "awk -F= '/^REMOTE_URL=/{print \$2}' /etc/streyn.env /etc/musik.env" | head -n1)"
-  music="$(inside "$id" "awk -F= '/^MUSIC_DIRS=/{print \$2}' /etc/streyn.env /etc/musik.env" | head -n1)"
-  ts="$(inside "$id" 'command -v tailscale >/dev/null && tailscale ip -4 | head -n1')"
+  remote="$(clean "$(inside "$id" "awk -F= '/^REMOTE_URL=/{print \$2}' /etc/streyn.env /etc/musik.env" | head -n1)")"
+  music="$(clean "$(inside "$id" "awk -F= '/^MUSIC_DIRS=/{print \$2}' /etc/streyn.env /etc/musik.env" | head -n1)")"
+  ts="$(inside "$id" 'command -v tailscale >/dev/null && tailscale ip -4 | head -n1' | tr -cd '0-9.')"
   when="$(date '+%Y-%m-%d %H:%M')"
   pct set "$id" --description "$(cat <<NOTES
 <div align='center'><a href='https://musik.labtoso.de'><img src='https://musik.labtoso.de/icon.svg' width='72' alt='Streyn'/></a>

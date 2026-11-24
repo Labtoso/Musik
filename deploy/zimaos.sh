@@ -14,6 +14,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+[[ "$PORT" =~ ^[0-9]{1,5}$ ]] || { echo "--port needs a number." >&2; exit 1; }
 SUDO=""; [ "$(id -u)" = 0 ] || SUDO="sudo"
 DIR=/DATA/AppData/streyn
 # Musik is now Streyn: an older Musik app hands over its data once
@@ -30,12 +31,20 @@ echo "==> Streyn for ZimaOS"
 $SUDO mkdir -p "$DIR/data" "$MUSIC"
 curl -fsSL https://raw.githubusercontent.com/Labtoso/Musik/main/deploy/zimaos.yml | $SUDO tee "$FILE" >/dev/null
 [ "$PORT" = 8484 ] || $SUDO sed -i "s/published: \"8484\"/published: \"$PORT\"/; s/port_map: \"8484\"/port_map: \"$PORT\"/" "$FILE"
-[ "$MUSIC" = /DATA/Media/Music ] || $SUDO sed -i "s#source: /DATA/Media/Music#source: $MUSIC#" "$FILE"
+if [ "$MUSIC" != /DATA/Media/Music ]; then
+  # single-quoted YAML (a ' is written twice), then escaped for the sed replacement
+  yaml="'${MUSIC//\'/\'\'}'"
+  rep="$(printf '%s' "$yaml" | sed 's/[\\&|]/\\&/g')"
+  $SUDO sed -i "s|source: /DATA/Media/Music\$|source: $rep|" "$FILE"
+fi
 
 if command -v casaos-cli >/dev/null 2>&1; then
   if casaos-cli app-management list apps 2>/dev/null | grep -qw streyn; then
     echo "==> Streyn is already installed: restarting it, which fetches the newest version."
-    casaos-cli app-management apply streyn -f "$FILE" >/dev/null 2>&1 || true
+    if ! casaos-cli app-management apply streyn -f "$FILE" >/dev/null; then
+      echo "Error: the new settings could not be applied (see above). Nothing was restarted." >&2
+      exit 1
+    fi
     casaos-cli app-management restart streyn
   else
     echo "==> Installing into the dashboard"
@@ -50,10 +59,15 @@ else
 fi
 
 echo "==> Waiting for the server (the first start downloads it)"
+READY=0
 for _ in $(seq 1 60); do
-  curl -fsS --max-time 2 "http://127.0.0.1:$PORT/api/info" >/dev/null 2>&1 && break
+  if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/api/info" >/dev/null 2>&1; then READY=1; break; fi
   sleep 2
 done
+if [ "$READY" != 1 ]; then
+  echo "Streyn did not answer on port $PORT. Check the app's log in the dashboard (or: docker logs streyn)." >&2
+  exit 1
+fi
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo "    Streyn:  http://${IP:-<address of this device>}:$PORT"

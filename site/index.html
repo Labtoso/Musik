@@ -552,7 +552,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
     <div class="pane" data-pane="win">
       <div>
       <div class="term"><div class="term-h">PowerShell<button data-copy="win" data-t="copy"></button></div>
-<pre><span class="p">&gt;</span> <span data-cmd="win">Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.exe; .\streyn-server.exe</span></pre></div>
+<pre><span class="p">&gt;</span> <span data-cmd="win">try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe -ErrorAction Stop; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</span></pre></div>
       <a class="windl" href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe"><span data-t="winDl"></span> <b data-winver>latest</b></a>
       </div>
       <ol class="steps"><li data-h="win1"></li><li data-h="win2"></li></ol>
@@ -713,6 +713,7 @@ const T = {
 };
 
 const $ = (s, r = document) => r.querySelector(s);
+const escHtml = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return v; };
 let lang = store('musik.site.lang') === 'de' ? 'de' : 'en';
@@ -870,7 +871,16 @@ $$('[data-copy]').forEach((b) => b.addEventListener('click', () => {
   clearTimeout(b._t);
   b._t = setTimeout(() => { b.dataset.t = 'copy'; b.textContent = T[lang].copy; }, 3500);
 }));
-const openSet = (v) => document.body.classList.toggle('set-open', v);
+// the closed panel is only hidden visually, so it is also taken out of the tab order
+const panel = $('#panel');
+panel.inert = true;
+const openSet = (v) => {
+  const was = document.body.classList.contains('set-open');
+  document.body.classList.toggle('set-open', v);
+  panel.inert = !v;
+  if (v && !was) $('#close').focus({ preventScroll: true });
+  else if (!v && was && panel.contains(document.activeElement)) $('#gear').focus({ preventScroll: true });
+};
 $('#gear').addEventListener('click', () => openSet(true));
 $('#close').addEventListener('click', () => openSet(false));
 $('#scrim').addEventListener('click', () => openSet(false));
@@ -909,17 +919,23 @@ const spy = new IntersectionObserver((es) => es.forEach((e) => {
 // web player: lives on the user's own server, so remember its address and open it
 const wpop = $('#wpop'), wpi = $('#wpi');
 wpi.value = store('musik.site.server') || '';
+wpop.inert = true;
 function wpOpen(on) {
+  const was = wpop.classList.contains('open');
   wpop.classList.toggle('open', on);
+  wpop.inert = !on;
   if (on) setTimeout(() => wpi.focus(), 60);
+  else if (was && wpop.contains(document.activeElement)) $('#wp').focus({ preventScroll: true });
 }
 function wpUrl(v) {
   v = v.trim().replace(/\/+$/, '');
   if (!v) return null;
   if (!/^https?:\/\//i.test(v)) v = (/\.ts\.net$/i.test(v.split('/')[0]) ? 'https://' : 'http://') + v;
+  // a port typed by hand is kept, also :80 (which URL() drops as the default)
+  const typedPort = /^[a-z]+:\/\/[^/?#]*:\d+([/?#]|$)/i.test(v);
   try {
     const u = new URL(v);
-    if (u.protocol === 'http:' && !u.port && /^(\d+\.){3}\d+$|^localhost$/.test(u.hostname)) u.port = '8484';
+    if (u.protocol === 'http:' && !u.port && !typedPort && /^(\d+\.){3}\d+$|^localhost$/.test(u.hostname)) u.port = '8484';
     return u.origin + '/';
   } catch { return null; }
 }
@@ -957,7 +973,7 @@ function render() {
     $(`[data-os=${os}] .n`).insertAdjacentHTML('beforeend', `<span class="yours">${d.yours}</span>`);
   } else $('span', main).textContent = d.dlAll;
   const m = [`<span>${d.metaOs}</span>`, `<span>${d.metaFree}</span>`];
-  if (release) m.unshift(`<a href="https://github.com/Labtoso/Musik/releases/tag/${release.tag_name}" target="_blank" rel="noopener">${d.metaVer} <b>${release.tag_name.replace(/^v/, '')}</b></a>`);
+  if (release) m.unshift(`<a href="https://github.com/Labtoso/Musik/releases/tag/${encodeURIComponent(release.tag_name)}" target="_blank" rel="noopener">${d.metaVer} <b>${escHtml(String(release.tag_name).replace(/^v/, ''))}</b></a>`);
   $('#meta').innerHTML = m.join('');
   $$('#chilldots button').forEach((b) => b.setAttribute('aria-label', d.aShot.replace('{n}', b.dataset.n)));
   $$('img.zm').forEach((im, k) => {
@@ -1028,8 +1044,10 @@ fetch('version.json?' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r
 fetch('https://api.github.com/repos/Labtoso/Musik/releases/latest', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then(useRelease).catch(() => {});
 </script>
 <script type="module">
-import { createTurntable } from './turntable.js';
+// loaded inside try: if turntable.js (or three.js) cannot load, the CSS turntable stays
+(async () => {
 try {
+  const { createTurntable } = await import('./turntable.js');
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
   const TRACKS = [
     ['Nightdrive', 'Neon Coast', 'nightdrive'], ['Velvet Hours', 'Mira Vale', 'velvet_hours'], ['Glass City', 'Oktav', 'glass_city'],
@@ -1110,6 +1128,7 @@ try {
   window.__tt = createTurntable(document.getElementById('tt'), { tracks: TRACKS, onTrack, accent, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
   document.body.classList.add('has3d');
 } catch (e) { console.warn('3D off', e); document.body.classList.add('no3d'); }
+})();
 </script>
 <script>
 // image viewer: click a screenshot to see it big; click or pinch to zoom, drag to look around, arrows / swipe for the next one
