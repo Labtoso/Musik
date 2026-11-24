@@ -61,6 +61,10 @@ class PlaybackService : MediaSessionService() {
     private val prefs by lazy { getSharedPreferences("musik", Context.MODE_PRIVATE) }
     private val eqListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "eq") applyEq()
+        if (key == "userVol") {
+            userVol = prefs.getFloat(key, userVol).coerceIn(0f, 1f)
+            PlaybackService.player?.let { applyVol(it) }
+        }
         if (key == "playopts") applyOpts()
         if (key == "play_pauseOnDisconnect") (session?.player as? ExoPlayer)?.setHandleAudioBecomingNoisy(prefs.getBoolean(key, true))
     }
