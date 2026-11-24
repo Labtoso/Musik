@@ -41,19 +41,26 @@ fn save_config(app: &AppHandle, cfg: &Config) -> std::io::Result<()> {
     }
     let data = serde_json::to_string_pretty(cfg).map_err(std::io::Error::other)?;
     // Each save has its own temp file, so two saves at the same time never write into one file.
+    // A leftover file with the same name (crash, reused process id) is never touched: pick the next name.
     static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = p.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
-    let result = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)
-        .and_then(|mut f| {
-            use std::io::Write;
-            f.write_all(data.as_bytes())?;
-            f.sync_all()
-        })
-        .and_then(|_| std::fs::rename(&tmp, &p));
+    let (tmp, mut f) = loop {
+        let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = p.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp) {
+            Ok(f) => break (tmp, f),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && n < 1000 => continue,
+            Err(e) => return Err(e),
+        }
+    };
+    // Only the file this save created is cleaned up on failure.
+    let result = {
+        use std::io::Write;
+        f.write_all(data.as_bytes()).and_then(|_| f.sync_all())
+    }
+    .and_then(|_| {
+        drop(f);
+        std::fs::rename(&tmp, &p)
+    });
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }

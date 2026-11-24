@@ -338,9 +338,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Errors in a row; a queue where nothing plays is not skipped through forever (repeat all).
-     *  Only touched on the main thread; a new queue starts again at 0. */
-    private var errorStreak = 0
+    /** Automatic skips left after errors in a row, fixed at the first error from the queue size then
+     *  (tracks added later do not raise it), so a queue where nothing plays is not skipped through
+     *  forever (repeat all). -1 = no error streak. Only touched on the main thread; reset when
+     *  something plays or a new queue starts. */
+    private var errorBudget = -1
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -355,7 +357,7 @@ class MainActivity : ComponentActivity() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isPlaying) errorStreak = 0
+            if (isPlaying) errorBudget = -1
             emit(JSONObject().put("type", "playing").put("playing", isPlaying))
         }
 
@@ -372,7 +374,9 @@ class MainActivity : ComponentActivity() {
         override fun onPlayerError(error: PlaybackException) {
             emit(JSONObject().put("type", "error").put("message", error.errorCodeName))
             val c = controller ?: return
-            if (++errorStreak < c.mediaItemCount && c.hasNextMediaItem()) {
+            if (errorBudget < 0) errorBudget = c.mediaItemCount - 1
+            if (errorBudget > 0 && c.hasNextMediaItem()) {
+                errorBudget--
                 c.seekToNextMediaItem()
                 c.prepare()
                 c.play()
@@ -531,7 +535,7 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun setQueue(json: String, index: Int, posMs: Long, autoplay: Boolean) {
             val items = toItems(json) ?: return
             withController { c ->
-                errorStreak = 0
+                errorBudget = -1
                 c.setMediaItems(items, index.coerceIn(0, maxOf(0, items.size - 1)), posMs)
                 c.prepare()
                 c.playWhenReady = autoplay
