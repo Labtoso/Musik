@@ -26,7 +26,9 @@ export function normalizeServer(input) {
     let lanOrPort = true;
     try {
       const h = new URL('http://' + s);
-      lanOrPort = !!h.port || !/\.[a-z]{2,}$/i.test(h.hostname) || /\.(local|lan|home|internal|localdomain|home\.arpa|fritz\.box)$/i.test(h.hostname);
+      // an explicit port counts even when it is the default one (h.port is empty for :80)
+      const explicitPort = /:\d+$/.test(s.split(/[/?#]/)[0].split('@').pop());
+      lanOrPort = !!h.port || explicitPort || !/\.[a-z]{2,}$/i.test(h.hostname) || /\.(local|lan|home|internal|localdomain|home\.arpa|fritz\.box)$/i.test(h.hostname);
     } catch {}
     s = (lanOrPort ? 'http://' : 'https://') + s;
   }

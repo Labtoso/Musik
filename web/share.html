@@ -107,6 +107,8 @@
   const PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  // for url('...') in a style attribute: quotes, brackets and spaces are percent-encoded so the CSS stays valid
+  const cssUrl = (u) => esc(String(u ?? '').replace(/['"()\\\s]/g, (c) => (c.charCodeAt(0) > 0x7f ? encodeURIComponent(c) : '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))));
   const fmt = (s) => { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   // public link: #<token>@<host> (download site), otherwise /s/<token> on the server itself
   const pub = location.hash.slice(1).match(/^([A-Za-z0-9]{6,32})@([a-z0-9.-]+(?::\d{1,5})?)$/i);
@@ -147,7 +149,7 @@
     list = d.tracks.map((t) => ({ title: t.title, artist: t.artist, album: t.album, duration: t.duration, cover: t.cover ? base + '/cover/' + t.i : '', src: base + '/stream/' + t.i }))
       .concat(d.external.map((e, k) => ({ title: e.title, artist: e.artist, album: '', duration: e.duration, cover: /^https:\/\//.test(e.cover) ? e.cover : '', src: base + '/song/' + k, badge: SRC[e.source] || e.source })));
     const firstCover = list.find((x) => x.cover)?.cover || '';
-    let h = `<div class="head"><div class="cover" style="${firstCover ? `background-image:url('${esc(firstCover)}')` : ''}"></div><div>
+    let h = `<div class="head"><div class="cover" style="${firstCover ? `background-image:url('${cssUrl(firstCover)}')` : ''}"></div><div>
       <div class="kind">${T[d.kind] || ''}</div><h1>${esc(d.title)}</h1>
       <div class="sub">${esc(d.sub)}${d.kind !== 'track' ? ` · ${list.length} ${T.songs}` : ''}</div>${d.description ? `<p class="desc">${esc(d.description)}</p>` : ''}</div></div>
       <div class="actions">${list.length ? `<button class="play" id="playall" aria-label="${T.play}">${PLAY}</button>` : ''}
@@ -158,7 +160,7 @@
         <label><span>${T.name}</span><input name="name" autocomplete="username" required minlength="2" maxlength="32"></label>
         <label><span>${T.pass}</span><input name="password" type="password" autocomplete="new-password" required minlength="4"></label>
         <div class="err" id="jerr"></div><button class="go" id="jgo">${L('create')}</button></form>`;
-    h += list.map((x, i) => `<div class="row" data-i="${i}" role="button" tabindex="0"><span class="n">${i + 1}</span><span class="c" style="${x.cover ? `background-image:url('${esc(x.cover)}')` : ''}"></span>
+    h += list.map((x, i) => `<div class="row" data-i="${i}" role="button" tabindex="0"><span class="n">${i + 1}</span><span class="c" style="${x.cover ? `background-image:url('${cssUrl(x.cover)}')` : ''}"></span>
       <div style="min-width:0"><div class="t">${esc(x.title)}</div><div class="a">${x.badge ? `<span class="src">${esc(x.badge)}</span>` : ''}${esc(x.artist)}</div></div><span class="d">${x.duration ? fmt(x.duration) : ''}</span></div>`).join('');
     h += `<div class="foot">${T.on} ${esc(d.server || 'Streyn')}</div>`;
     $('root').innerHTML = h;

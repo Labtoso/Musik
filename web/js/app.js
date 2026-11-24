@@ -3269,6 +3269,8 @@ async function reorderDialog(ref) {
     if (e.target.closest('[data-edit]')) return wrap.remove();
     const rm = e.target.closest('[data-rorm]');
     if (rm) {
+      // no removing while a row is dragged or still settling: the move uses the indices from its start
+      if (list.classList.contains('sorting')) return;
       // the row folds away, the ones below slide up
       const row = rm.closest('.ro-row');
       if (row.classList.contains('gone')) return;
@@ -3297,7 +3299,7 @@ async function reorderDialog(ref) {
   // drag by the handle: the row follows the finger, the others make room
   list.addEventListener('pointerdown', (e) => {
     const g = e.target.closest('[data-grip]');
-    if (!g || folding) return;
+    if (!g || folding || list.classList.contains('sorting')) return;
     e.preventDefault();
     const row = g.closest('.ro-row');
     const from = Number(row.dataset.ri);
@@ -4781,8 +4783,9 @@ async function render() {
   try {
     const html = await view(params, id);
     if (seq !== renderSeq) {
-      // a slow page that lost the race must not leave its songs behind the buttons of the newer page on screen
-      if (shownRender.seq > seq) state.detail = shownRender.detail;
+      // a slow page that lost the race must not leave its songs behind the buttons of the newer page on screen;
+      // only while that page is the newest one, so a render still on its way keeps the songs it set
+      if (shownRender.seq === renderSeq) state.detail = shownRender.detail;
       return;
     }
     shownRender = { seq, detail: state.detail };
@@ -5208,6 +5211,7 @@ async function openChill() {
     <div class="ch-ctl"><button class="icon-btn" data-chill="prev">${icon('prev')}</button><button class="icon-btn ch-play" data-chill="toggle"></button><button class="icon-btn" data-chill="next">${icon('next')}</button></div></div></div>`;
   document.body.appendChild(el);
   chill = { el, room: null, hide: 0, lock: null, meta: [], id: player.current.id };
+  const room = chill; // this room, taken before any await
   const pinSync = () => { const on = !!prefs.chillPin; el.classList.toggle('pinned', on); const b = el.querySelector('.ch-pin'); b.innerHTML = icon('pin'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); };
   pinSync();
   chillMeta();
@@ -5231,7 +5235,6 @@ async function openChill() {
   requestAnimationFrame(() => el.classList.add('open'));
   history.pushState({ chill: 1 }, '');
   try { await el.requestFullscreen?.({ navigationUI: 'hide' }); } catch {}
-  const room = chill;
   try {
     const lock = await navigator.wakeLock?.request('screen');
     // the room was closed while the lock was asked for: give it back at once
@@ -7095,11 +7098,13 @@ function showScan(lib) {
   if (lib.scanning) {
     el.textContent = t('scanning', { n: lib.progress.found });
     clearInterval(state.scanTimer);
+    // settings closed meanwhile: no new poller
+    if (!$('#settings')?.classList.contains('open')) return;
     const timer = (state.scanTimer = setInterval(async () => {
       try {
         const l = await get('/api/library');
         // settings closed (or another poller took over) while the answer was on its way
-        if (timer !== state.scanTimer || !$('#settings').classList.contains('open')) return;
+        if (timer !== state.scanTimer || !$('#settings').classList.contains('open')) return clearInterval(timer);
         if (!l.scanning) {
           clearInterval(state.scanTimer);
           state.cache = {};

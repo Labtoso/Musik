@@ -77,6 +77,9 @@ export class YouTubeAdapter extends Adapter {
       try {
         this.p?.destroy?.();
       } catch {}
+      // destroy() removes the iframe that took the place of #ext-yt: put the target back for the next start
+      const box = document.querySelector('.ext-yt');
+      if (box && !document.getElementById('ext-yt')) box.innerHTML = '<div id="ext-yt"></div>';
       this.p = null;
       this.ready = null;
     });

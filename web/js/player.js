@@ -574,8 +574,10 @@ export function warmSongs(tracks) {
  * Returns how many songs were preloaded and the ones whose batch failed, so those are tried again later.
  */
 export async function preloadSongs(tracks, progress = () => {}) {
-  const list = tracks.filter((t) => streams(t)).slice(0, 300);
-  const failed = [];
+  const all = tracks.filter((t) => streams(t));
+  const list = all.slice(0, 300);
+  // failed batches and streaming songs past the limit were not sent
+  const failed = all.slice(300);
   let n = 0;
   let done = 0;
   progress(0, list.length);
@@ -812,10 +814,13 @@ export class Player extends EventTarget {
   async flushEvents() {
     if (!this.pending.length || this.flushing) return;
     this.flushing = true;
-    const batch = this.pending.slice(0, 200);
+    const queue = this.pending;
+    const batch = queue.slice(0, 200);
     try {
       await post('/api/events', { events: batch });
-      this.pending.splice(0, batch.length);
+      // dropEvents() (logout) replaced the list meanwhile: the new events were not part of this batch
+      if (this.pending !== queue) return;
+      queue.splice(0, batch.length);
       this.#savePending();
     } catch {
       /* retry later */
@@ -874,6 +879,8 @@ export class Player extends EventTarget {
     } catch {
     } finally {
       this.fetchingMore = false;
+      // a new queue started while this answer was on its way: check that one now
+      if (seq !== this.queueSeq) this.#maybeExtend();
     }
   }
 
@@ -975,10 +982,18 @@ export class Player extends EventTarget {
       this.shuffled = false;
       if (this.original && this.current) {
         // the songs still to come go back to their old order; songs added while shuffled stay at the end
+        // first every entry that is still the same object keeps its old place, only then the
+        // rest is matched by id (a new copy of a song must not take the place of the original)
         const used = new Set();
+        const same = new Map();
+        for (const t of this.queue) {
+          const i = this.original.findIndex((o, k) => !used.has(k) && o === t);
+          if (i >= 0) { used.add(i); same.set(t, (same.get(t) || []).concat(i)); }
+        }
         const rank = (t) => {
-          let i = this.original.findIndex((o, k) => !used.has(k) && o === t);
-          if (i < 0) i = this.original.findIndex((o, k) => !used.has(k) && o.id === t.id);
+          const own = same.get(t);
+          if (own?.length) return own.shift();
+          const i = this.original.findIndex((o, k) => !used.has(k) && o.id === t.id);
           if (i < 0) return Infinity;
           used.add(i);
           return i;

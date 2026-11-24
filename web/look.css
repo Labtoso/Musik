@@ -47,7 +47,7 @@ lg-dot {
 @media (max-width: 899px) { [data-theme='glass'] .modal.devsheet { animation: ds-up 0.34s cubic-bezier(0.2, 0.9, 0.25, 1) backwards; } [data-theme='glass'] .devsheet-wrap.closing .devsheet { animation: ds-up 0.22s ease-in reverse both; } }
 /* these come after style.css, so its reduced-motion rule has to be repeated here */
 @media (prefers-reduced-motion: reduce) {
-  [data-theme='glass'] .modal, [data-theme='glass'] .devsheet, [data-theme='glass'] .menu, [data-theme='glass'] .devsheet-wrap.closing .devsheet { animation: none; }
+  [data-theme='glass'] .modal, [data-theme='glass'] .devsheet, [data-theme='glass'] .modal.devsheet, [data-theme='glass'] .menu, [data-theme='glass'] .devsheet-wrap.closing .devsheet { animation: none; }
 }
 [data-theme='glass'] .menu.lg-morph { animation: none; }
 [data-theme='glass'] .menu.lg-ghost { pointer-events: none; }

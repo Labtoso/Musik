@@ -1418,6 +1418,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     return true;
   }
   function frame(ts) {
+    dropHeld();
     if (fixed === null && !pace(ts || performance.now())) { raf = visible ? requestAnimationFrame(frame) : 0; return; }
     const t = fixed !== null ? +fixed : clock.getElapsedTime() - start;
     if (pending !== null && t >= T0) {
@@ -1568,9 +1569,19 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
   (window.requestIdleCallback || setTimeout)(warm, { timeout: 1500 });
 
   // ── GPU memory: every song of a long session would otherwise keep its cover and a 1536px record texture
+  // textures only kept by the record or sleeve material are freed once the material has moved on
+  const heldTex = new Set();
+  let heldV = null, heldS = null;
   function dropTex(t) {
-    if (!t || t === whiteTex || t === vinylMat.map || t === sleeveMat.map || coverTex.includes(t) || texs.includes(t) || decoTex.includes(t)) return;
+    if (!t || t === whiteTex || coverTex.includes(t) || texs.includes(t) || decoTex.includes(t)) return;
+    if (t === vinylMat.map || t === sleeveMat.map) { heldTex.add(t); heldV = vinylMat.map; heldS = sleeveMat.map; return; }
+    heldTex.delete(t);
     t.dispose();
+  }
+  function dropHeld() {
+    if (!heldTex.size || (vinylMat.map === heldV && sleeveMat.map === heldS)) return;
+    heldV = vinylMat.map; heldS = sleeveMat.map;
+    for (const t of [...heldTex]) dropTex(t);
   }
   const liveTracks = new Set(tracks.map((_, i) => i));
   function freeOldTracks(newest) {
