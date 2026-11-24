@@ -66,7 +66,7 @@ mod uninstall {
     use super::*;
     use windows_sys::Win32::System::Com::CoTaskMemFree;
     use windows_sys::Win32::System::Registry::{RegDeleteTreeW, HKEY_CURRENT_USER};
-    use windows_sys::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_Programs, FOLDERID_RoamingAppData, SHGetKnownFolderPath};
+    use windows_sys::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_RoamingAppData, FOLDERID_Programs, SHGetKnownFolderPath};
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES, MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK, MB_YESNO};
 
     fn wide(s: &str) -> Vec<u16> {
@@ -119,7 +119,7 @@ mod uninstall {
     pub fn desktop() -> Option<PathBuf> {
         known_folder(&FOLDERID_Desktop)
     }
-    /// %APPDATA%\Streyn, where the setup installs since 1.34 (like Spotify's %APPDATA%\Spotify).
+    /// %APPDATA%\Streyn, where the setup installs since 1.34 (like Spotify).
     pub fn install_dir() -> Option<PathBuf> {
         known_folder(&FOLDERID_RoamingAppData).map(|d| d.join("Streyn"))
     }
@@ -155,7 +155,7 @@ pub fn uninstall(silent: bool) -> bool {
     // The program file goes first: if it cannot be moved, nothing else is changed, so Streyn stays
     // complete and keeps its "Installed apps" entry.
     // %TEMP% is tried first; a move cannot cross drives, so if %TEMP% is on another drive the file
-    // goes next to the install folder (%APPDATA%), which is always on the same drive.
+    // goes next to the install folder (%LOCALAPPDATA%), which is always on the same drive.
     let name = format!("streyn-removed-{}.tmp", std::process::id());
     let moved = std::fs::rename(&exe, std::env::temp_dir().join(&name)).or_else(|e| match dir.parent() {
         Some(parent) => std::fs::rename(&exe, parent.join(&name)),
