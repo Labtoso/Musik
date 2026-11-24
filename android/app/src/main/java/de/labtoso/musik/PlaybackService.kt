@@ -29,6 +29,12 @@ class PlaybackService : MediaSessionService() {
     private var crossfade = 0.0
     private var userVol = 1f
     private var lastK = 1f
+    /** The volume this service last gave the player (fade and ducking); anything else came from the app. */
+    private var lastSet = 1f
+    private fun applyVol(p: ExoPlayer) {
+        lastSet = (userVol * lastK * duckK).coerceIn(0f, 1f)
+        p.volume = lastSet
+    }
     private var fadeIn = false
     /** Lowered while another app plays a short sound (1 = normal). */
     private var duckK = 1f
@@ -47,7 +53,7 @@ class PlaybackService : MediaSessionService() {
             }
             if (kotlin.math.abs(k - lastK) > 0.01f) {
                 lastK = k
-                p.volume = userVol * k * duckK
+                applyVol(p)
             }
             if (cf > 0) ui.postDelayed(this, 80)
         }
@@ -90,7 +96,7 @@ class PlaybackService : MediaSessionService() {
         focus = FocusKeeper(this, player, prefs) { k ->
             if (k != duckK) {
                 duckK = k
-                player.volume = userVol * lastK * duckK
+                applyVol(player)
             }
         }
         player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
@@ -115,9 +121,11 @@ class PlaybackService : MediaSessionService() {
                 lostAt = if (!playWhenReady && reason == androidx.media3.common.Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) System.currentTimeMillis() else 0
             }
             override fun onVolumeChanged(volume: Float) {
-                // a change from the app, not from the fade: remember it as the volume to fade from
-                val k = lastK * duckK
-                if (kotlin.math.abs(volume - userVol * k) > 0.002f && k > 0.05f) userVol = (volume / k).coerceIn(0f, 1f)
+                // a change from the app, not from the fade or ducking: that is the volume the user wants
+                if (kotlin.math.abs(volume - lastSet) <= 0.002f) return
+                userVol = volume.coerceIn(0f, 1f)
+                lastSet = volume
+                if (lastK * duckK != 1f) PlaybackService.player?.let { applyVol(it) }
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 // a song that runs into the next one, or into itself again (repeat one), fades in
@@ -167,7 +175,7 @@ class PlaybackService : MediaSessionService() {
         if (crossfade > 0) ui.post(fadeTick)
         else if (lastK != 1f) {
             lastK = 1f
-            PlaybackService.player?.volume = userVol * duckK
+            PlaybackService.player?.let { applyVol(it) }
         }
         val norm = o.optBoolean("normalize", false)
         if (android.os.Build.VERSION.SDK_INT < 28 || audioSession <= 0) return

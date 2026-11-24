@@ -50,21 +50,41 @@ class FocusKeeper(
     private var stopped = false
     /** Our own player just opened a new output: playback changes until then are ours. */
     private var graceUntil = 0L
-    private val rebase = Runnable { if (decide == null) base = count(am.activePlaybackConfigurations) }
+    /** Grace over: take our new output into the base, but only one new music stream counts as ours. */
+    private val rebase = Runnable {
+        if (decide != null) return@Runnable
+        val now = count(am.activePlaybackConfigurations)
+        if (watching && player.playWhenReady && foreign(now, ownSlack = 1)) pauseFor(watchTransient) else base = now
+    }
 
     private val keepOn get() = prefs.getBoolean("play_keepWithApps", true)
 
     private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>) {
             if (!watching || !player.playWhenReady || System.currentTimeMillis() < graceUntil) return
-            val now = count(configs)
             // a music, video or podcast app started after all: give way to it
-            if (now.media > base.media) pauseFor(watchTransient)
+            if (foreign(count(configs), ownSlack = 0)) pauseFor(watchTransient)
+        }
+    }
+
+    /** A recording that starts later (voice message, video) without asking for focus also pauses the music. */
+    private val recordingCallback = object : AudioManager.AudioRecordingCallback() {
+        override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>) {
+            if (stopped || !player.playWhenReady || !keepOn || configs.none(::realRecording)) return
+            // focus already lost to the recording app: carry on once it gives focus back
+            pauseFor(transient = !held)
         }
     }
 
     init {
         am.registerAudioPlaybackCallback(playbackCallback, main)
+        am.registerAudioRecordingCallback(recordingCallback, main)
+    }
+
+    /** Same rule as the decision after a focus loss, so a late start is judged the same way. */
+    private fun foreign(now: Counts, ownSlack: Int): Boolean {
+        if (now.media > base.media + ownSlack) return true
+        return !watchTransient && now.unknown > base.unknown && now.game <= base.game
     }
 
     /** Called when the player starts or stops wanting to play. */
@@ -85,7 +105,6 @@ class FocusKeeper(
     fun ownTrackChanged() {
         graceUntil = System.currentTimeMillis() + 1500
         main.removeCallbacks(rebase)
-        main.postDelayed(rebase, 400)
         main.postDelayed(rebase, 1500)
     }
 
@@ -104,18 +123,20 @@ class FocusKeeper(
         cancelDecide()
         watching = false
         duck(1f)
-        if (held) am.abandonAudioFocusRequest(request)
+        // also after a short loss: the request must leave the system's focus stack
+        am.abandonAudioFocusRequest(request)
         held = false
     }
 
     private fun onFocus(change: Int) {
+        if (stopped) return
         when (change) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 held = true
                 cancelDecide()
                 watching = false
                 duck(1f)
-                if (resumeOnGain) {
+                if (resumeOnGain && !inCall()) {
                     resumeOnGain = false
                     player.play()
                 }
@@ -182,7 +203,13 @@ class FocusKeeper(
         if (m == AudioManager.MODE_IN_CALL || m == AudioManager.MODE_IN_COMMUNICATION || m == AudioManager.MODE_RINGTONE) return true
         if (android.os.Build.VERSION.SDK_INT >= 30 && m == AudioManager.MODE_CALL_SCREENING) return true
         // someone records a voice message or a video: the music must not end up in it
-        return am.activeRecordingConfigurations.isNotEmpty()
+        return am.activeRecordingConfigurations.any(::realRecording)
+    }
+
+    /** Hotword listening ("Hey Google") and silenced recordings are not someone recording. */
+    private fun realRecording(c: android.media.AudioRecordingConfiguration): Boolean {
+        if (c.clientAudioSource == HOTWORD_SOURCE) return false
+        return !(android.os.Build.VERSION.SDK_INT >= 29 && c.isClientSilenced)
     }
 
     private fun cancelDecide() {
@@ -192,9 +219,11 @@ class FocusKeeper(
 
     fun stop() {
         stopped = true
+        resumeOnGain = false
         main.removeCallbacks(rebase)
         release()
         runCatching { am.unregisterAudioPlaybackCallback(playbackCallback) }
+        runCatching { am.unregisterAudioRecordingCallback(recordingCallback) }
     }
 
     private data class Counts(val media: Int, val unknown: Int, val game: Int)
@@ -218,5 +247,7 @@ class FocusKeeper(
 
     companion object {
         private const val DUCK = 0.25f
+        /** MediaRecorder.AudioSource.HOTWORD (hidden in the SDK). */
+        private const val HOTWORD_SOURCE = 1999
     }
 }
