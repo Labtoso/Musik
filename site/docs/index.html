@@ -19,7 +19,7 @@ try { const a = localStorage.getItem('musik.site.accent'); if (a === 'green' || 
 <style>
 :root {
   --bg: #0b0b0c; --bg2: #131315; --bg3: #1a1a1d; --line: #222225; --line2: #2e2e33;
-  --paper: #ededee; --muted: #a1a1a8; --dim: #6c6c74;
+  --paper: #ededee; --muted: #a1a1a8; --dim: #8e8e96;
   --accent: #5b84ff; --acc-rgb: 91,132,255; --ink: #060c22;
   --warn: #e8b04a; --bad: #ef6b6b; --ok: #3fbf7f;
   --serif: Fraunces, Georgia, serif; --sans: 'Schibsted Grotesk', system-ui, sans-serif; --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
@@ -207,6 +207,7 @@ details.fix > div > p:last-child { margin-bottom: 0; }
 .fig .ah { fill: var(--dim); }
 figure.shot { margin: 20px 0 24px; }
 figure.shot img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg2); cursor: zoom-in; }
+figure.shot button { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 10px; }
 figure.shot.phone { max-width: 300px; }
 figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 .zoom { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: rgba(5,5,6,.9); opacity: 0; pointer-events: none; transition: opacity .2s; cursor: zoom-out; }
@@ -342,7 +343,7 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 
 <template data-l="en" data-p="first" data-g="Set up" data-t="First start"><p class="lead">Create your account, answer a few questions and add your music. Then press play.</p>
 <ol class="steps"><li><b>Create the first account</b>Open the server address in a browser or an app. The first account is the <b>admin</b>: it can update the server and invite people.</li><li><b>Answer the setup assistant</b>Language, look, the music and artists you like and how you listen. Every step can be skipped and changed later in Settings.</li><li><b>Add your music</b>Copy songs into the music folder (scanned every 30 minutes, right away with <span class="path">Settings → Rescan library</span>), or upload them under <span class="path">Settings → Upload music</span>. MP3, FLAC, M4A/AAC, OGG, WAV and WebM work.</li><li><b>Play</b>Start <b>Mix for you</b> on the home page. Streyn learns from what you play to the end, skip or like.</li></ol>
-<figure class="shot"><img src="../shots/v2/d-home.webp" alt="Streyn home page on the computer" loading="lazy"><figcaption>The home page after the setup assistant</figcaption></figure>
+<figure class="shot"><button type="button" class="zb"><img src="../shots/v2/d-home.webp" alt="Streyn home page on the computer" loading="lazy"></button><figcaption>The home page after the setup assistant</figcaption></figure>
 <h2>Where the music folder is</h2>
 <table><thead><tr><th>System</th><th>Music folder</th></tr></thead><tbody><tr><td>Proxmox, Debian</td><td><code>/srv/streyn</code>, or your host folder from <code>MUSIC_HOST_DIR</code></td></tr><tr><td>ZimaOS / CasaOS</td><td><code>Media/Music</code></td></tr><tr><td>Docker</td><td><code>music/</code> next to <code>docker-compose.yml</code></td></tr><tr><td>Windows</td><td>your <b>Music</b> folder, or <code>MUSIC_DIRS</code></td></tr></tbody></table>
 <div class="note ok"><b>Next</b><p>The basics are done. Want every Spotify song too? <a href="#/spotify">Connect Spotify</a>. Listening away from home? <a href="#/away">On the go</a>.</p></div>
@@ -505,7 +506,7 @@ sudo systemctl start streyn</code></pre></li></ol>
 
 <template data-l="de" data-p="first" data-g="Einrichten" data-t="Erster Start"><p class="lead">Konto anlegen, ein paar Fragen beantworten und deine Musik hinzufügen. Dann auf Play.</p>
 <ol class="steps"><li><b>Erstes Konto anlegen</b>Die Serveradresse im Browser oder in einer App öffnen. Das erste Konto ist der <b>Admin</b>: Er kann den Server aktualisieren und Leute einladen.</li><li><b>Einrichtungsassistent beantworten</b>Sprache, Look, die Musik und Künstler*innen, die du magst, und wie du hörst. Jeder Schritt lässt sich überspringen und später in den Einstellungen ändern.</li><li><b>Musik hinzufügen</b>Songs in den Musikordner kopieren (wird alle 30 Minuten gescannt, sofort mit <span class="path">Einstellungen → Bibliothek neu scannen</span>), oder unter <span class="path">Einstellungen → Musik hochladen</span> hochladen. MP3, FLAC, M4A/AAC, OGG, WAV und WebM gehen.</li><li><b>Abspielen</b><b>Mix für dich</b> auf der Startseite starten. Streyn lernt aus dem, was du ganz hörst, überspringst oder likest.</li></ol>
-<figure class="shot"><img src="../shots/v2/d-home.webp" alt="Streyn-Startseite am Computer" loading="lazy"><figcaption>Die Startseite nach dem Einrichtungsassistenten</figcaption></figure>
+<figure class="shot"><button type="button" class="zb"><img src="../shots/v2/d-home.webp" alt="Streyn-Startseite am Computer" loading="lazy"></button><figcaption>Die Startseite nach dem Einrichtungsassistenten</figcaption></figure>
 <h2>Wo der Musikordner liegt</h2>
 <table><thead><tr><th>System</th><th>Musikordner</th></tr></thead><tbody><tr><td>Proxmox, Debian</td><td><code>/srv/streyn</code>, oder dein Host-Ordner aus <code>MUSIC_HOST_DIR</code></td></tr><tr><td>ZimaOS / CasaOS</td><td><code>Media/Music</code></td></tr><tr><td>Docker</td><td><code>music/</code> neben <code>docker-compose.yml</code></td></tr><tr><td>Windows</td><td>dein Ordner <b>Musik</b>, oder <code>MUSIC_DIRS</code></td></tr></tbody></table>
 <div class="note ok"><b>Weiter</b><p>Die Grundlagen sind fertig. Auch jeden Spotify-Song? <a href="#/spotify">Spotify verbinden</a>. Hören außer Haus? <a href="#/away">Unterwegs</a>.</p></div>
@@ -773,7 +774,8 @@ sudo systemctl start streyn</code></pre></li></ol>
   zoom.addEventListener('click', closeZoom);
   addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeZoom(); nav(false); } });
   document.addEventListener('click', (e) => {
-    const im = e.target.closest('#doc figure.shot img');
+    const btn = e.target.closest('#doc figure.shot button');
+    const im = btn && $('img', btn);
     if (!im) return;
     $('img', zoom).src = im.currentSrc || im.src;
     $('p', zoom).textContent = im.alt || '';
@@ -854,7 +856,7 @@ sudo systemctl start streyn</code></pre></li></ol>
       items.forEach((a, i) => a.classList.toggle('sel', i === sel));
       items[sel].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter' && items[sel]) {
-      e.preventDefault(); location.hash = items[sel].getAttribute('href'); $('#q').value = ''; $('#q').blur(); closeSearch();
+      e.preventDefault(); items[sel].click(); $('#q').value = ''; $('#q').blur(); closeSearch();
     } else if (e.key === 'Escape') { $('#q').value = ''; closeSearch(); $('#q').blur(); }
   });
   $('#results').addEventListener('click', (e) => { if (e.target.closest('a')) { $('#q').value = ''; closeSearch(); } });
