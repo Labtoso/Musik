@@ -532,7 +532,12 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun prev() = withController { c ->
             if (c.currentMediaItemIndex > 0) c.seekToDefaultPosition(c.currentMediaItemIndex - 1) else c.seekTo(0)
         }
-        @JavascriptInterface fun setVolume(v: Double) = withController { c -> c.volume = v.toFloat().coerceIn(0f, 1f) }
+        @JavascriptInterface fun setVolume(v: Double) {
+            val vol = v.toFloat().coerceIn(0f, 1f)
+            // the service keeps this as the user's volume, also while the music is lowered for another app
+            prefs.edit().putFloat("userVol", vol).apply()
+            withController { c -> c.volume = vol }
+        }
         // podcasts: 0.5x to 3x, the pitch stays (songs always get 1x from the page)
         @JavascriptInterface fun setSpeed(v: Double) = withController { c -> c.setPlaybackSpeed(v.toFloat().coerceIn(0.5f, 3f)) }
         @JavascriptInterface fun setRepeat(mode: String) = withController { c ->
@@ -688,9 +693,9 @@ class MainActivity : ComponentActivity() {
         }
         @JavascriptInterface fun setOutput(id: Int) = main.post { pickOutput(id) }
         @JavascriptInterface fun openBluetooth() = main.post { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }
-        @JavascriptInterface fun getPlayPref(key: String): Boolean = prefs.getBoolean("play_$key", key == "pauseOnDisconnect")
+        @JavascriptInterface fun getPlayPref(key: String): Boolean = prefs.getBoolean("play_$key", key == "pauseOnDisconnect" || key == "keepWithApps")
         @JavascriptInterface fun setPlayPref(key: String, on: Boolean) {
-            if (key == "pauseOnDisconnect" || key == "resumeOnConnect") prefs.edit().putBoolean("play_$key", on).apply()
+            if (key == "pauseOnDisconnect" || key == "resumeOnConnect" || key == "keepWithApps") prefs.edit().putBoolean("play_$key", on).apply()
         }
         @JavascriptInterface fun offlineCall(method: String, path: String, body: String): String = localCall(method, path, body)
         @JavascriptInterface fun useOffline() = openLocal()
