@@ -191,6 +191,9 @@ html[data-theme='glass'][data-oled] { background: #000; }
   [data-theme='glass'] .bottomnav { background: linear-gradient(180deg, rgba(30, 30, 38, 0.08), rgba(12, 12, 16, 0.16)); }
 }
 [data-theme='glass'] .toast { background: rgba(20, 20, 26, 0.24); }
+/* over an own bright background picture the bars keep a little more veil so their labels stay readable */
+html.has-wall[data-theme='glass']:not([data-mode='light']) .player, html.has-wall[data-theme='glass']:not([data-mode='light']) .side, html.has-wall[data-theme='glass']:not([data-mode='light']) .bottomnav { background: linear-gradient(180deg, rgba(20, 20, 26, 0.2), rgba(10, 10, 14, 0.3)); }
+html.has-wall[data-theme='glass'][data-mode='light'] .player, html.has-wall[data-theme='glass'][data-mode='light'] .side, html.has-wall[data-theme='glass'][data-mode='light'] .bottomnav { background: linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(246, 246, 250, 0.36)); }
 /* menus, sheets and dialogs are real Liquid Glass too: the page shows through and bends at the rim, a veil keeps the text readable */
 [data-theme='glass'] .menu { background: linear-gradient(180deg, rgba(34, 34, 42, 0.3), rgba(16, 16, 22, 0.4)); border-color: transparent; }
 [data-theme='glass'] .modal, [data-theme='glass'] .modal.devsheet { background: linear-gradient(180deg, rgba(30, 30, 38, 0.34), rgba(14, 14, 20, 0.46)); border-color: transparent; }
