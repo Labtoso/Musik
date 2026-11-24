@@ -22,7 +22,8 @@ version_of() { # id port
 }
 
 # values read from inside the container only keep characters that cannot change the Markdown
-clean() { printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/@%+=,~-'; }
+# keeps non-ASCII (UTF-8) bytes so paths like /srv/Musik/Hörbücher stay as they are; ASCII is limited to safe characters
+clean() { printf '%s' "$1" | LC_ALL=C tr -cd 'A-Za-z0-9 ._:/@%+=,~\200-\377-'; }
 
 write_notes() { # id mode version port
   local id="$1" mode="$2" version="$3" port="$4" ip url remote music ts when

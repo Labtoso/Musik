@@ -697,7 +697,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
     </div>
     <div class="pane" data-pane="win">
       <div class="term"><div class="term-h">PowerShell<button data-copy="win" data-t="copy"></button></div>
-<pre><span class="p">&gt;</span> <span data-cmd="win">try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</span></pre></div>
+<pre><span class="p">&gt;</span> <span data-cmd="win">try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe -ErrorAction Stop; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</span></pre></div>
       <a class="windl" href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe"><span data-t="winDl"></span> <b data-winver>latest</b></a>
       <ol class="steps"><li data-h="win1"></li><li data-h="win2"></li></ol>
     </div>
@@ -1130,6 +1130,8 @@ resetDemo(); render();
   ring.addEventListener('dragstart', (e) => e.preventDefault());
   const end = () => (drag = null);
   ring.addEventListener('pointerup', end); ring.addEventListener('pointercancel', end);
+  // released outside the ring before the drag was captured
+  addEventListener('pointerup', end); addEventListener('pointercancel', end);
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   (function loop() {
     if (!drag) { vel *= 0.95; rot += vel + (reduce ? 0 : -0.12); }

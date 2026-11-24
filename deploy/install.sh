@@ -361,11 +361,13 @@ if [ "$TAILSCALE" = "1" ]; then
   fi
 fi
 # --no-public also takes effect when Tailscale itself was not touched in this run
+PUBLIC_OFF_FAILED=0
 if [ "$PUBLIC" = "0" ] && grep -q '^PUBLIC_URL=' "$ENV_FILE" 2>/dev/null; then
   step "Switching off public links"
   if command -v tailscale >/dev/null; then tailscale funnel --https=8443 off >/dev/null 2>&1 || true; fi
   if command -v tailscale >/dev/null && tailscale funnel status 2>/dev/null | grep -q ':8443'; then
     echo "Tailscale Funnel could not be switched off, public links stay on. Try: tailscale funnel --https=8443 off" >&2
+    PUBLIC_OFF_FAILED=1
   else
     sed -i '/^PUBLIC_URL=/d' "$ENV_FILE"
     systemctl restart streyn
@@ -375,7 +377,8 @@ REMOTE="$(awk -F= '/^REMOTE_URL=/{print $2}' "$ENV_FILE")"
 # 22/23: each check has a time limit, and an installation that never answers ends with an error
 READY=0
 for _ in $(seq 1 30); do
-  if curl -fsS --connect-timeout 2 --max-time 3 "http://127.0.0.1:${PORT_NOW:-8484}/api/info" >/dev/null 2>&1; then READY=1; break; fi
+  # only a Streyn answer with a version counts, not any other service on that port
+  if [ -n "$(info_version "${PORT_NOW:-8484}")" ]; then READY=1; break; fi
   sleep 1
 done
 
@@ -401,4 +404,4 @@ echo "  Music folder:  $(awk -F= '/^MUSIC_DIRS=/{print $2}' "$ENV_FILE")"
 echo "  Settings:      $ENV_FILE"
 echo "  Update:        streyn-update"
 echo "  Logs:          journalctl -u streyn -f"
-[ "$READY" = 1 ] || exit 1
+[ "$READY" = 1 ] && [ "$PUBLIC_OFF_FAILED" = 0 ] || exit 1

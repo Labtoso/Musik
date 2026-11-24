@@ -1096,7 +1096,8 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
 
   // ── records
   const covers = tracks.map(() => null);
-  const texs = [], coverTok = [];
+  // applied: the cover url whose image is on the record now
+  const texs = [], coverTok = [], applied = [];
   // a track whose cover is not loaded (yet) gets the plain record, never the cover of another track
   const blankTex = vinylMat.map;
   const texFor = (i) => texs[i] || blankTex;
@@ -1105,7 +1106,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
     im.crossOrigin = 'anonymous';
     im.onload = () => {
       if (coverTok[i]) return; // setCover() already replaced this cover
-      covers[i] = im; texs[i] = vinylTexture(accentTo, true, im);
+      covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); applied[i] = tr.cover;
       if (i === cur) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
     };
     im.src = tr.cover;
@@ -1591,7 +1592,13 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       const prev = tracks[i].cover;
       tracks[i].cover = url;
       const tok = (coverTok[i] = (coverTok[i] || 0) + 1);
-      const failed = () => { if (coverTok[i] === tok && tracks[i].cover === url) tracks[i].cover = prev; };
+      // on failure the record goes back to the last cover that really loaded; a previous request
+      // that was dropped for this one before it loaded is started once more
+      const failed = () => {
+        if (coverTok[i] !== tok || tracks[i].cover !== url) return;
+        tracks[i].cover = applied[i] || '';
+        if (prev && prev !== applied[i]) api.setCover(prev, i);
+      };
       loader.load(url, (t) => {
         if (coverTok[i] !== tok) { t.dispose(); return; }
         t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; coverTex[i] = t;
@@ -1601,7 +1608,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       im.onload = () => {
         if (coverTok[i] !== tok) return;
         const old = texs[i];
-        covers[i] = im; texs[i] = vinylTexture(accentTo, true, im);
+        covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); applied[i] = url;
         if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; }
         if (old && old !== vinylMat.map && old !== blankTex) old.dispose();
       };
@@ -1617,7 +1624,7 @@ export function createTurntable(canvas, { accent = '#4c8dff', reduced = false, t
       coverTex[i] = loadTex(url);
       const im = new Image();
       im.crossOrigin = 'anonymous';
-      im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
+      im.onload = () => { covers[i] = im; texs[i] = vinylTexture(accentTo, true, im); applied[i] = url; if (cur === i) { vinylMat.map = texs[i]; vinylMat.needsUpdate = true; } };
       im.src = url;
       if (!reduced) pending = i;
       return i;

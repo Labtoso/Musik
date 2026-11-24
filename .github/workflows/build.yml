@@ -324,7 +324,15 @@ jobs:
           FULL="$(mktemp)"; cat "$NOTES" > "$FULL"
           printf '\n---\n<sub>`streyn-desktop-*` are the unchanged Windows app files that every installer reuses (kept here for the build). To install, download **Streyn.exe**.</sub>\n' >> "$FULL"
           NOTES="$FULL"
-          gh release create "v$V" out/* --target "$GITHUB_SHA" --title "Streyn $V" --notes-file "$NOTES" --latest
+          # an older version finishing after a newer one must not become "latest" (the download links use it)
+          LATEST=--latest
+          git fetch -q origin main || true
+          CURV="$(git show origin/main:site/version.json 2>/dev/null | sed -n 's/.*"tag_name":"v\{0,1\}\([^"]*\)".*/\1/p' | head -n1 || true)"
+          if [ -n "$CURV" ] && [ "$CURV" != "$V" ] && [ "$(printf '%s\n%s\n' "$CURV" "$V" | sort -V | tail -n1)" = "$CURV" ]; then
+            echo "v$CURV is newer than v$V, so v$V is not marked as latest"
+            LATEST=--latest=false
+          fi
+          gh release create "v$V" out/* --target "$GITHUB_SHA" --title "Streyn $V" --notes-file "$NOTES" "$LATEST"
           # earlier releases that went out without a description get theirs from the notes files
           for f in .github/releases/v*.md; do
             t="$(basename "$f" .md)"

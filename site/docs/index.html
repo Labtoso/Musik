@@ -391,7 +391,7 @@ figure.one { margin: 18px 0 22px; }
     <p>Music goes into <code>music/</code>, data into <code>data/</code>, port 8484.</p>
   </div>
   <div role="tabpanel">
-    <p>In PowerShell: <code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code>. That always loads the newest server; run it again to update. Or download <code>streyn-server-windows-x64.exe</code> from the <a href="https://github.com/Labtoso/Musik/releases/latest">latest release</a> and start it. It uses your Music folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> next to the exe.</p>
+    <p>In PowerShell: <code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe -ErrorAction Stop; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code>. That always loads the newest server; run it again to update. Or download <code>streyn-server-windows-x64.exe</code> from the <a href="https://github.com/Labtoso/Musik/releases/latest">latest release</a> and start it. It uses your Music folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> next to the exe.</p>
   </div>
 </div>
 <h2>Proxmox options</h2>
@@ -720,7 +720,7 @@ unset key</code></pre>
     <p>Musik in <code>music/</code>, Daten in <code>data/</code>, Port 8484.</p>
   </div>
   <div role="tabpanel">
-    <p>In PowerShell: <code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code>. Das lädt immer den neuesten Server; zum Updaten noch mal ausführen. Oder <code>streyn-server-windows-x64.exe</code> vom <a href="https://github.com/Labtoso/Musik/releases/latest">neuesten Release</a> laden und starten. Er nimmt deinen Musik-Ordner. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine <code>.env</code> neben der exe schreiben.</p>
+    <p>In PowerShell: <code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe -ErrorAction Stop; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code>. Das lädt immer den neuesten Server; zum Updaten noch mal ausführen. Oder <code>streyn-server-windows-x64.exe</code> vom <a href="https://github.com/Labtoso/Musik/releases/latest">neuesten Release</a> laden und starten. Er nimmt deinen Musik-Ordner. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine <code>.env</code> neben der exe schreiben.</p>
   </div>
 </div>
 <h2>Optionen für Proxmox</h2>

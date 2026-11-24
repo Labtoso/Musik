@@ -42,7 +42,8 @@ if command -v casaos-cli >/dev/null 2>&1; then
   if casaos-cli app-management list apps 2>/dev/null | grep -qw streyn; then
     echo "==> Streyn is already installed: restarting it, which fetches the newest version."
     if ! casaos-cli app-management apply streyn -f "$FILE" >/dev/null; then
-      echo "Warning: the new settings could not be applied (see above); restarting with the current ones." >&2
+      echo "Error: the new settings could not be applied (see above). Nothing was restarted." >&2
+      exit 1
     fi
     casaos-cli app-management restart streyn
   else
