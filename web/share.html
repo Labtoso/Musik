@@ -211,10 +211,15 @@
 
   async function save() {
     if (!signedIn) return toast(T.login);
-    const r = await fetch(base + '/save', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
-    if (r.status === 401) return toast(T.login);
-    if (!r.ok) return toast('Error ' + r.status);
-    const j = await r.json();
+    let r, j;
+    try {
+      r = await fetch(base + '/save', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
+      if (r.status === 401) return toast(T.login);
+      if (!r.ok) return toast('Error ' + r.status);
+      j = await r.json();
+    } catch {
+      return toast(T.offline);
+    }
     const done = j.kind === 'like' ? T.liked : T.saved;
     $('save').textContent = done + ' ✓';
     $('save').disabled = true;
@@ -226,8 +231,12 @@
 
   async function join() {
     if (signedIn) {
-      const r = await fetch(base + '/join', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
-      if (r.ok) return (location.href = '/#/playlist/' + (await r.json()).id);
+      try {
+        const r = await fetch(base + '/join', { method: 'POST', headers: { Authorization: 'Bearer ' + conn.token } });
+        if (r.ok) return (location.href = '/#/playlist/' + (await r.json()).id);
+      } catch {
+        return toast(T.offline);
+      }
     }
     const box = $('joinbox');
     box.classList.add('on');

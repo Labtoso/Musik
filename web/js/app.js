@@ -921,10 +921,12 @@ function coverImg(id, cls = '') {
     }
   }
   const sharp = /\b(huge|xl)\b/.test(cls) ? sharpCover(url) : url;
+  // the url ends up inside a JS string in an HTML attribute: escape everything but plain url chars as \uXXXX
+  const jsUrl = "'" + String(url).replace(/[^\w.:/-]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')) + "'";
   // the sharp one may be missing (YouTube has no large picture for every video): fall back to the normal one first
-  const onerr = sharp !== url ? `if(!this.dataset.fb){this.dataset.fb=1;this.src='${esc(url)}'}else{${ph}}` : ph;
+  const onerr = sharp !== url ? `if(!this.dataset.fb){this.dataset.fb=1;this.src=${jsUrl}}else{${ph}}` : ph;
   // YouTube answers a missing large picture with a grey 120px placeholder instead of an error
-  const onload = sharp !== url && /ytimg/.test(url) ? ` onload="if(this.naturalWidth<=120&&!this.dataset.fb){this.dataset.fb=1;this.src='${esc(url)}'}"` : '';
+  const onload = sharp !== url && /ytimg/.test(url) ? ` onload="if(this.naturalWidth<=120&&!this.dataset.fb){this.dataset.fb=1;this.src=${jsUrl}}"` : '';
   return `<div class="cover ${cls}"><img loading="lazy" alt="" src="${esc(sharp)}"${onload} onerror="${onerr}"></div>`;
 }
 function songCount(n) {
@@ -1141,7 +1143,11 @@ function trackMenu(anchor, tr, ctx = {}) {
       run: async () => {
         const pl = await get(`/api/playlists/${ctx.playlistId}`);
         const ids = pl.tracks.map((x) => x.id);
-        ids.splice(ctx.position, 1);
+        // someone else may have changed the playlist since it was shown: remove this song, not whatever is at its old place
+        let at = ids[ctx.position] === tr.id ? ctx.position : -1;
+        if (at < 0) ids.forEach((id, i) => id === tr.id && (at < 0 || Math.abs(i - ctx.position) < Math.abs(at - ctx.position)) && (at = i));
+        if (at < 0) return render();
+        ids.splice(at, 1);
         await put(`/api/playlists/${ctx.playlistId}`, { trackIds: ids });
         render();
       }
@@ -1294,11 +1300,26 @@ function fmtDate(ms) {
   const d = new Date(ms > 1e11 ? ms : ms * 1000);
   return d.toLocaleDateString(getLang() === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+// track and episode lists of every render get a random key; the ones no page shows any more are let go now and then
+const listBorn = new Map(); // key -> [store name, time]
+function keepList(store, key) {
+  listBorn.set(key, [store, Date.now()]);
+  if (listBorn.size < 300) return;
+  const old = Date.now() - 60000;
+  for (const [k, [st, at]] of listBorn) {
+    if (at > old) continue;
+    const attr = st === 'eps' ? 'data-eplist' : 'data-list';
+    if (document.querySelector(`[${attr}="${k}"]`) || homeKept?.html.includes(`"${k}"`)) continue;
+    if (state[st]) delete state[st][k];
+    listBorn.delete(k);
+  }
+}
 function trackList(tracks, { numbers = false, album = true, reasons = false, playlistId = null, reorder = false } = {}) {
   if (!tracks.length) return `<p class="muted empty">${t('empty')}</p>`;
   const id = 'tl' + Math.random().toString(36).slice(2, 8);
   state.lists = state.lists || {};
   state.lists[id] = tracks;
+  keepList('lists', id);
   const cur = player.current?.id;
   const c = cols();
   const showAlb = album && c.has('album');
@@ -2561,7 +2582,7 @@ views.spcat = async (params) => {
     ? r.list.map((p) => ({ ...spPlaylist(p), artist: [p.owner, p.total ? songCount(p.total) : ''].filter(Boolean).join(' · ') }))
     : r.list.map(catPlaylist);
   const note = r.src === 'spotify' ? '' : `<p class="muted small">${t('spBrowseConnect')}</p>`;
-  return `<button class="mback" data-back title="${t('back')}">${icon('back')}</button>${pageHead(name)}${note}${cards.length ? plainAlbumCards(cards).replace('class="cards"', 'class="cards libgrid"') : `<p class="muted empty">${t('empty')}</p>`}`;
+  return `<button class="mback" data-back title="${t('back')}">${icon('back')}</button>${pageHead(esc(name))}${note}${cards.length ? plainAlbumCards(cards).replace('class="cards"', 'class="cards libgrid"') : `<p class="muted empty">${t('empty')}</p>`}`;
 };
 // Settings → Updates → playback check: asks the server to find and open one known song
 document.addEventListener('click', async (e) => {
@@ -3135,12 +3156,13 @@ document.addEventListener('click', async (e) => {
     const list = prefs.preloadAll ? all : all.filter((tr) => !preloadedIds.has(String(tr.id)));
     if (!list.length) return toast(t('preloadDone'));
     pre.classList.add('busy');
-    const n = await preloadSongs(list, (d, total) => {
+    const { n, failed } = await preloadSongs(list, (d, total) => {
       setP(pre, total ? (d / total) * 100 + '%' : '0%');
       pre.title = t('preloading', { n: d, total });
     });
     pre.classList.remove('busy');
-    list.forEach((tr) => preloadedIds.add(String(tr.id)));
+    // songs of a batch that failed (offline) stay new, so the next press tries them again
+    list.forEach((tr) => !failed.includes(tr) && preloadedIds.add(String(tr.id)));
     savePreloaded();
     pre.classList.add('on');
     pre.title = t('preload');
@@ -3229,7 +3251,9 @@ async function reorderDialog(ref) {
   }
   const wrap = document.createElement('div');
   wrap.className = 'modal-wrap';
-  const rows = () => order.map((x, i) => `<div class="ro-row" data-ri="${i}"><button class="icon-btn sm ro-rm" data-rorm="${i}" title="${t('remove')}">${icon('minusCircle')}</button>${coverImg(x.cid, 'sm')}<div class="main"><div class="title">${esc(x.title)}</div><div class="sub">${esc(x.artist || '')}</div></div><span class="ro-grip" data-grip="${i}">${icon('drag')}</span></div>`).join('');
+  let shown = order; // the order the rows on screen were drawn in
+  let folding = 0; // rows still folding away: dragging waits for them
+  const rows = () => (shown = order.slice()).map((x, i) => `<div class="ro-row" data-ri="${i}"><button class="icon-btn sm ro-rm" data-rorm="${i}" title="${t('remove')}">${icon('minusCircle')}</button>${coverImg(x.cid, 'sm')}<div class="main"><div class="title">${esc(x.title)}</div><div class="sub">${esc(x.artist || '')}</div></div><span class="ro-grip" data-grip="${i}">${icon('drag')}</span></div>`).join('');
   // like Spotify: cover and name on top (tap to change them), the songs below with minus and handle
   const cover = $('.detail-head .cover')?.cloneNode(true);
   wrap.innerHTML = `<div class="modal reorder"><div class="modal-head"><button class="icon-btn" data-x>${icon('close')}</button><h2>${t('editPlaylist')}</h2><button class="btn primary sm" data-ok>${t('save')}</button></div><div class="ro-list"><button class="ro-head" data-edit="${kind}:${id}"><span class="ro-cover"></span><span class="ro-change">${t('changeImage')}</span><b class="ro-name">${esc(title)}</b></button>${rows()}</div></div>`;
@@ -3247,15 +3271,25 @@ async function reorderDialog(ref) {
     if (rm) {
       // the row folds away, the ones below slide up
       const row = rm.closest('.ro-row');
+      if (row.classList.contains('gone')) return;
       row.classList.add('gone');
+      // the song leaves the order at once (a quick save keeps it out), only the row waits for its animation
+      const at = order.indexOf(shown[Number(rm.dataset.rorm)]);
+      if (at >= 0) order.splice(at, 1);
+      folding++;
       setTimeout(() => {
-        order.splice(Number(rm.dataset.rorm), 1);
-        redraw();
+        folding--;
+        if (!folding) redraw();
       }, 200);
       return;
     }
     if (e.target.closest('[data-ok]')) {
-      await save().catch((err) => toast(errorText(err)));
+      try {
+        await save();
+      } catch (err) {
+        // keep the dialog and the edited order, so saving can be tried again
+        return toast(errorText(err));
+      }
       wrap.remove();
       render();
     }
@@ -3263,7 +3297,7 @@ async function reorderDialog(ref) {
   // drag by the handle: the row follows the finger, the others make room
   list.addEventListener('pointerdown', (e) => {
     const g = e.target.closest('[data-grip]');
-    if (!g) return;
+    if (!g || folding) return;
     e.preventDefault();
     const row = g.closest('.ro-row');
     const from = Number(row.dataset.ri);
@@ -4280,9 +4314,11 @@ function epMeta(e) {
 /** A list of episode rows like Spotify's: cover, title, two lines of text, date and length, play button. */
 function episodeList(eps, { show = null, showName = false, key = '' } = {}) {
   if (!eps.length) return `<p class="muted empty">${t('podNoEps')}</p>`;
+  const random = !key;
   key = key || 'eps' + Math.random().toString(36).slice(2, 8);
   state.eps = state.eps || {};
   state.eps[key] = { eps, show };
+  if (random) keepList('eps', key);
   return `<div class="eplist" data-eplist="${key}">${eps.map((e, i) => epRow(e, i, key, show, showName)).join('')}</div>`;
 }
 function epRow(e, i, key, show, showName) {
@@ -4601,9 +4637,9 @@ let podSavedAt = 0;
 let sleepTimer = { id: 0, end: false, at: 0 };
 function savePodPos(tr, pos, dur, keepalive = false) {
   if (!tr?.pod || !conn.token) return;
-  const done = dur > 0 && pos >= dur - 30;
+  const done = dur > 0 && pos >= dur - Math.min(30, dur * 0.1); // short episodes: the last tenth
   podMemo.set(`${tr.pod.show}:${tr.pod.ep}`, { pos: done ? 0 : pos, duration: dur, done });
-  const body = { show: tr.pod.show, ep: tr.pod.ep, pos, dur, meta: { title: tr.title, showTitle: tr.pod.showTitle, author: tr.pod.author, cover: tr.pod.cover, date: tr.pod.date, desc: String(tr.pod.desc || '').slice(0, 300) } };
+  const body = { show: tr.pod.show, ep: tr.pod.ep, pos, dur, done, meta: { title: tr.title, showTitle: tr.pod.showTitle, author: tr.pod.author, cover: tr.pod.cover, date: tr.pod.date, desc: String(tr.pod.desc || '').slice(0, 300) } };
   if (keepalive) {
     try {
       fetch(`${conn.server}/api/podcasts/progress`, { method: 'PUT', keepalive: true, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + conn.token }, body: JSON.stringify(body) });
@@ -4679,7 +4715,7 @@ function podBindPlayer() {
     const cur = player.current;
     // the episode before: where it stopped (or that it ran to the end)
     if (podLast && podLast.tr.id !== cur?.id) {
-      const ended = podLast.dur && podLast.pos >= podLast.dur - 30;
+      const ended = podLast.dur && podLast.pos >= podLast.dur - Math.min(30, podLast.dur * 0.1);
       savePodPos(podLast.tr, ended ? podLast.dur : podLast.pos, podLast.dur);
       if (sleepTimer.end) {
         sleepTimer.end = false;
@@ -4719,6 +4755,7 @@ function go(hash) {
 }
 const TABS = ['home', 'search', 'library'];
 let renderSeq = 0;
+let shownRender = { seq: 0, detail: undefined }; // the render on screen and the song lists its buttons use
 async function render() {
   closeMenu();
   const hash = location.hash || '#/home';
@@ -4743,7 +4780,12 @@ async function render() {
   state.prevRoute = state.route;
   try {
     const html = await view(params, id);
-    if (seq !== renderSeq) return;
+    if (seq !== renderSeq) {
+      // a slow page that lost the race must not leave its songs behind the buttons of the newer page on screen
+      if (shownRender.seq > seq) state.detail = shownRender.detail;
+      return;
+    }
+    shownRender = { seq, detail: state.detail };
     main.innerHTML = html;
     main.classList.toggle('detail', !!main.querySelector('.detail-head'));
     tintAll(main);
@@ -5189,7 +5231,13 @@ async function openChill() {
   requestAnimationFrame(() => el.classList.add('open'));
   history.pushState({ chill: 1 }, '');
   try { await el.requestFullscreen?.({ navigationUI: 'hide' }); } catch {}
-  try { chill.lock = await navigator.wakeLock?.request('screen'); } catch {}
+  const room = chill;
+  try {
+    const lock = await navigator.wakeLock?.request('screen');
+    // the room was closed while the lock was asked for: give it back at once
+    if (chill && chill === room) chill.lock = lock;
+    else lock?.release().catch(() => {});
+  } catch {}
   try {
     const { createTurntable } = await import('./room.js');
     if (!chill || chill.el !== el) return;
@@ -5380,7 +5428,15 @@ addEventListener('popstate', () => {
 
 // Android back button
 window.musikBack = () => {
-  if ($('.modal-wrap')) return $('.modal-wrap').remove(), true;
+  // the dialog on top closes the way its own close button does (the crop dialog still answers and frees its picture)
+  const wraps = document.querySelectorAll('.modal-wrap');
+  const top = wraps[wraps.length - 1];
+  if (top) {
+    const x = top.querySelector('[data-x]');
+    if (x) x.click();
+    else top.remove();
+    return true;
+  }
   if ($('.menu:not(.lg-ghost)')) return closeMenu(), true;
   if ($('#settings').classList.contains('open')) return closeSettings(), true;
   if ($('#fs').classList.contains('open')) return openFs(false), true;
@@ -5552,7 +5608,7 @@ function savePlOrder(box) {
 async function saveImportAsPlaylist(id) {
   const r = await post(`/api/imports/${id}/playlist`);
   renderSidebarPlaylists();
-  toast(t('savedAsPlaylist', { name: r.name, n: r.tracks }));
+  toast(t('savedImportAsPlaylist', { name: r.name, n: r.tracks }));
   if (state.route === 'imported' || state.route === 'library') render();
 }
 document.addEventListener('click', (e) => {
@@ -5937,6 +5993,7 @@ function playlistDialog(pl = null, kind = 'playlist') {
     const close = (v) => (closeMenu(), wrap.remove(), preview && URL.revokeObjectURL(preview), res(v));
     wrap.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => close(null)));
     wrap.addEventListener('mousedown', (e) => e.target === wrap && close(null));
+    let createdId = null; // a new playlist made in an earlier try whose picture upload failed
     form.onsubmit = async (e) => {
       e.preventDefault();
       const name = form.elements.name.value.trim();
@@ -5945,7 +6002,7 @@ function playlistDialog(pl = null, kind = 'playlist') {
       const btn = form.querySelector('.btn.primary');
       btn.disabled = true;
       try {
-        let id = pl?.id;
+        let id = pl?.id ?? createdId;
         if (kind === 'likes') {
           await saveSettings({ likesName: name === t('likes') ? '' : name, likesDesc: description, ...(blob ? { likesArt: Date.now() } : removeArt ? { likesArt: 0 } : {}) });
         } else if (kind === 'gen') {
@@ -5958,7 +6015,7 @@ function playlistDialog(pl = null, kind = 'playlist') {
           await saveSettings({ genEdits: all });
         } else if (imp) await put(`/api/imports/${id}`, { name, meta: { ...(pl.meta || {}), description } });
         else if (id) await put(`/api/playlists/${id}`, { name, description });
-        else id = (await post('/api/playlists', { name, description })).id;
+        else id = createdId = (await post('/api/playlists', { name, description })).id;
         if (blob) {
           const r = await fetch(`${conn.server}/api/art/${kind}/${id}`, { method: 'PUT', headers: { Authorization: 'Bearer ' + conn.token, 'Content-Type': 'image/jpeg' }, body: blob });
           if (!r.ok) throw new Error('error');
@@ -7030,16 +7087,18 @@ function showScan(lib) {
   if (lib.scanning) {
     el.textContent = t('scanning', { n: lib.progress.found });
     clearInterval(state.scanTimer);
-    state.scanTimer = setInterval(async () => {
+    const timer = (state.scanTimer = setInterval(async () => {
       try {
         const l = await get('/api/library');
+        // settings closed (or another poller took over) while the answer was on its way
+        if (timer !== state.scanTimer || !$('#settings').classList.contains('open')) return;
         if (!l.scanning) {
           clearInterval(state.scanTimer);
           state.cache = {};
           renderSettings();
         } else showScan(l);
       } catch {}
-    }, 1500);
+    }, 1500));
   } else if (lib.lastScan) el.textContent = t('lastScan', { date: new Date(lib.lastScan.at).toLocaleString(getLang()) });
 }
 async function renderUsers() {
@@ -7160,7 +7219,7 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'dyncolor') {
     prefs.dynamic = e.target.checked;
     savePrefs();
-    applyDyn(player.current);
+    applyDyn(player.current, true);
   }
   if (e.target.id === 'autoplay') {
     prefs.autoplay = e.target.checked;
@@ -7212,7 +7271,11 @@ function logout() {
   conn.token = null;
   conn.user = null;
   saveConn();
-  if (player) player.pause();
+  state.cache = {};
+  if (player) {
+    player.pause();
+    player.dropEvents();
+  }
   showLogin();
 }
 
@@ -7549,12 +7612,14 @@ document.addEventListener(
     if (!gOn()) return;
     const el = e.target;
     // the player's queue and device buttons open the panel instead of a page or a sheet
-    const qb = el.closest('#player [data-act="queue"]');
+    // below 1100px green.css hides the panel: then the normal queue page and device sheet open
+    const panelFits = matchMedia('(min-width: 1100px)').matches;
+    const qb = panelFits && el.closest('#player [data-act="queue"]');
     if (qb) {
       e.stopPropagation();
       return gSetPanel('queue');
     }
-    if (el.closest('#player .extra [data-devsheet], .gconnect')) {
+    if (el.closest('.gconnect') || (panelFits && el.closest('#player .extra [data-devsheet]'))) {
       e.stopPropagation();
       return gSetPanel('devices');
     }

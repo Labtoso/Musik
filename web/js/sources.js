@@ -23,16 +23,31 @@ export const enabled = (src) => src === 'local' || !!settings.sources?.[src];
 export const playerOf = (src) => (src === 'ytmusic' ? 'youtube' : src === 'spotify' ? 'ytfind' : src);
 
 // ---------- helpers ----------
+// one promise per script: a second caller waits for the same load, a failed load can be tried again
+const scriptLoads = new Map();
 function loadScript(src) {
-  return new Promise((res, rej) => {
-    if (document.querySelector(`script[src="${src}"]`)) return res();
+  if (scriptLoads.has(src)) return scriptLoads.get(src);
+  const p = new Promise((res, rej) => {
     const s = document.createElement('script');
     s.src = src;
     s.onload = () => res();
-    s.onerror = () => rej(new Error('script'));
+    s.onerror = () => {
+      s.remove();
+      scriptLoads.delete(src);
+      rej(new Error('script'));
+    };
     document.head.appendChild(s);
   });
+  scriptLoads.set(src, p);
+  return p;
 }
+const safeDecode = (s) => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const JUNK = /\s*[([](official|video|audio|lyrics?|lyric video|visuali[sz]er|mv|hd|4k|hq|clip officiel|musikvideo)[^)\]]*[)\]]/gi;
 
@@ -322,6 +337,7 @@ async function ytTitles(ids, source) {
 async function scApi() {
   if (window.SC?.Widget) return window.SC;
   await loadScript('https://w.soundcloud.com/player/api.js');
+  if (!window.SC?.Widget) throw new Error('script');
   return window.SC;
 }
 export { scApi };
@@ -356,7 +372,7 @@ async function soundcloudList(url) {
       cover: (s.artwork_url || s.user?.avatar_url || '').replace('-large', '-t300x300'),
       url: s.permalink_url || `https://api.soundcloud.com/tracks/${s.id}`
     }));
-    return { name: decodeURIComponent(url.split('/').filter(Boolean).pop() || 'SoundCloud').replace(/-/g, ' '), cover: items[0]?.cover || '', items };
+    return { name: safeDecode(url.split('/').filter(Boolean).pop() || 'SoundCloud').replace(/-/g, ' '), cover: items[0]?.cover || '', items };
   } finally {
     box.remove();
   }
@@ -547,7 +563,18 @@ export function parseFile(name, text) {
   if (ext === 'csv' || ext === 'tsv') {
     const rows = csvRows(text);
     const head = (rows.shift() || []).map((h) => h.toLowerCase().trim());
-    const col = (...names) => head.findIndex((h) => names.some((n) => h === n || h.includes(n)));
+    // exact header names first (in the order given), only then partial matches
+    const col = (...names) => {
+      for (const n of names) {
+        const i = head.indexOf(n);
+        if (i >= 0) return i;
+      }
+      for (const n of names) {
+        const i = head.findIndex((h) => h.includes(n));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
     const ti = col('track name', 'title', 'titel', 'name', 'song'), ai = col('artist name', 'artist', 'künstler', 'interpret'), al = col('album name', 'album'), du = col('duration (ms)', 'duration', 'dauer'), uri = col('track uri', 'spotify uri', 'uri');
     items = rows.map((r) => {
       let d = Number(r[du]) || 0;
@@ -565,7 +592,7 @@ export function parseFile(name, text) {
         const m = l.match(/^#EXTINF:(-?\d+)[^,]*,(.*)$/);
         pend = m ? { d: Number(m[1]), t: m[2] } : null;
       } else if (!l.startsWith('#')) {
-        const label = pend?.t || decodeURIComponent(l.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''));
+        const label = pend?.t || safeDecode(l.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''));
         const [a, t] = label.includes(' - ') ? [label.slice(0, label.indexOf(' - ')), label.slice(label.indexOf(' - ') + 3)] : ['', label];
         items.push({ source: 'files', ext_id: '', title: t.trim(), artist: a.trim(), album: '', duration: pend?.d > 0 ? pend.d : 0, cover: '', url: '' });
         pend = null;
@@ -714,5 +741,5 @@ export async function searchYouTubeFree(q, source = 'ytmusic') {
 export async function searchSpotify(q) {
   if (!spotify.connected()) return [];
   const j = await spotify.api(`/search?type=track&limit=10&market=from_token&q=${encodeURIComponent(q)}`);
-  return (j.tracks?.items || []).map((t) => extTrack(spotify.item(t))).filter(Boolean);
+  return (j.tracks?.items || []).map((t) => spotify.item(t)).filter(Boolean).map(extTrack);
 }

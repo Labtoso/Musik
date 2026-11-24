@@ -70,17 +70,27 @@ class HtmlEngine extends EventTarget {
       this.fails = 0;
       return this.#emit('playing', { playing: false });
     }
-    setTimeout(() => guard() && this.#advance('error'), ms);
+    // only for the song that failed: the user may have picked another one meanwhile
+    const load = this.loadId;
+    setTimeout(() => load === this.loadId && guard() && this.#advance('error'), ms);
   }
   /** The server could not stream a song: ask it why, then say so or use the YouTube player (hidden) as a last way out. */
   async #streamFailed(cur) {
     const mine = () => this.items[this.index] === cur;
     let code = 'offline';
+    // no answer in time counts as offline
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 15000);
     try {
-      const r = await fetch(cur.url, { headers: { Range: 'bytes=0-0' } });
+      const r = await fetch(cur.url, { headers: { Range: 'bytes=0-0' }, signal: ac.signal });
       code = r.ok ? 'playback' : (await r.json().catch(() => ({}))).error || 'youtube_unreachable';
+      if (ac.signal.aborted) code = 'offline';
       r.body?.cancel?.().catch?.(() => {});
-    } catch {}
+    } catch {
+      code = 'offline';
+    } finally {
+      clearTimeout(timer);
+    }
     if (!mine()) return;
     if (code === 'notfound') {
       this.#emit('error', { message: 'song_not_on_ytm' });
@@ -207,6 +217,8 @@ class HtmlEngine extends EventTarget {
     const it = this.items[i];
     if (!it) return;
     this.index = i;
+    this.loadId = (this.loadId || 0) + 1;
+    this.#dropSeek();
     // fade in only when one song runs into the next, not when the user picks a song
     this.fadeIn = (reason === 'ended' || reason === 'repeat') && !pos && this.opts?.crossfade > 0;
     this.fadeK = this.fadeIn ? 0 : 1;
@@ -265,7 +277,8 @@ class HtmlEngine extends EventTarget {
               this.#emit('playing', { playing: false });
               return;
             }
-            setTimeout(() => mine() && this.#advance('error'), 1200);
+            // counts towards the errors in a row, so a list of songs that are nowhere to be found stops
+            this.#skipAfterError(1200, mine);
           });
       } else ad.load(it.ext.id, pos, autoplay, it.ext.url).catch(() => this.#emit('error', { message: 'playback' }));
       this.#emit('index', { index: i, reason });
@@ -282,13 +295,20 @@ class HtmlEngine extends EventTarget {
     this.audio.playbackRate = rate;
     if (pos) {
       const seek = () => {
+        this.#dropSeek();
         this.audio.currentTime = pos;
-        this.audio.removeEventListener('loadedmetadata', seek);
       };
+      this.pendingSeek = seek;
       this.audio.addEventListener('loadedmetadata', seek);
     }
     if (autoplay) this.audio.play().catch(() => this.#emit('playing', { playing: false }));
     this.#emit('index', { index: i, reason });
+  }
+  /** Forget the start position of a song that is being replaced. */
+  #dropSeek() {
+    if (!this.pendingSeek) return;
+    this.audio.removeEventListener('loadedmetadata', this.pendingSeek);
+    this.pendingSeek = null;
   }
   /** Playback speed of podcast episodes (songs keep 1×). */
   setSpeed(r) {
@@ -303,6 +323,8 @@ class HtmlEngine extends EventTarget {
     if (index >= 0 && index < items.length) this.#load(index, pos, autoplay, 'user');
     else {
       this.index = -1;
+      this.loadId = (this.loadId || 0) + 1;
+      this.#dropSeek();
       this.active?.stop();
       this.active = null;
       showStage('');
@@ -319,7 +341,11 @@ class HtmlEngine extends EventTarget {
     if (i < this.index) this.index--;
     else if (i === this.index) {
       if (this.index < this.items.length) this.#load(this.index, 0, this.playing, 'user');
-      else this.setQueue(this.items, -1);
+      else {
+        this.setQueue(this.items, -1);
+        // the player has to know nothing is loaded any more
+        this.#emit('index', { index: -1, reason: 'user' });
+      }
     }
   }
   move(from, to) {
@@ -543,23 +569,31 @@ export function warmSongs(tracks) {
     songs: fresh.filter((t) => !viaVideo(t.ext)).map((t) => ({ title: t.title, artist: t.artist || '', duration: t.duration || 0 }))
   }).catch(() => fresh.forEach((t) => warmed.delete(String(t.id))));
 }
-/** The "preload" button of a playlist: every song is looked up and its start fetched ahead, 8 at a time. */
+/**
+ * The "preload" button of a playlist: every song is looked up and its start fetched ahead, 8 at a time.
+ * Returns how many songs were preloaded and the ones whose batch failed, so those are tried again later.
+ */
 export async function preloadSongs(tracks, progress = () => {}) {
   const list = tracks.filter((t) => streams(t)).slice(0, 300);
+  const failed = [];
+  let n = 0;
   let done = 0;
   progress(0, list.length);
   for (let i = 0; i < list.length; i += 8) {
     const part = list.slice(i, i + 8);
-    await api('POST', '/api/ytprefetch', {
+    const sent = await api('POST', '/api/ytprefetch', {
       wait: true,
       ids: part.filter((t) => viaVideo(t.ext)).map((t) => t.ext.id),
       songs: part.filter((t) => !viaVideo(t.ext)).map((t) => ({ title: t.title, artist: t.artist || '', duration: t.duration || 0 }))
-    }, { timeout: 300000 }).catch(() => null);
-    part.forEach((t) => warmed.add(String(t.id)));
+    }, { timeout: 300000 }).then(() => true, () => false);
+    if (sent) {
+      part.forEach((t) => warmed.add(String(t.id)));
+      n += part.length;
+    } else failed.push(...part);
     done += part.length;
     progress(done, list.length);
   }
-  return list.length;
+  return { n, failed };
 }
 export class Player extends EventTarget {
   constructor() {
@@ -623,6 +657,9 @@ export class Player extends EventTarget {
     if (want === this.engine) return;
     this.engine.pause();
     this.engine = want;
+    // the other engine plays on with the chosen volume and repeat mode
+    want.setVolume(this.volume);
+    want.setRepeat(this.repeat);
   }
 
   #bind(e) {
@@ -764,6 +801,14 @@ export class Player extends EventTarget {
       localStorage.setItem(EVENTS_KEY, JSON.stringify(this.pending.slice(-500)));
     } catch {}
   }
+  /** Forgets unsent listening events (logout), so they are never sent with another account's session. */
+  dropEvents() {
+    this.listen = null;
+    this.pending = [];
+    try {
+      localStorage.removeItem(EVENTS_KEY);
+    } catch {}
+  }
   async flushEvents() {
     if (!this.pending.length || this.flushing) return;
     this.flushing = true;
@@ -781,6 +826,7 @@ export class Player extends EventTarget {
 
   #onIndex(index, reason) {
     const prev = this.listen;
+    const cont = this.engineSwitch && prev && index === this.index && this.queue[index]?.id === prev.id ? this.engineSwitch : null;
     if (prev && (index !== this.index || reason === 'repeat' || reason === 'end')) {
       this.#finishListen(reason === 'ended' || reason === 'repeat' || reason === 'end' ? 'auto' : this.skipHint || 'skip');
     }
@@ -793,11 +839,12 @@ export class Player extends EventTarget {
         ids: next.filter((t) => viaVideo(t.ext)).map((t) => t.ext.id),
         songs: next.filter((t) => !viaVideo(t.ext)).map((t) => ({ title: t.title, artist: t.artist || '', duration: t.duration || 0 }))
       }).catch(() => {});
-    this.position = 0;
+    this.position = cont ? cont.pos : 0;
     const cur = this.current;
     this.duration = cur?.duration || 0;
     if (this.native) this.#applySpeed(cur);
-    if (cur && reason !== 'end') this.listen = { id: cur.id, played: 0, duration: cur.duration || 0, last: 0, song: songOf(cur) };
+    if (cont) this.listen = { ...prev, last: cont.pos };
+    else if (cur && reason !== 'end') this.listen = { id: cur.id, played: 0, duration: cur.duration || 0, last: 0, song: songOf(cur) };
     this.#emit('change');
     this.#updateSession();
     this.#maybeExtend();
@@ -808,6 +855,7 @@ export class Player extends EventTarget {
     if (!this.autoplay || this.repeat !== 'off' || this.fetchingMore || !this.current) return;
     if (this.queue.length - this.index - 1 >= 2) return;
     this.fetchingMore = true;
+    const seq = this.queueSeq;
     try {
       let more;
       if (this.current.ext) {
@@ -820,6 +868,8 @@ export class Player extends EventTarget {
         const exclude = this.queue.slice(-200).map((t) => t.id).filter((id) => typeof id === 'number').join(',');
         more = await get(`/api/recommend/radio/${this.current.id}?limit=10&exclude=${exclude}`);
       }
+      // the queue was replaced (or autoplay switched off) while the server was asked
+      if (seq !== this.queueSeq || !this.autoplay) return;
       if (more.length) this.add(more, false);
     } catch {
     } finally {
@@ -831,6 +881,9 @@ export class Player extends EventTarget {
   playList(tracks, start = 0, { shuffle = false, at = 0 } = {}) {
     if (!tracks.length) return;
     this.#finishListen('skip');
+    // answers (autoplay, smart shuffle) asked for an earlier queue are thrown away
+    this.queueSeq = (this.queueSeq || 0) + 1;
+    this.shuffleSeq = (this.shuffleSeq || 0) + 1;
     let list = tracks.slice();
     let idx = start;
     this.original = null;
@@ -884,8 +937,11 @@ export class Player extends EventTarget {
 
   /** Ask the server for a smarter order of the upcoming songs, then reorder in place. */
   async #smartShuffle(ids, fromIndex) {
+    const seq = this.shuffleSeq;
     try {
       const { ids: order } = await post('/api/recommend/shuffle', { ids: ids.slice(fromIndex + 1) });
+      // shuffle was switched off (or on again, or a new list started) meanwhile
+      if (seq !== this.shuffleSeq || !this.shuffled) return;
       const upcoming = this.queue.slice(this.index + 1);
       if (upcoming.length !== order.length) return;
       const byId = new Map(upcoming.map((t) => [t.id, t]));
@@ -904,6 +960,7 @@ export class Player extends EventTarget {
   }
 
   toggleShuffle() {
+    this.shuffleSeq = (this.shuffleSeq || 0) + 1;
     if (!this.queue.length) {
       this.shuffled = !this.shuffled;
       return this.#emit('change');
@@ -917,8 +974,18 @@ export class Player extends EventTarget {
     } else {
       this.shuffled = false;
       if (this.original && this.current) {
-        const pos = this.original.findIndex((t) => t.id === this.current.id);
-        if (pos >= 0) this.#replaceUpcoming(this.original.slice(pos + 1));
+        // the songs still to come go back to their old order; songs added while shuffled stay at the end
+        const used = new Set();
+        const rank = (t) => {
+          let i = this.original.findIndex((o, k) => !used.has(k) && o === t);
+          if (i < 0) i = this.original.findIndex((o, k) => !used.has(k) && o.id === t.id);
+          if (i < 0) return Infinity;
+          used.add(i);
+          return i;
+        };
+        this.queue.slice(0, this.index + 1).forEach(rank);
+        const upcoming = this.queue.slice(this.index + 1).map((t) => [rank(t), t]);
+        this.#replaceUpcoming(upcoming.sort((a, b) => a[0] - b[0]).map((x) => x[1]));
       }
       this.original = null;
       this.#emit('change');
@@ -931,7 +998,15 @@ export class Player extends EventTarget {
     const pos = this.position, playing = this.playing;
     this.engine.pause();
     this.engine = this.#html();
-    this.engine.setQueue(this.queue.map(toItem), this.index, pos, playing);
+    this.engine.setVolume(this.volume);
+    this.engine.setRepeat(this.repeat);
+    // the same song goes on in the other engine: its listening session too
+    this.engineSwitch = { pos };
+    try {
+      this.engine.setQueue(this.queue.map(toItem), this.index, pos, playing);
+    } finally {
+      this.engineSwitch = null;
+    }
     return true;
   }
 
