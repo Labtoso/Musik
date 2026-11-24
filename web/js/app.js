@@ -2923,6 +2923,7 @@ const keptCard = (im) => `<a class="card" data-ref="import:${im.id}" href="#/imp
 const importCard = (im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${im.art ? coverImg(artKey('import', im.id, im.art), 'lg') : im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`;
 const showAllLink = (tab, extra = '') => `<a class="link" href="#/library?tab=${tab}${extra}">${t('showAll')}</a>`;
 /** The first page of the library: everything at a glance, each kind in its own row with a link to the full list, like Spotify's start page. */
+const libNewLists = new Map();
 async function libOverview() {
   const none = () => [];
   const [songs, albums, artists, fol, lists, imps, subs, cont, tops] = await Promise.all([
@@ -2934,10 +2935,9 @@ async function libOverview() {
     get('/api/imports').catch(none),
     loadPodSubs(true).catch(none),
     get('/api/podcasts/continue').catch(none),
-    loadTopSongs()
+    loadTopSongs(),
+    loadExtLikes().catch(() => {})
   ]);
-  state.cache.albums = albums;
-  state.cache.artists = artists;
   const kept = imps.filter((im) => im.kept);
   const open = imps.filter((im) => !im.kept);
   for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
@@ -2962,8 +2962,11 @@ async function libOverview() {
   ].filter(Boolean);
   let html = stats.length ? `<div class="libstats">${stats.join('')}</div>` : '';
   html += `<div class="quick libquick">${tiles.join('')}</div>`;
-  if (n) html += `<section class="sec libsongs"><div class="sec-head"><h2>${t('recentlyAdded')}</h2><button class="playround sm" data-playlibnew title="${t('playAll')}">${icon('play')}</button>${showAllLink('tracks', '&sort=added')}</div>${trackList(songs.items.slice(0, 5))}</section>`;
-  state.libNew = songs.items;
+  // the list behind the play button belongs to this render, an older one that finishes late cannot replace it
+  const newKey = 'ln' + Math.random().toString(36).slice(2, 8);
+  libNewLists.set(newKey, songs.items);
+  if (libNewLists.size > 4) libNewLists.delete(libNewLists.keys().next().value);
+  if (n) html += `<section class="sec libsongs"><div class="sec-head"><h2>${t('recentlyAdded')}</h2><button class="playround sm" data-playlibnew="${newKey}" title="${t('playAll')}">${icon('play')}</button>${showAllLink('tracks', '&sort=added')}</div>${trackList(songs.items.slice(0, 5))}</section>`;
   if (tops.length || pls.length) html += section(t('playlists'), `<div class="cards srow">${[...tops.map(topCard), ...pls.slice(0, 16).map(([, x, card]) => card(x))].join('')}</div>`, showAllLink('playlists'));
   if (cont.length) html += section(t('podContinue'), episodeList(cont.slice(0, 3), { showName: true }), showAllLink('podcasts'));
   if (subs.length) html += section(t('podcasts'), plainAlbumCards(subs.slice(0, 16).map(podCard), true), showAllLink('podcasts'));
@@ -2984,12 +2987,14 @@ async function libOverview() {
   });
   if (arts.length) html += section(t('artists'), artistCards(arts.slice(0, 16), true), showAllLink('artists'));
   if (open.length) html += section(t('imported'), `<div class="cards srow">${open.slice(0, 16).map(importCard).join('')}</div>`, showAllLink('imported'));
-  if (!n && !pls.length && !albums.length && !arts.length && !subs.length && !open.length && !tops.length)
+  if (!n && !extLikes.size && !pls.length && !albums.length && !arts.length && !subs.length && !open.length && !tops.length)
     html += `<div class="emptystate">${icon('library', 'big')}<p>${t('libOverviewEmpty')}</p><div class="stack"><a class="btn primary" href="#/search">${icon('search')}${t('search')}</a><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/podcasts">${icon('mic')}${t('podBrowse')}</a></div></div>`;
   return html;
 }
 document.addEventListener('click', (e) => {
-  if (e.target.closest('[data-playlibnew]') && state.libNew?.length) player.playList(state.libNew, 0);
+  const b = e.target.closest('[data-playlibnew]');
+  const list = b && libNewLists.get(b.dataset.playlibnew);
+  if (list?.length) player.playList(list, 0);
 });
 views.library = async (params) => {
   const tab = LIB_TABS.includes(params.get('tab')) ? params.get('tab') : 'overview';
