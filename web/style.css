@@ -1477,6 +1477,15 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 .playround { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); flex: none; transition: transform 0.12s; }
 .playround:active { transform: scale(0.94); }
 .playround .ic { width: 22px; height: 22px; }
+.playround.sm { width: 36px; height: 36px; }
+.playround.sm .ic { width: 17px; height: 17px; }
+/* library overview: counts on top, quick tiles, then one row per kind with "Show all" */
+.libstats { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 16px; }
+.libstat { color: var(--muted); font-size: 13px; font-weight: 600; transition: color 0.12s; }
+.libstat:hover { color: var(--text); text-decoration: underline; }
+.libsongs .sec-head { justify-content: flex-start; gap: 12px; }
+.libsongs .sec-head h2 { flex: 1; min-width: 0; }
+@media (max-width: 760px) { .libstats { gap: 4px 14px; margin: 0 0 12px; } .libstat { font-size: 12px; } }
 /* playlist header: one play button, quiet icons */
 .icon-btn.lg { width: 42px; height: 42px; }
 .icon-btn.lg .ic { width: 23px; height: 23px; }

@@ -2416,6 +2416,52 @@ async function runSearch(q) {
   await Promise.all(later);
   if (seq === searchSeq) drawSearch(box, false, true);
 }
+/** How well a name fits the search words, 0 to 1, forgiving accents and case ("edeltalk" = "EDELTALK"). */
+function searchFit(q, name) {
+  const a = podFold(q), b = podFold(name);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (b.startsWith(a + ' ') || a.startsWith(b + ' ')) return 0.86;
+  if (b.replace(/ /g, '') === a.replace(/ /g, '')) return 0.97;
+  const words = a.split(' ');
+  if (words.every((w) => b.split(' ').some((x) => x.startsWith(w)))) return 0.8;
+  const tri = (x) => { const p = `  ${x} `; const o = []; for (let i = 0; i < p.length - 2; i++) o.push(p.slice(i, i + 3)); return o; };
+  const ta = tri(a), rest = tri(b);
+  let common = 0;
+  for (const g of ta) { const i = rest.indexOf(g); if (i >= 0) { rest.splice(i, 1); common++; } }
+  return (2 * common) / (ta.length + tri(b).length);
+}
+/** The one thing the words mean most, like Spotify's top result. The order each source gave counts too
+ *  (its first hits are the popular ones), and on a tie an artist beats a show, a show an album, an album a song. */
+function topPick(q, { songs, artists, albums, playlists, shows }) {
+  // every kind comes as its sources (own library, catalog, YouTube Music …): each source counts its own first hits
+  const kinds = [
+    ['artist', artists, (x) => x.name, 0.05],
+    ['show', shows, (x) => x.title, 0.04],
+    ['album', albums, (x) => x.title, 0.02],
+    ['song', songs, (x) => x.title, 0.03],
+    ['playlist', playlists, (x) => x.title, -0.04]
+  ];
+  let best = null;
+  for (const [kind, sources, name, bonus] of kinds) {
+    for (const list of sources) {
+      (list || []).slice(0, 12).forEach((item, i) => {
+        const fit = searchFit(q, name(item));
+        // a song named like the words but sung by the artist of the same name: the artist stays on top
+        const score = fit + bonus - i * 0.01;
+        if (fit >= 0.6 && (!best || score > best.score)) best = { kind, item, score };
+      });
+    }
+  }
+  if (best) return best;
+  // nothing fits the words well: the first song, else the first artist or show, like before
+  const first = (sources) => sources.flat().find(Boolean);
+  for (const [kind, sources] of [['song', songs], ['artist', artists], ['show', shows]]) {
+    const item = first(sources);
+    if (item) return { kind, item };
+  }
+  return null;
+}
 function drawSearch(box, loading, done = false) {
   const d = state.search;
   if (!d || !$('#results')) return;
@@ -2431,7 +2477,7 @@ function drawSearch(box, loading, done = false) {
   const pods = d.pods || { shows: [], episodes: [] };
   const has = { songs: songs.length, artists: artists.length, albums: albums.length, playlists: playlists.length, podcasts: pods.shows.length, episodes: pods.episodes.length };
   const f = has[state.sfilter] || ['podcasts', 'episodes'].includes(state.sfilter) ? state.sfilter : 'all';
-  const chips = `<div class="sfilters">${SFILTERS.filter((k) => k === 'all' || k === 'podcasts' || k === 'episodes' || has[k]).map((k) => `<button class="sf ${f === k ? 'on' : ''}" data-sfilter="${k}">${t('sf_' + k)}</button>`).join('')}</div>`;
+  const chips = `<div class="sfilters">${SFILTERS.filter((k) => k === 'all' || k === f || has[k]).map((k) => `<button class="sf ${f === k ? 'on' : ''}" data-sfilter="${k}">${t('sf_' + k)}</button>`).join('')}</div>`;
   if (!songs.length && !artists.length && !albums.length && !playlists.length && !pods.shows.length && !pods.episodes.length) {
     box.innerHTML = d.note
       ? `<div class="noresult"><h3>${t(d.note)}</h3><div class="stack"><a class="btn primary" href="#/sources">${t('spotifyConnect')}</a></div></div>`
@@ -2441,26 +2487,35 @@ function drawSearch(box, loading, done = false) {
     return;
   }
   let html = chips;
-  const lq = d.q.trim().toLowerCase();
   if (f === 'all') {
-    // top result: an artist that matches the words exactly, else the first song
-    const topArtist = artists.find((a) => a.name.toLowerCase() === lq) || (!songs.length ? artists[0] : null);
-    // a show whose name is the words (or nothing else was found) is the top result, like on Spotify
-    const topShow = !artists.some((a) => a.name.toLowerCase() === lq) ? pods.shows.find((x) => podFold(x.title) === podFold(lq)) || (!songs.length && !topArtist ? pods.shows[0] : null) : null;
-    const topSong = !topArtist && !topShow ? songs[0] : null;
+    // top result like Spotify: whatever the words name best (a podcast, artist, song, album or playlist), big at the top
+    const catArtists = cat.artists.filter((a) => !d.artists.some((x) => x.name.toLowerCase() === a.name.toLowerCase()));
+    const best = topPick(d.q, { songs: [d.tracks, cat.tracks, ytm], artists: [d.artists, catArtists], albums: [d.albums, cat.albums], playlists: [d.playlists, cat.playlists || []], shows: [pods.shows] });
+    const topShow = best?.kind === 'show' ? best.item : null;
+    const topArtist = best?.kind === 'artist' ? best.item : null;
+    const topCard = best && (best.kind === 'album' || best.kind === 'playlist') ? best.item : null;
+    const topSong = best?.kind === 'song' ? best.item : null;
     const top = topShow
       ? `<a class="topres" href="${topShow.href}">${coverImg(topShow.cover)}<div class="tr-text"><div class="tr-title">${esc(topShow.title)}</div><div class="tr-sub">${esc(topShow.artist)} <span class="pill">${t('podcast')}</span></div></div></a>`
       : topArtist
       ? `<a class="topres" href="${topArtist.href}">${coverImg(topArtist.cover, 'round')}<div class="tr-text"><div class="tr-title">${esc(topArtist.name)}</div><div class="tr-sub"><span class="pill">${t('artist')}</span></div></div><span class="tr-play">${icon('play')}</span></a>`
+      : topCard
+      ? `<a class="topres" href="${topCard.href}">${coverImg(topCard.cover)}<div class="tr-text"><div class="tr-title">${esc(topCard.title)}</div><div class="tr-sub">${esc(topCard.artist || '')} <span class="pill">${t(best.kind === 'album' ? 'album' : 'playlist')}</span></div></div></a>`
       : !topSong ? '' : `<button class="topres" data-topsong>${coverImg(topSong.id)}<div class="tr-text"><div class="tr-title">${esc(topSong.title)}</div><div class="tr-sub">${esc(artistName(topSong))} <span class="pill">${topSong.ext ? srcBadge(topSong.ext.source) : t('song')}</span></div></div><span class="tr-play">${icon('play')}</span></button>`;
     state.topSong = topSong;
     const first = [...d.tracks, ...cat.tracks].length ? [...d.tracks, ...cat.tracks] : songs;
     html += `<div class="sgrid">${top ? `<section class="sec"><div class="sec-head"><h2>${t('topResult')}</h2></div>${top}</section>` : ''}${first.length ? `<section class="sec"><div class="sec-head"><h2>${t('tracks')}</h2>${songs.length > 4 ? `<button class="link" data-sfilter="songs">${t('showAll')}</button>` : ''}</div>${trackList(first.slice(0, 4), { album: false })}</section>` : ''}</div>`;
-    if (artists.length) html += section(t('artists'), artistCards(artists.slice(0, 10), true), artists.length > 10 ? `<button class="link" data-sfilter="artists">${t('showAll')}</button>` : '');
-    if (albums.length) html += section(t('albums'), plainAlbumCards(albums.slice(0, 10), true), albums.length > 10 ? `<button class="link" data-sfilter="albums">${t('showAll')}</button>` : '');
-    if (playlists.length) html += section(t('playlists'), plainAlbumCards(playlists.slice(0, 10), true));
-    if (pods.shows.length) html += section(t('sf_podcasts'), plainAlbumCards(pods.shows.slice(0, 10), true), pods.shows.length > 10 ? `<button class="link" data-sfilter="podcasts">${t('showAll')}</button>` : '');
-    if (pods.episodes.length) html += section(t('episodes'), episodeList(pods.episodes.slice(0, 4), { showName: true }), pods.episodes.length > 4 ? `<button class="link" data-sfilter="episodes">${t('showAll')}</button>` : '');
+    // sorted like the found things fit the words: shows first when a show was meant, playlists last
+    const byFit = (list, name) => [...list].map((x, i) => [x, i]).sort((a, b) => searchFit(d.q, name(b[0])) - searchFit(d.q, name(a[0])) || a[1] - b[1]).map((x) => x[0]);
+    const secs = {
+      artist: () => (artists.length ? section(t('artists'), artistCards(byFit(artists, (a) => a.name).slice(0, 10), true), artists.length > 10 ? `<button class="link" data-sfilter="artists">${t('showAll')}</button>` : '') : ''),
+      album: () => (albums.length ? section(t('albums'), plainAlbumCards(byFit(albums, (a) => a.title).slice(0, 10), true), albums.length > 10 ? `<button class="link" data-sfilter="albums">${t('showAll')}</button>` : '') : ''),
+      show: () => (pods.shows.length ? section(t('sf_podcasts'), plainAlbumCards(byFit(pods.shows, (a) => a.title).slice(0, 10), true), pods.shows.length > 10 ? `<button class="link" data-sfilter="podcasts">${t('showAll')}</button>` : '') : ''),
+      episode: () => (pods.episodes.length ? section(t('episodes'), episodeList(pods.episodes.slice(0, 4), { showName: true }), pods.episodes.length > 4 ? `<button class="link" data-sfilter="episodes">${t('showAll')}</button>` : '') : ''),
+      playlist: () => (playlists.length ? section(t('playlists'), plainAlbumCards(byFit(playlists, (a) => a.title).slice(0, 10), true)) : '')
+    };
+    const order = best?.kind === 'show' ? ['show', 'episode', 'artist', 'album', 'playlist'] : best?.kind === 'playlist' ? ['playlist', 'artist', 'album', 'show', 'episode'] : best?.kind === 'album' ? ['album', 'artist', 'show', 'playlist', 'episode'] : ['artist', 'album', 'show', 'playlist', 'episode'];
+    for (const k of order) html += secs[k]();
   } else if (f === 'songs') html += trackList(songs);
   else if (f === 'podcasts') html += pods.shows.length ? plainAlbumCards(pods.shows) : done ? `<p class="muted empty">${t('noResultsFor', { q: d.q })}</p>` : '';
   else if (f === 'episodes') html += pods.episodes.length ? episodeList(pods.episodes, { showName: true }) : done ? `<p class="muted empty">${t('noResultsFor', { q: d.q })}</p>` : '';
@@ -2917,11 +2972,87 @@ async function cached(key, fn) {
   return state.cache[key];
 }
 
-const LIB_TABS = ['tracks', 'albums', 'artists', 'playlists', 'podcasts', 'imported'];
+const LIB_TABS = ['overview', 'tracks', 'albums', 'artists', 'playlists', 'podcasts', 'imported'];
+const plCard = (p) => `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`;
+const keptCard = (im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`;
+const importCard = (im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${im.art ? coverImg(artKey('import', im.id, im.art), 'lg') : im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`;
+const showAllLink = (tab, extra = '') => `<a class="link" href="#/library?tab=${tab}${extra}">${t('showAll')}</a>`;
+/** The first page of the library: everything at a glance, each kind in its own row with a link to the full list, like Spotify's start page. */
+async function libOverview() {
+  const none = () => [];
+  const [songs, albums, artists, fol, lists, imps, subs, cont, tops] = await Promise.all([
+    get('/api/tracks?limit=6&sort=added').catch(() => ({ items: [], total: 0 })),
+    get('/api/albums').catch(none),
+    get('/api/artists').catch(none),
+    loadFollows(true).catch(none),
+    get('/api/playlists').catch(none),
+    get('/api/imports').catch(none),
+    loadPodSubs(true).catch(none),
+    get('/api/podcasts/continue').catch(none),
+    loadTopSongs(),
+    loadExtLikes().catch(() => {})
+  ]);
+  const kept = imps.filter((im) => im.kept);
+  const open = imps.filter((im) => !im.kept);
+  for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
+  // own playlists and saved ones in the user's order
+  const pls = byPlOrder([...lists.map((p) => ['playlist:' + p.id, p, plCard]), ...kept.map((im) => ['import:' + im.id, im, keptCard])], (x) => x[0]);
+  const n = songs.total || 0;
+  // quick tiles at the top: liked songs, the newest yearly top songs and the first playlists
+  const tile = (href, cover, name) => `<a class="qt" href="${href}">${cover}<span>${esc(name)}</span></a>`;
+  const tiles = [
+    likedTile(),
+    ...tops.slice(0, 1).map((y) => tile(`#/topsongs/${y.year}`, coverImg(y.cover), y.title)),
+    ...pls.map(([ref, x]) => (ref.startsWith('playlist:') ? tile(`#/playlist/${x.id}`, coverImg(artKey('playlist', x.id, x.art) || x.cover_id), x.name) : tile(`#/imported/${x.id}`, coverImg(artKey('import', x.id, x.art) || (x.cover ? 'impc:' + x.id : x.cover_id)), x.name)))
+  ].slice(0, 8);
+  // counts under the title, each one jumps to its list
+  const stat = (tab, label) => `<a class="libstat" href="#/library?tab=${tab}">${label}</a>`;
+  const stats = [
+    n && stat('tracks', songCount(n)),
+    pls.length && stat('playlists', t('nPlaylists', { n: pls.length })),
+    albums.length && stat('albums', t('nAlbums', { n: albums.length })),
+    artists.length + fol.length && stat('artists', t('nArtists', { n: new Set([...artists.map((a) => a.name.toLowerCase()), ...fol.map((f) => String(f.name || '').toLowerCase())]).size })),
+    subs.length && stat('podcasts', t('nPodcasts', { n: subs.length }))
+  ].filter(Boolean);
+  let html = stats.length ? `<div class="libstats">${stats.join('')}</div>` : '';
+  html += `<div class="quick libquick">${tiles.join('')}</div>`;
+  if (n) html += `<section class="sec libsongs"><div class="sec-head"><h2>${t('recentlyAdded')}</h2><button class="playround sm" data-playlibnew title="${t('playAll')}">${icon('play')}</button>${showAllLink('tracks', '&sort=added')}</div>${trackList(songs.items.slice(0, 5))}</section>`;
+  if (tops.length || pls.length) html += section(t('playlists'), `<div class="cards srow">${[...tops.map(topCard), ...pls.slice(0, 16).map(([, x, card]) => card(x))].join('')}</div>`, showAllLink('playlists'));
+  if (cont.length) html += section(t('podContinue'), episodeList(cont.slice(0, 3), { showName: true }), showAllLink('podcasts'));
+  if (subs.length) html += section(t('podcasts'), plainAlbumCards(subs.slice(0, 16).map(podCard), true), showAllLink('podcasts'));
+  if (albums.length) {
+    const newest = albums.slice().sort((a, b) => (b.added || 0) - (a.added || 0)).slice(0, 16);
+    html += section(t('albums'), albumCards(newest).replace('class="cards"', 'class="cards srow"'), showAllLink('albums'));
+  }
+  // artists you follow first, then the ones in the library, never twice
+  const seenA = new Set();
+  const arts = [
+    ...fol.map(followCard),
+    ...artists.slice().sort((a, b) => (b.tracks || 0) - (a.tracks || 0)).map((a) => ({ name: a.name, cover: a.cover_id, href: `#/artist?name=${encodeURIComponent(a.name)}`, sub: t('artist') }))
+  ].filter((a) => {
+    const k = String(a.name || '').toLowerCase();
+    if (!k || seenA.has(k)) return false;
+    seenA.add(k);
+    return true;
+  });
+  if (arts.length) html += section(t('artists'), artistCards(arts.slice(0, 16), true), showAllLink('artists'));
+  if (open.length) html += section(t('imported'), `<div class="cards srow">${open.slice(0, 16).map(importCard).join('')}</div>`, showAllLink('imported'));
+  if (!n && !extLikes.size && !pls.length && !albums.length && !arts.length && !subs.length && !open.length && !tops.length)
+    html += `<div class="emptystate">${icon('library', 'big')}<p>${t('libOverviewEmpty')}</p><div class="stack"><a class="btn primary" href="#/search">${icon('search')}${t('search')}</a><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/podcasts">${icon('mic')}${t('podBrowse')}</a></div></div>`;
+  return html;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-playlibnew]');
+  // plays the song list of its own section, so button and list always come from the same render
+  const list = b && state.lists?.[b.closest('.libsongs')?.querySelector('[data-list]')?.dataset.list];
+  if (list?.length) player.playList(list, 0);
+});
 views.library = async (params) => {
-  const tab = LIB_TABS.includes(params.get('tab')) ? params.get('tab') : 'tracks';
+  const tab = LIB_TABS.includes(params.get('tab')) ? params.get('tab') : 'overview';
   let body = '';
-  if (tab === 'tracks') {
+  if (tab === 'overview') {
+    body = await libOverview();
+  } else if (tab === 'tracks') {
     const sort = params.get('sort') || 'artist';
     const r = await get(`/api/tracks?limit=1000&sort=${sort}`);
     state.libTracks = r.items;
@@ -2945,19 +3076,22 @@ views.library = async (params) => {
   } else if (tab === 'imported') {
     const list = (await get('/api/imports')).filter((im) => !im.kept);
     body = `<div class="libbar"><a class="sortbtn" href="#/add">${icon('download')}<span>${t('importAdd')}</span></a></div>
-      ${list.length ? `<div class="cards libgrid"> ${list.map((im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${im.art ? coverImg(artKey('import', im.id, im.art), 'lg') : im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`).join('')}</div>` : `<p class="muted empty">${t('importNone')}</p>`}`;
+      ${list.length ? `<div class="cards libgrid">${list.map(importCard).join('')}</div>` : `<p class="muted empty">${t('importNone')}</p>`}`;
   } else {
     const [lists, imps] = await Promise.all([get('/api/playlists'), get('/api/imports').catch(() => [])]);
     const kept = imps.filter((im) => im.kept);
     for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
     body = `<div class="cards libgrid" data-sortpl><a class="card" href="#/likes"><div class="cover lg liked">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>${(await loadTopSongs()).map(topCard).join('')}
       ${byPlOrder([
-        ...lists.map((p) => ['playlist:' + p.id, `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`]),
-        ...kept.map((im) => ['import:' + im.id, `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`])
+        ...lists.map((p) => ['playlist:' + p.id, plCard(p)]),
+        ...kept.map((im) => ['import:' + im.id, keptCard(im)])
       ], (x) => x[0]).map((x) => x[1]).join('')}</div>
       ${lists.length + kept.length > 1 ? `<p class="muted small sorthint">${t('dragToSort')}</p>` : ''}`;
   }
-  return `${pageHead(t('yourLibrary'), `<button class="icon-btn" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button>`)}<div class="tabs">${LIB_TABS.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
+  // the Imported tab only while something is still being imported, the rest lives under Playlists
+  const openImports = await get('/api/imports').then((l) => l.filter((im) => !im.kept).length).catch(() => 0);
+  const tabs = LIB_TABS.filter((x) => x !== 'imported' || x === tab || openImports);
+  return `${pageHead(t('yourLibrary'), `<button class="icon-btn" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button>`)}<div class="tabs">${tabs.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
 };
 document.addEventListener('change', (e) => {
   if (e.target.id === 'sort') go(`#/library?tab=tracks&sort=${e.target.value}`);
@@ -7713,7 +7847,11 @@ function gChipFilter() {
   if (!box) return;
   const want = gOn() ? prefs.gLibChip || '' : '';
   box.querySelectorAll('.side-pl').forEach((a) => (a.hidden = !!want && a.dataset.kind !== want));
-  document.querySelectorAll('[data-glibchip]').forEach((c) => c.classList.toggle('on', c.dataset.glibchip === want));
+  // a chip only shows when there is something behind it
+  document.querySelectorAll('[data-glibchip]').forEach((c) => {
+    c.classList.toggle('on', c.dataset.glibchip === want);
+    c.hidden = c.dataset.glibchip !== want && !box.querySelector(`.side-pl[data-kind="${c.dataset.glibchip}"]`);
+  });
   $('.glib-chips')?.classList.toggle('picked', !!want);
 }
 async function gSideExtras() {
