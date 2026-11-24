@@ -77,7 +77,10 @@ fn windows_layout(roaming: &Path, local: &Path, ident: &str, exe: Option<&Path>)
                 let _ = std::fs::remove_file(&old_cfg);
             } else {
                 // not movable right now: keep reading the old file, the next start tries again
-                prefs = old_cfg.clone();
+                // (unless another start has just moved it, then the new file is the right one)
+                if old_cfg.exists() || !prefs.is_file() {
+                    prefs = old_cfg.clone();
+                }
             }
         }
     }

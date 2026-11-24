@@ -159,12 +159,13 @@ fn main() {
     let had_old = old.as_ref().map(|o| o.join(APP_EXE).is_file()).unwrap_or(false);
     let result = install(&dir).and_then(|fresh| {
         let fresh = fresh && !had_old;
-        if let Some(old) = &old {
-            retire_old_install(old, &dir);
-        }
         let size: u64 = [APP_EXE, SERVER_EXE].iter().filter_map(|n| std::fs::metadata(dir.join(n)).ok()).map(|m| m.len()).sum();
         win::register(&dir, VERSION, size)?;
         win::shortcuts(&dir, fresh);
+        // the old program files only go once the new entry and shortcuts are in place
+        if let Some(old) = &old {
+            retire_old_install(old, &dir);
+        }
         Ok(())
     });
     match result {
