@@ -956,6 +956,12 @@ function render() {
   if (release) m.unshift(`<a href="https://github.com/Labtoso/Musik/releases/tag/${release.tag_name}" target="_blank" rel="noopener">${d.metaVer} <b>${release.tag_name.replace(/^v/, '')}</b></a>`);
   $('#meta').innerHTML = m.join('');
   $$('#chilldots button').forEach((b) => b.setAttribute('aria-label', d.aShot.replace('{n}', b.dataset.n)));
+  $$('img.zm').forEach((im, k) => {
+    if (im.getAttribute('alt') && !im.hasAttribute('data-auto')) return;
+    const cap = im.closest('figure:not(#reel)')?.querySelector('figcaption');
+    im.dataset.auto = '1';
+    im.alt = (cap && (cap.querySelector('b') || cap).textContent.trim()) || d.aShot.replace('{n}', ($$('.chill img').indexOf(im) + 1) || k + 1);
+  });
   drawList();
 }
 
@@ -969,10 +975,10 @@ resetDemo(); render();
   let cur = 0, timer = 0, seen = false, manual = false;
   const show = (i) => {
     cur = i;
-    imgs.forEach((im, k) => im.classList.toggle('on', k === i));
+    imgs.forEach((im, k) => { im.classList.toggle('on', k === i); im.tabIndex = k === i ? 0 : -1; });
     tabs.forEach((t, k) => { t.classList.toggle('on', k === i); t.setAttribute('aria-selected', String(k === i)); });
   };
-  const run = () => { clearTimeout(timer); if (!reduce && seen && !manual) timer = setTimeout(() => { show((cur + 1) % imgs.length); run(); }, 5000); };
+  const run = () => { clearTimeout(timer); if (!reduce && seen && !manual && !stage.contains(document.activeElement)) timer = setTimeout(() => { show((cur + 1) % imgs.length); run(); }, 5000); };
   tabs.forEach((t) => t.addEventListener('click', () => { manual = true; clearTimeout(timer); show(+t.dataset.look); }));
   new IntersectionObserver((es) => es.forEach((e) => { seen = e.isIntersecting; run(); }), { threshold: .4 }).observe(stage);
 
@@ -980,8 +986,8 @@ resetDemo(); render();
   const frames = $$('.chill img'), dots = $('#chilldots');
   let fi = 0, ft = 0, on = false;
   frames.forEach((_, k) => { const b = document.createElement('button'); b.dataset.n = k + 1; b.setAttribute('aria-label', T[lang].aShot.replace('{n}', k + 1)); b.addEventListener('click', () => { go(k); loop(); }); dots.appendChild(b); });
-  const go = (k) => { fi = k; frames.forEach((f, j) => f.classList.toggle('on', j === k)); $$('button', dots).forEach((b, j) => b.classList.toggle('on', j === k)); };
-  const loop = () => { clearTimeout(ft); if (!reduce && on) ft = setTimeout(() => { go((fi + 1) % frames.length); loop(); }, 5500); };
+  const go = (k) => { fi = k; frames.forEach((f, j) => { f.classList.toggle('on', j === k); f.tabIndex = j === k ? 0 : -1; }); $$('button', dots).forEach((b, j) => b.classList.toggle('on', j === k)); };
+  const loop = () => { clearTimeout(ft); if (!reduce && on && !$('.chill').contains(document.activeElement)) ft = setTimeout(() => { go((fi + 1) % frames.length); loop(); }, 5500); };
   go(0);
   new IntersectionObserver((es) => es.forEach((e) => { on = e.isIntersecting; loop(); }), { threshold: .3 }).observe($('.chill'));
 })();
@@ -1093,7 +1099,7 @@ try {
   let down = null;
   addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; }, true);
   // keyboard: every screenshot can be focused and opened with Enter or Space
-  document.querySelectorAll('img.zm').forEach((im) => { im.tabIndex = 0; im.setAttribute('role', 'button'); });
+  document.querySelectorAll('img.zm').forEach((im) => { im.tabIndex = im.closest('.looks, .chill') && !im.classList.contains('on') ? -1 : 0; im.setAttribute('role', 'button'); });
   document.addEventListener('keydown', (e) => {
     const im = e.target.closest && e.target.closest('img.zm');
     if (!im || (e.key !== 'Enter' && e.key !== ' ') || document.querySelector('.lb')) return;
