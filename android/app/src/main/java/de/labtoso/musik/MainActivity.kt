@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -120,6 +121,8 @@ class MainActivity : ComponentActivity() {
         web.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                 trustedPage = url != null && isTrusted(Uri.parse(url))
+                // a new page never inherits "screen stays on" from the room of the page before
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -616,6 +619,11 @@ class MainActivity : ComponentActivity() {
                 putExtra(Intent.EXTRA_TEXT, if (title.isBlank()) url else "$title\n$url")
             }
             runCatching { startActivity(Intent.createChooser(send, null)) }
+        }
+        /** Chillscreen room open: the screen stays on, only while this app is in front (no wake lock permission). */
+        @JavascriptInterface fun keepAwake(on: Boolean) = main.post {
+            if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         @JavascriptInterface fun openExternal(url: String) {
             if (!url.startsWith("https://")) return

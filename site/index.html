@@ -94,6 +94,8 @@ body.set-open .panel { transform: none; }
 .choice i { width: 18px; height: 18px; border-radius: 50%; }
 .choice i.dynsw { background: conic-gradient(#e86a6a, #e8c56a, #4fc184, #5aa8e8, #9b7bff, #e86ac4, #e86a6a); }
 .panel small { margin-top: auto; font-size: 12px; color: var(--dim); }
+.panel small .legal { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line2); }
+.panel small .legal:hover { color: var(--paper); }
 
 /* ── hero ── */
 .hero { position: relative; min-height: min(100svh, 940px); display: flex; align-items: center; padding: 110px var(--gut) 90px; overflow: hidden; border-bottom: 1px solid var(--line); }
@@ -454,7 +456,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
     <button data-a="green"><i style="background:#2fc77c"></i><span data-t="green"></span></button>
     <button data-a="purple"><i style="background:#9b7bff"></i><span data-t="purple"></span></button>
   </div></div>
-  <small>Streyn · LabtosoStudios</small>
+  <small>Streyn · LabtosoStudios · <a class="legal" href="https://labtoso.de/impressum" target="_blank" rel="noopener">Impressum</a></small>
 </aside>
 
 <main>
@@ -656,7 +658,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 <footer>
   <div class="wrap">
     <a class="word" href="#" aria-label="Streyn"><span class="disc" aria-hidden="true"></span><span class="wm" aria-hidden="true"></span></a>
-    <div class="fl"><a data-discord href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Discord</a><a href="https://github.com/Labtoso/Musik">GitHub</a><a href="docs/">Docs</a><a href="https://github.com/Labtoso/Musik/releases" data-t="all"></a><span>© LabtosoStudios</span></div>
+    <div class="fl"><a data-discord href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Discord</a><a href="https://github.com/Labtoso/Musik">GitHub</a><a href="docs/">Docs</a><a href="https://github.com/Labtoso/Musik/releases" data-t="all"></a><a href="https://labtoso.de/impressum" target="_blank" rel="noopener">Impressum</a><span>© LabtosoStudios</span></div>
   </div>
 </footer>
 <script>

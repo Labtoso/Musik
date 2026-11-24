@@ -1,7 +1,7 @@
 import { audioOut, conn, saveConn, normalizeServer, detectSameOrigin, sameInfo, api, get, post, put, del, coverUrl, upload, setUnauthorizedHandler, ApiError, extCovers, keepPodArt } from './api.js';
 import { LOGOS } from './logos.js';
 import { Player, EQ_FREQS, warmSongs, preloadSongs, streams } from './player.js';
-import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong, DISCORD_URL, openExternal as openExt } from './sources.js';
+import { settings, loadSettings, saveSettings, enabled, SOURCES, spotify, fetchLink, parseFile, saveImport, spotifyPlaylist, spotifyLiked, playableItems, searchYouTube, searchSpotify, searchSpotifyAll, searchYouTubeFree, searchYouTubeMusic, spotifyArtist, spotifyFindArtist, spotifyAlbum, extTrack, sameSong, DISCORD_URL, IMPRESSUM_URL, openExternal as openExt } from './sources.js';
 import { placeStage } from './engines.js';
 import { Visualizer, MiniViz, VIZ_MODES, MINI_MODES, vizTune } from './viz.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -1644,6 +1644,19 @@ fetch('https://musik.labtoso.de/links.json', { cache: 'no-store' }).then((r) => 
 }).catch(() => {});
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-discord]') && discordUrl) openExt(discordUrl);
+});
+// Outside links in the apps (Impressum, guides, downloads, podcast pages) open in the system browser,
+// so the app window never turns into a web page without a way back.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('a[href]');
+  if (!a || e.defaultPrevented || e.button !== 0) return;
+  const inApp = !!window.musikDesktop || !!window.MusikAndroid;
+  if (!a.hasAttribute('data-ext') && !(inApp && a.target === '_blank')) return;
+  let u;
+  try { u = new URL(a.getAttribute('href'), location.href); } catch { return; }
+  if (!/^https?:$/.test(u.protocol) || u.origin === location.origin) return;
+  e.preventDefault();
+  openExt(u.href);
 });
 function greeting() {
   const h = new Date().getHours();
@@ -5369,12 +5382,7 @@ async function openChill() {
   requestAnimationFrame(() => el.classList.add('open'));
   history.pushState({ chill: 1 }, '');
   try { await el.requestFullscreen?.({ navigationUI: 'hide' }); } catch {}
-  try {
-    const lock = await navigator.wakeLock?.request('screen');
-    // the room was closed while the lock was asked for: give it back at once
-    if (chill && chill === room) chill.lock = lock;
-    else lock?.release().catch(() => {});
-  } catch {}
+  if (chill === room) chillAwake(true);
   try {
     const { createTurntable } = await import('./room.js');
     if (!chill || chill.el !== el) return;
@@ -5404,12 +5412,27 @@ function closeChill(fromHistory) {
   if (!viz?.running && !miniViz?.running) player.stopViz();
   chill = null;
   clearInterval(c.tick); clearTimeout(c.hide);
-  try { c.lock?.release(); } catch {}
+  chillAwake(false, c);
   if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   c.el.classList.remove('open');
   setTimeout(() => { c.room?.dispose(); c.el.remove(); }, 380);
   if (!fromHistory && history.state?.chill) history.back();
 }
+/** The screen stays on while the room is open: Android and the desktop app natively (the page is plain
+ *  http there, where the browser's wake lock does not exist), a browser through its wake lock. */
+function chillAwake(on, c = chill) {
+  try { window.MusikAndroid?.keepAwake?.(on); } catch {}
+  try { window.musikDesktop?.awake?.(on); } catch {}
+  if (!on) { try { c?.lock?.release(); } catch {} if (c) c.lock = null; return; }
+  const room = c;
+  navigator.wakeLock?.request('screen').then((lock) => {
+    // the room was closed while the lock was asked for: give it back at once
+    if (room && chill === room && !room.lock) room.lock = lock;
+    else lock.release().catch(() => {});
+  }).catch(() => {});
+}
+// the browser drops its wake lock when the tab is hidden: ask again when the room is back in view
+document.addEventListener('visibilitychange', () => { if (!document.hidden && chill && !chill.lock) chillAwake(true); });
 addEventListener('popstate', () => chill && closeChill(true));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && chill) closeChill(); });
 // phone: drag the big player down to put it away, drag the small player up to open it. The player follows the finger.
@@ -7037,7 +7060,7 @@ async function renderSettings() {
       setRow(t('allDownloads'), `<a class="btn" href="${RELEASES}" target="_blank" rel="noopener">${icon('download')}${t('allDownloads')}</a>`, { hint: 'LabtosoStudios', keys: 'apk exe appimage download' }))
   ].join('');
   const q = $('#setq')?.value || '';
-  s.innerHTML = `<div class="set-cards">${cards}<p class="muted empty set-none" hidden>${t('noSettings')}</p></div>`;
+  s.innerHTML = `<div class="set-cards">${cards}<p class="muted empty set-none" hidden>${t('noSettings')}</p><p class="set-legal"><a href="${IMPRESSUM_URL}" target="_blank" rel="noopener" data-ext>Impressum</a></p></div>`;
   if (offline.ok()) redrawOffline();
   $('#setnav').innerHTML = [...s.querySelectorAll('.set-card')].map((c) => `<button data-setjump="${c.id}">${esc(c.querySelector('h3 span').textContent)}</button>`).join('');
   filterSettings(q);
