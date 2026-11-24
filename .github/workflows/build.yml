@@ -206,16 +206,24 @@ jobs:
           # the offline-mode server inside the installer is pinned the same way (same file until DESKTOP_VERSION changes)
           SRV="streyn-desktop-server-$DV-windows-x64.exe"
           SIDECAR="src-tauri/binaries/streyn-server-${{ matrix.triple }}${{ matrix.ext }}"
+          # the setup itself is pinned too: same app, same offline server, same setup code = the very same
+          # file as last release. A new unsigned file starts with zero reputation at every scanner.
+          HS=$(cd .. && { echo "$H"; git ls-files -s desktop/setup; } | git hash-object --stdin | cut -c1-10)
+          SETUP="streyn-setup-$DV-$HS-windows-x64.exe"
           CFG="{\"version\":\"$DV\"}"
           npm ci
           reuse=0
+          srvreuse=0
           if [ "${{ matrix.name }}" = windows ]; then
-            names=$(gh release view -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)
+            # one release for every reused file, even if another build publishes a newer one meanwhile
+            TAG=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
+            names=""
+            [ -n "$TAG" ] && names=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)
             if grep -qx "$SRV" <<< "$names"; then
-              gh release download -R "$GITHUB_REPOSITORY" -p "$SRV" -D prevsrv && cp "prevsrv/$SRV" "$SIDECAR" && echo "Offline server for $DV unchanged: reusing $SRV"
+              gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$SRV" -D prevsrv && cp "prevsrv/$SRV" "$SIDECAR" && srvreuse=1 && echo "Offline server for $DV unchanged: reusing $SRV"
             fi
             if grep -qx "$RAW" <<< "$names"; then
-              gh release download -R "$GITHUB_REPOSITORY" -p "$RAW" -D prev && reuse=1
+              gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$RAW" -D prev && reuse=1
             elif grep -q "^streyn-desktop-$DV-" <<< "$names"; then
               echo "::warning::The desktop app changed but DESKTOP_VERSION is still $DV. Raise DESKTOP_VERSION so installed apps get the change."
             fi
@@ -230,9 +238,16 @@ jobs:
             fi
             # Streyn Setup: a plain Rust program (desktop/setup) that installs both files per user,
             # like Spotify. No NSIS, so no plug-in DLLs unpacked to %TEMP% and no process scanning.
-            STREYN_APP_EXE="$PWD/src-tauri/target/release/streyn.exe" STREYN_SERVER_EXE="$PWD/$SIDECAR" STREYN_VERSION="${{ needs.version.outputs.version }}" \
-              cargo build --release --locked --manifest-path setup/Cargo.toml
-            cp setup/target/release/StreynSetup.exe "../${{ matrix.out }}"
+            # Its version is the desktop version, so nothing in it changes with server-only releases.
+            if [ $reuse = 1 ] && [ $srvreuse = 1 ] && grep -qx "$SETUP" <<< "$names" && gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$SETUP" -D prevsetup; then
+              echo "Setup unchanged: reusing $SETUP"
+              cp "prevsetup/$SETUP" "../${{ matrix.out }}"
+            else
+              STREYN_APP_EXE="$PWD/src-tauri/target/release/streyn.exe" STREYN_SERVER_EXE="$PWD/$SIDECAR" STREYN_VERSION="$DV" \
+                cargo build --release --locked --manifest-path setup/Cargo.toml
+              cp setup/target/release/StreynSetup.exe "../${{ matrix.out }}"
+            fi
+            cp "../${{ matrix.out }}" "../$SETUP"
           else
             npx tauri build --bundles ${{ matrix.bundle }} --config "$CFG"
             f=$(find src-tauri/target/release/bundle/${{ matrix.bundle }} -maxdepth 1 -name "*.AppImage" | head -n1)
@@ -241,7 +256,7 @@ jobs:
           if [ "${{ matrix.name }}" = windows ]; then
             cp src-tauri/target/release/streyn.exe "../$RAW"
             cp "$SIDECAR" "../$SRV"
-            sha256sum "../$RAW" "../$SRV"
+            sha256sum "../$RAW" "../$SRV" "../$SETUP"
           fi
       # Real install and uninstall on the Windows runner: only the expected files, shortcut and
       # registry entry appear, and they are gone again afterwards.
@@ -280,6 +295,7 @@ jobs:
             ${{ matrix.out }}
             streyn-desktop-*-windows-x64.exe
             streyn-desktop-server-*-windows-x64.exe
+            streyn-setup-*-windows-x64.exe
           if-no-files-found: error
 
   release:
@@ -322,7 +338,7 @@ jobs:
           fi
           # explain the two files that only exist so the next build can reuse them
           FULL="$(mktemp)"; cat "$NOTES" > "$FULL"
-          printf '\n---\n<sub>`streyn-desktop-*` are the unchanged Windows app files that every installer reuses (kept here for the build). To install, download **Streyn.exe**.</sub>\n' >> "$FULL"
+          printf '\n---\n<sub>`streyn-desktop-*` and `streyn-setup-*` are the unchanged Windows files that every release reuses (kept here for the build). To install, download **Streyn.exe**.</sub>\n' >> "$FULL"
           NOTES="$FULL"
           # an older version finishing after a newer one must not become "latest" (the download links use it)
           LATEST=--latest
