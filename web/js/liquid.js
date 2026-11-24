@@ -79,8 +79,10 @@ function pressEnd() {
 }
 addEventListener('pointerdown', pressStart, { capture: true, passive: true });
 addEventListener('pointermove', pressMove, { capture: true, passive: true });
-addEventListener('pointerup', pressEnd, { capture: true, passive: true });
-addEventListener('pointercancel', pressEnd, { capture: true, passive: true });
+// only the finger that pressed ends the press (a second finger lifting elsewhere does not)
+const pointerEnd = (e) => e.pointerId === press?.id && pressEnd();
+addEventListener('pointerup', pointerEnd, { capture: true, passive: true });
+addEventListener('pointercancel', pointerEnd, { capture: true, passive: true });
 addEventListener('blur', pressEnd);
 
 // ---------- materialise: a pane appears by bending the light ever less until it is clear glass ----------

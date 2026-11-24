@@ -84,7 +84,7 @@ const de = {
   stream_failed: 'Der Server konnte diesen Song gerade nicht laden.',
   song_not_on_ytm: 'Diesen Song gibt es so nicht auf YouTube Music, nächster Song.',
   no_local_tracks: 'Keiner dieser Songs liegt auf deinem Server. Die Playlist ist schon in deiner Bibliothek und spielt so, wie sie ist.',
-  saveAsPlaylist: 'Als Playlist speichern', savedAsPlaylist: 'Playlist „{name}“ mit {n} Songs gespeichert', rematch: 'Neu abgleichen', refreshImport: 'Von der Quelle aktualisieren', matchedN: '{n} Songs lokal gefunden',
+  savedImportAsPlaylist: 'Playlist „{name}“ mit {n} Songs gespeichert', rematch: 'Neu abgleichen', refreshImport: 'Von der Quelle aktualisieren', matchedN: '{n} Songs lokal gefunden',
   deleteImportQ: 'Import „{name}“ löschen?', notAvailable: 'Nicht abspielbar: {src} ist aus oder nicht verbunden', openOn: 'Auf {src} öffnen',
   bad_link: 'Diesen Link kenne ich nicht.', youtube_private: 'Die Playlist ist privat oder existiert nicht.', youtube_empty: 'Keine Videos gefunden.', youtube_unreachable: 'YouTube ist nicht erreichbar.', youtube_key: 'Der YouTube-Schlüssel stimmt nicht.', youtube_blocked: 'Dieses Video darf nicht eingebettet werden, nächster Song.',
   soundcloud_private: 'SoundCloud findet den Link nicht.', soundcloud_unreachable: 'SoundCloud ist nicht erreichbar.', private: 'Das ist privat.', source_unreachable: 'Die Plattform ist gerade nicht erreichbar.', empty_import: 'Keine Songs gefunden.',
@@ -206,7 +206,7 @@ const en = {
   stream_failed: 'The server could not load this song right now.',
   song_not_on_ytm: 'This song is not on YouTube Music in this version, next song.',
   no_local_tracks: 'None of these songs are on your server. The playlist is already in your library and plays as it is.',
-  saveAsPlaylist: 'Save as playlist', savedAsPlaylist: 'Saved playlist “{name}” with {n} songs', rematch: 'Match again', refreshImport: 'Update from source', matchedN: '{n} songs found locally',
+  savedImportAsPlaylist: 'Saved playlist “{name}” with {n} songs', rematch: 'Match again', refreshImport: 'Update from source', matchedN: '{n} songs found locally',
   deleteImportQ: 'Delete import “{name}”?', notAvailable: 'Not playable: {src} is off or not connected', openOn: 'Open on {src}',
   bad_link: 'I do not know this link.', youtube_private: 'The playlist is private or does not exist.', youtube_empty: 'No videos found.', youtube_unreachable: 'YouTube is not reachable.', youtube_key: 'The YouTube key is wrong.', youtube_blocked: 'This video cannot be embedded, next song.',
   soundcloud_private: 'SoundCloud cannot find the link.', soundcloud_unreachable: 'SoundCloud is not reachable.', private: 'That is private.', source_unreachable: 'The platform is not reachable right now.', empty_import: 'No songs found.',
@@ -301,7 +301,7 @@ export function getLang() {
   return lang;
 }
 export function t(key, vars = {}) {
-  let s = dicts[lang][key] ?? dicts.de[key] ?? key;
-  for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, v);
-  return s;
+  const s = dicts[lang][key] ?? dicts.de[key] ?? key;
+  // one pass, values taken literally: no `$&` patterns, no placeholders inside a value replaced again
+  return s.replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m));
 }

@@ -54,19 +54,35 @@ export class YouTubeAdapter extends Adapter {
     if (this.ready) return this.ready;
     this.ready = (async () => {
       const YT = await ytApi();
-      return new Promise((res) => {
+      return new Promise((res, rej) => {
+        // the player never getting ready must not hang every later load
+        const t = setTimeout(() => rej(new Error('youtube_unreachable')), 20000);
         this.p = new YT.Player('ext-yt', {
           width: '100%',
           height: '100%',
           playerVars: { playsinline: 1, rel: 0, modestbranding: 1, autoplay: 1 },
           events: {
-            onReady: () => res(this.p),
+            onReady: () => {
+              clearTimeout(t);
+              res(this.p);
+            },
             onStateChange: (e) => this.#state(e.data),
             onError: (e) => this.emit('error', { message: 'youtube_blocked', code: e?.data })
           }
         });
       });
     })();
+    // a failed start (network gone for a moment) is tried again on the next load
+    this.ready.catch(() => {
+      try {
+        this.p?.destroy?.();
+      } catch {}
+      // destroy() removes the iframe that took the place of #ext-yt: put the target back for the next start
+      const box = document.querySelector('.ext-yt');
+      if (box && !document.getElementById('ext-yt')) box.innerHTML = '<div id="ext-yt"></div>';
+      this.p = null;
+      this.ready = null;
+    });
     return this.ready;
   }
   #state(s) {
@@ -93,8 +109,11 @@ export class YouTubeAdapter extends Adapter {
     }, 500);
   }
   async load(id, pos = 0, autoplay = true) {
+    const my = (this.loadSeq = (this.loadSeq || 0) + 1);
     showStage('yt');
     const p = await this.#player();
+    // replaced by a newer load or stopped while the player was starting
+    if (my !== this.loadSeq) return;
     if (autoplay) p.loadVideoById({ videoId: id, startSeconds: pos || 0 });
     else p.cueVideoById({ videoId: id, startSeconds: pos || 0 });
   }
@@ -111,6 +130,7 @@ export class YouTubeAdapter extends Adapter {
     this.p?.setVolume?.(Math.round(v * 100));
   }
   stop() {
+    this.loadSeq = (this.loadSeq || 0) + 1;
     clearInterval(this.timer);
     try {
       this.p?.stopVideo();
@@ -134,9 +154,16 @@ export class SoundCloudAdapter extends Adapter {
     this.dur = 0;
     this.playing = false;
   }
-  async #widget(url) {
+  #widget(url) {
+    // every caller waits for the same READY, a failed start is tried again next time
+    if (!this.wReady) {
+      this.wReady = this.#makeWidget(url);
+      this.wReady.catch(() => (this.wReady = null));
+    }
+    return this.wReady;
+  }
+  async #makeWidget(url) {
     const SC = await scApi();
-    if (this.w) return this.w;
     const box = stage.querySelector('.ext-sc');
     const fr = document.createElement('iframe');
     fr.allow = 'autoplay; encrypted-media';
@@ -144,7 +171,19 @@ export class SoundCloudAdapter extends Adapter {
     box.appendChild(fr);
     this.w = SC.Widget(fr);
     const E = SC.Widget.Events;
-    await new Promise((res) => this.w.bind(E.READY, res));
+    try {
+      await new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error('soundcloud')), 20000);
+        this.w.bind(E.READY, () => {
+          clearTimeout(t);
+          res();
+        });
+      });
+    } catch (e) {
+      fr.remove();
+      this.w = null;
+      throw e;
+    }
     this.w.bind(E.PLAY, () => ((this.playing = true), this.emit('playing', { playing: true })));
     this.w.bind(E.PAUSE, () => ((this.playing = false), this.emit('playing', { playing: false })));
     this.w.bind(E.FINISH, () => ((this.playing = false), this.emit('ended')));
@@ -154,21 +193,32 @@ export class SoundCloudAdapter extends Adapter {
       this.emit('time', { position: this.pos, duration: this.dur });
     });
     this.fresh = true;
+    this.freshUrl = url;
     return this.w;
   }
   async load(id, pos = 0, autoplay = true, url = '') {
     showStage('sc');
+    const my = (this.loadSeq = (this.loadSeq || 0) + 1);
     const target = url && /soundcloud\.com/.test(url) ? url : `https://api.soundcloud.com/tracks/${id}`;
     const w = await this.#widget(target);
+    // replaced by a newer load or stopped while the widget was starting
+    if (my !== this.loadSeq) {
+      // the new widget starts on its own (auto_play): keep it quiet
+      w.pause();
+      return;
+    }
     const after = () => {
       w.getDuration((d) => (this.dur = d / 1000));
       if (pos) w.seekTo(pos * 1000);
       if (autoplay) w.play();
     };
-    if (this.fresh) {
+    if (this.fresh && this.freshUrl === target) {
       this.fresh = false;
       after();
-    } else w.load(target, { auto_play: autoplay, visual: true, show_comments: false, callback: after });
+    } else {
+      this.fresh = false;
+      w.load(target, { auto_play: autoplay, visual: true, show_comments: false, callback: after });
+    }
   }
   play() {
     this.w?.play();
@@ -183,6 +233,7 @@ export class SoundCloudAdapter extends Adapter {
     this.w?.setVolume(Math.round(v * 100));
   }
   stop() {
+    this.loadSeq = (this.loadSeq || 0) + 1;
     this.w?.pause();
     this.playing = false;
   }

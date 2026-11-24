@@ -20,7 +20,18 @@ export function saveConn() {
 export function normalizeServer(input) {
   let s = String(input || '').trim();
   if (!s) return '';
-  if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
+  if (!/^https?:\/\//i.test(s)) {
+    // a public domain name without a port is reached through a reverse proxy: use https so the token is not sent in clear text.
+    // IPs, names without a dot, LAN suffixes (.local, .lan, …) and anything with an explicit port stay on http
+    let lanOrPort = true;
+    try {
+      const h = new URL('http://' + s);
+      // an explicit port counts even when it is the default one (h.port is empty for :80)
+      const explicitPort = /:\d+$/.test(s.split(/[/?#]/)[0].split('@').pop());
+      lanOrPort = !!h.port || explicitPort || !/\.[a-z]{2,}$/i.test(h.hostname) || /\.(local|lan|home|internal|localdomain|home\.arpa|fritz\.box)$/i.test(h.hostname);
+    } catch {}
+    s = (lanOrPort ? 'http://' : 'https://') + s;
+  }
   try {
     const u = new URL(s);
     if (!u.port && u.protocol === 'http:' && !/\.[a-z]{2,}$/i.test(u.hostname)) u.port = '8484';
