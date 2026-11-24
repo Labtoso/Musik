@@ -6324,19 +6324,27 @@ document.addEventListener('click', (e) => {
   c?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   document.querySelectorAll('[data-setjump]').forEach((b) => b.classList.toggle('on', b === j));
 });
+let settingsOpener = null;
 function openSettings(section = '') {
   const q = $('#setq');
   if (q) q.value = '';
   const done = renderSettings();
+  settingsOpener = document.activeElement;
   $('#settings').classList.add('open');
+  $('#settings').inert = false;
   $('#scrim').classList.add('show');
   if (section) Promise.resolve(done).then(() => setTimeout(() => $('#set-' + section)?.scrollIntoView({ block: 'start' }), 50));
 }
 const openSettingsPage = openSettings;
 function closeSettings() {
-  $('#settings').classList.remove('open');
+  // hidden by opacity only: inert keeps its buttons out of the Tab order while closed
+  const box = $('#settings');
+  box.classList.remove('open');
+  box.inert = true;
   $('#scrim').classList.remove('show');
   clearInterval(state.scanTimer);
+  if (box.contains(document.activeElement) || document.activeElement === document.body) settingsOpener?.focus?.();
+  settingsOpener = null;
 }
 // ---------- settings: a full page with search, categories as cards, one row per setting ----------
 /** One setting: label and hint on the left, the control on the right (or below when wide). */
@@ -7127,6 +7135,7 @@ document.addEventListener('click', async (e) => {
     applyPrefs();
     buildShell();
     $('#settings').classList.add('open');
+    $('#settings').inert = false;
     $('#scrim').classList.add('show');
     renderSettings();
     render();
@@ -8203,7 +8212,7 @@ function buildShell() {
     <div id="fs-lyrics" class="fs-queue fs-lyrics"><div class="lyrbody"></div></div>
   </div>
   <div id="scrim" class="scrim"></div>
-  <aside id="settings" class="settings" role="dialog" aria-label="${t('settings')}"><div class="set-top"><div class="set-head"><button class="icon-btn" data-closesettings title="${t('close')}">${icon('back')}</button><h2>${t('settings')}</h2></div><div class="searchbar set-search">${icon('search')}<input id="setq" type="search" placeholder="${t('settingsSearch')}" autocomplete="off"></div><nav id="setnav" class="setnav"></nav></div><div id="settings-body"></div></aside>`;
+  <aside id="settings" class="settings" role="dialog" aria-label="${t('settings')}" inert><div class="set-top"><div class="set-head"><button class="icon-btn" data-closesettings title="${t('close')}">${icon('back')}</button><h2>${t('settings')}</h2></div><div class="searchbar set-search">${icon('search')}<input id="setq" type="search" placeholder="${t('settingsSearch')}" autocomplete="off"></div><nav id="setnav" class="setnav"></nav></div><div id="settings-body"></div></aside>`;
   if (player) {
     renderPlayer();
     renderState();

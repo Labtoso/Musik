@@ -653,6 +653,8 @@
 .gmenu .gam-arrow { width: 16px; height: 16px; transform: scaleX(-1); color: #b3b3b3; }
 .gmenu .gam-sub { display: none; position: absolute; left: 100%; top: -4px; min-width: 240px; padding: 4px; border-radius: 4px; background: #282828; box-shadow: 0 16px 24px rgba(0, 0, 0, 0.3), 0 6px 8px rgba(0, 0, 0, 0.2); }
 .gmenu .gam-item:hover > .gam-sub { display: block; }
+/* keyboard: the side menu opens on the focused group and stays while one of its entries has focus */
+.gmenu .gam-item:has(> .gam-top:focus-visible, > .gam-sub :focus-visible) > .gam-sub { display: block; }
 .gmenu kbd { font: inherit; font-size: 12px; color: #b3b3b3; }
 .gmenu hr { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 4px 0; }
 
@@ -860,6 +862,8 @@
 .gm-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255, 255, 255, 0.3); cursor: pointer; }
 .gm-bar i { display: block; height: 100%; background: #fff; }
 .gmini.withq { height: 480px; }
+/* in its own window the player fills the window, the queue takes the lower part of it */
+.gmini-win .gmini.withq { height: 100vh; }
 .gmini.withq .gm-cover { bottom: 160px; }
 .gmini.withq .gm-foot { bottom: 176px; }
 .gm-q { position: absolute; left: 0; right: 0; bottom: 4px; height: 156px; overflow: auto; padding: 0 8px; display: none; }

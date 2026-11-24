@@ -82,7 +82,7 @@
   <button class="ctl" id="prev" aria-label="Zurück"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
   <button class="ctl main" id="tog" aria-label="Play"></button>
   <button class="ctl" id="next" aria-label="Weiter"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
-</div><div class="in" style="display:block"><div class="prog" id="prog"><i id="pi"></i></div></div></div>
+</div><div class="in" style="display:block"><div class="prog" id="prog" role="slider" tabindex="0" aria-label="Position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="pi"></i></div></div></div>
 <div class="toast" id="toast"></div>
 <audio id="au" preload="none"></audio>
 <!-- The same page is served by every Streyn server at /s/<token> and by the download site at
@@ -158,7 +158,7 @@
         <label><span>${T.name}</span><input name="name" autocomplete="username" required minlength="2" maxlength="32"></label>
         <label><span>${T.pass}</span><input name="password" type="password" autocomplete="new-password" required minlength="4"></label>
         <div class="err" id="jerr"></div><button class="go" id="jgo">${L('create')}</button></form>`;
-    h += list.map((x, i) => `<div class="row" data-i="${i}"><span class="n">${i + 1}</span><span class="c" style="${x.cover ? `background-image:url('${esc(x.cover)}')` : ''}"></span>
+    h += list.map((x, i) => `<div class="row" data-i="${i}" role="button" tabindex="0"><span class="n">${i + 1}</span><span class="c" style="${x.cover ? `background-image:url('${esc(x.cover)}')` : ''}"></span>
       <div style="min-width:0"><div class="t">${esc(x.title)}</div><div class="a">${x.badge ? `<span class="src">${esc(x.badge)}</span>` : ''}${esc(x.artist)}</div></div><span class="d">${x.duration ? fmt(x.duration) : ''}</span></div>`).join('');
     h += `<div class="foot">${T.on} ${esc(d.server || 'Streyn')}</div>`;
     $('root').innerHTML = h;
@@ -166,7 +166,10 @@
     $('playall')?.addEventListener('click', () => (cur >= 0 ? toggle() : play(0)));
     $('save')?.addEventListener('click', save);
     $('join')?.addEventListener('click', join);
-    document.querySelectorAll('.row[data-i]').forEach((r) => r.addEventListener('click', () => play(+r.dataset.i)));
+    document.querySelectorAll('.row[data-i]').forEach((r) => {
+      r.addEventListener('click', () => play(+r.dataset.i));
+      r.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), play(+r.dataset.i)));
+    });
     const box = $('joinbox');
     if (box) {
       let mode = 'new';
@@ -198,7 +201,19 @@
   au.addEventListener('ended', () => (cur + 1 < list.length ? play(cur + 1) : icons()));
   // a platform song that can't be found: go on with the next one
   au.addEventListener('error', () => { if (cur >= 0 && cur + 1 < list.length && au.src) play(cur + 1); });
-  au.addEventListener('timeupdate', () => ($('pi').style.width = (au.duration ? (au.currentTime / au.duration) * 100 : 0) + '%'));
+  au.addEventListener('timeupdate', () => {
+    const p = au.duration ? (au.currentTime / au.duration) * 100 : 0;
+    $('pi').style.width = p + '%';
+    $('prog').setAttribute('aria-valuenow', Math.round(p));
+  });
+  // keyboard: arrows jump 5 seconds, Home/End to start and end
+  $('prog').addEventListener('keydown', (e) => {
+    if (!au.duration) return;
+    const to = { ArrowLeft: au.currentTime - 5, ArrowDown: au.currentTime - 5, ArrowRight: au.currentTime + 5, ArrowUp: au.currentTime + 5, Home: 0, End: au.duration - 1 }[e.key];
+    if (to == null) return;
+    e.preventDefault();
+    au.currentTime = Math.max(0, Math.min(au.duration, to));
+  });
   $('tog').addEventListener('click', toggle);
   $('prev').addEventListener('click', () => (au.currentTime > 3 ? (au.currentTime = 0) : play(Math.max(0, cur - 1))));
   $('next').addEventListener('click', () => play(cur + 1));
