@@ -153,9 +153,14 @@ fn main() {
         }
         std::process::exit(1);
     };
+    // an installation from before 1.34 lives in %LOCALAPPDATA%\Streyn: that is an update, not a
+    // first install, so no Desktop shortcut is added that the user did not have
+    let old = win::old_install_dir();
+    let had_old = old.as_ref().map(|o| o.join(APP_EXE).is_file()).unwrap_or(false);
     let result = install(&dir).and_then(|fresh| {
-        if let Some(old) = win::old_install_dir() {
-            retire_old_install(&old, &dir);
+        let fresh = fresh && !had_old;
+        if let Some(old) = &old {
+            retire_old_install(old, &dir);
         }
         let size: u64 = [APP_EXE, SERVER_EXE].iter().filter_map(|n| std::fs::metadata(dir.join(n)).ok()).map(|m| m.len()).sum();
         win::register(&dir, VERSION, size)?;

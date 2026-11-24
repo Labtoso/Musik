@@ -69,11 +69,16 @@ fn windows_layout(roaming: &Path, local: &Path, ident: &str, exe: Option<&Path>)
     let _ = std::fs::create_dir_all(&base);
 
     // settings: a small file, copied when it cannot be renamed
-    let prefs = home.join("prefs");
+    let mut prefs = home.join("prefs");
     let old_cfg = old_roaming.join("config.json");
     if !prefs.exists() && old_cfg.is_file() {
-        if std::fs::rename(&old_cfg, &prefs).is_err() && std::fs::copy(&old_cfg, &prefs).is_ok() {
-            let _ = std::fs::remove_file(&old_cfg);
+        if std::fs::rename(&old_cfg, &prefs).is_err() {
+            if std::fs::copy(&old_cfg, &prefs).is_ok() {
+                let _ = std::fs::remove_file(&old_cfg);
+            } else {
+                // not movable right now: keep reading the old file, the next start tries again
+                prefs = old_cfg.clone();
+            }
         }
     }
 
@@ -114,6 +119,10 @@ fn moved(old: &Path, new: &Path) -> PathBuf {
             // e.g. a different drive: keep using the old folder
             Err(_) => break,
         }
+    }
+    // another Streyn started at the same moment may have moved it already
+    if new.exists() {
+        return new.to_path_buf();
     }
     old.to_path_buf()
 }
