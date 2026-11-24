@@ -6,7 +6,9 @@
 <meta name="theme-color" content="#0b0b0c">
 <meta name="description" content="Streyn is a music server for your own hardware, with apps for Android, Windows and Linux and a mix that learns from what you play.">
 <title>Streyn · Your music on your own server</title>
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon.svg?v=1352" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png?v=1352" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=1352">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=Schibsted+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -25,7 +27,7 @@
 :root[data-accent=purple] { --accent: #9b7bff; --acc-rgb: 155,123,255; --ink: #110a26; --accent2: #9b7bff; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; scroll-padding-top: 72px; }
-html, body { margin: 0; overflow-x: hidden; }
+html, body { margin: 0; overflow-x: clip; }
 body { background: var(--bg); color: var(--paper); font: 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
 a { color: inherit; text-decoration: none; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
@@ -169,10 +171,6 @@ p.subp { margin: 8px 0 0; color: var(--muted); font-size: 16px; max-width: 520px
 .shot img, .frame img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg2); }
 .cap { margin-top: 14px; font-size: 15px; color: var(--muted); }
 .cap b { color: var(--paper); font-weight: 600; }
-.pair { position: relative; padding-right: 13%; margin: 0 0 clamp(80px, 9vw, 120px); }
-.pair .phone { position: absolute; right: 0; bottom: -6%; width: 22%; }
-.pair .phone img { border-radius: 18px; border: 1px solid var(--line2); box-shadow: 0 30px 60px -20px rgba(0,0,0,.85); aspect-ratio: 780 / 1688; object-fit: cover; }
-.pair figcaption { margin-top: 18px; max-width: 70%; }
 .block { margin: 0 0 clamp(80px, 9vw, 120px); }
 .block-h { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 24px; }
 .seg { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line2); border-radius: 10px; }
@@ -181,12 +179,6 @@ p.subp { margin: 8px 0 0; color: var(--muted); font-size: 16px; max-width: 520px
 .looks { position: relative; aspect-ratio: 16 / 10; border-radius: 10px; overflow: hidden; border: 1px solid var(--line2); background: var(--bg2); }
 .looks img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; opacity: 0; transition: opacity .6s ease; }
 .looks img.on { opacity: 1; }
-.phones { display: grid; grid-template-columns: repeat(4, 1fr); gap: clamp(14px, 2vw, 28px); }
-.phones img { border-radius: 16px; aspect-ratio: 780 / 1688; object-fit: cover; }
-.phones .cap { margin-top: 12px; font-size: 14.5px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 4vw, 56px) clamp(20px, 3vw, 40px); }
-.grid2 img { aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; }
-.grid2 .cap b { display: block; margin-bottom: 2px; }
 .chill { position: relative; aspect-ratio: 21 / 9; border-radius: 10px; overflow: hidden; border: 1px solid var(--line2); background: #000; }
 .chill img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 1.4s ease; border: 0; border-radius: 0; }
 .chill img.on { opacity: 1; }
@@ -288,13 +280,95 @@ footer .wrap { display: flex; justify-content: space-between; align-items: cente
 footer .word .wm { height: 22px; background: var(--dim); }
 footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
+/* the app film: pinned while you scroll, the screens settle and change scene by scene */
+.film { position: relative; margin: 0 0 clamp(80px, 9vw, 120px); }
+.film-pin { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: clamp(28px, 4vw, 64px); align-items: center; }
+.film-txt { list-style: none; margin: 0; padding: 0; counter-reset: fm; }
+.film-txt li { counter-increment: fm; padding: 18px 0 18px 18px; border-left: 1px solid var(--line2); color: var(--dim); transition: color .5s, border-color .5s; }
+.film-txt li::before { content: '0' counter(fm); display: block; font: 500 12px var(--mono); margin-bottom: 6px; }
+.film-txt button { all: unset; display: block; cursor: pointer; border-radius: 4px; }
+.film-txt button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.film-txt li:not(.on):hover { color: var(--muted); }
+.film-txt b { display: block; font: 600 20px/1.25 var(--sans); color: inherit; transition: color .5s; }
+.film-txt span { display: block; margin-top: 6px; font-size: 15px; line-height: 1.5; }
+.film-txt li.on { color: var(--muted); border-left-color: var(--accent); }
+.film-txt li.on b { color: var(--paper); }
+.film-stage { position: relative; padding: 0 9% 8% 0; perspective: 1800px; }
+.film-desk, .film-phone { position: relative; will-change: transform; }
+.film-desk { aspect-ratio: 16 / 10; border-radius: 10px; overflow: hidden; border: 1px solid var(--line2); background: var(--bg2); transform-origin: 50% 100%; box-shadow: 0 50px 90px -40px rgba(0,0,0,.9); }
+.film-phone { position: absolute; right: 0; bottom: 0; width: 23%; aspect-ratio: 780 / 1688; border-radius: 18px; overflow: hidden; border: 1px solid var(--line2); background: #000; box-shadow: 0 30px 60px -20px rgba(0,0,0,.9); }
+.film-desk img, .film-phone img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; opacity: 0; transition: opacity .7s ease; border: 0; border-radius: 0; pointer-events: none; }
+.film-desk img.on, .film-phone img.on { opacity: 1; pointer-events: auto; }
+.film-bar { display: none; }
+.js .film.live { height: 340vh; }
+.js .film.live .film-pin { position: sticky; top: 0; height: 100vh; height: 100svh; padding: 76px 0 24px; }
+.js .film.live .film-desk { transform: rotateX(calc((1 - var(--e, 1)) * 14deg)) scale(calc(.86 + var(--e, 1) * .14)); }
+.js .film.live .film-phone { opacity: var(--e, 1); transform: translate(calc((1 - var(--e, 1)) * 40%), calc((1 - var(--e, 1)) * 30% - var(--p, 0) * 6%)); }
+.js .film.live .film-bar { display: block; position: absolute; left: 0; right: 0; bottom: 14px; height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.js .film.live .film-bar i { display: block; height: 100%; background: var(--accent); transform-origin: 0 0; transform: scaleX(var(--p, 0)); }
+@media (max-width: 900px) {
+  .film-pin { grid-template-columns: 1fr; gap: 22px; }
+  .film-txt { order: 2; }
+  .js .film.live .film-pin { align-content: center; }
+  .js .film.live .film-txt { display: grid; grid-template-columns: repeat(3, 1fr); position: relative; padding-bottom: 5.2em; }
+  .js .film.live .film-txt li { padding: 12px 10px 0 0; border-left: 0; border-top: 2px solid var(--line2); transition: color .5s, border-color .5s; }
+  .js .film.live .film-txt li.on { border-top-color: var(--accent); }
+  .js .film.live .film-txt li::before { margin-bottom: 4px; }
+  .js .film.live .film-txt b { font-size: 15px; }
+  .js .film.live .film-txt span { position: absolute; left: 0; right: 0; top: calc(100% - 4.8em); margin: 0; opacity: 0; visibility: hidden; transition: opacity .5s, visibility .5s; }
+  .js .film.live .film-txt li.on span { opacity: 1; visibility: visible; }
+  .js .film.live { height: 280vh; }
+  .film-phone { width: 28%; }
+}
+
+/* how it works: the line between the three steps fills as you read */
+.chain { position: relative; }
+.chain::before { content: ''; position: absolute; left: 0; right: 0; top: -1px; height: 2px; background: var(--accent); transform-origin: 0 0; transform: scaleX(var(--cp, 1)); }
+.js .chain .st .t { transition: color .4s; }
+.js .chain .st.lit .t { color: var(--accent); }
+.flow { position: absolute; left: 0; right: 0; top: -3px; height: 6px; pointer-events: none; opacity: 0; transition: opacity .6s; }
+.chain.full .flow { opacity: 1; }
+.flow i { position: absolute; inset: 0; animation: flow 4.2s linear infinite; animation-play-state: paused; will-change: transform; }
+.flow i::before { content: ''; position: absolute; left: 0; top: 0; width: 6px; height: 6px; border-radius: 1px; background: var(--paper); }
+.chain.full .flow i { animation-play-state: running; }
+.flow i:nth-child(2) { animation-delay: -1.4s; } .flow i:nth-child(3) { animation-delay: -2.8s; }
+@keyframes flow { from { transform: translateX(0); opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } to { transform: translateX(calc(100% - 6px)); opacity: 0; } }
+.st { transition: background .3s; }
+@media (hover: hover) { .st:hover h3 { color: var(--accent); } }
+@media (max-width: 1000px) { .flow { display: none; } }
+
+/* hero: text drifts up and the room sinks back as the page starts to scroll */
+.js .hero .htxt { transform: translateY(calc(var(--hp, 0) * -70px)); opacity: calc(1 - var(--hp, 0) * 1.1); }
+.js .hero .stage { transform: scale(calc(1 + var(--hp, 0) * .06)); transform-origin: 70% 50%; }
+
+
+/* chillscreen: the still on screen slowly zooms, like the real screen */
+.chill img { transform: scale(1.06); transition: opacity 1.4s ease, transform 9s ease-out; }
+.chill img.on { transform: scale(1); }
+
+/* free band under the hero: what it costs, in plain numbers */
+.free { padding: clamp(40px, 5vw, 64px) var(--gut); border-bottom: 1px solid var(--line); }
+.free .wrap { display: grid; grid-template-columns: repeat(3, 1fr); }
+.fr { padding: 0 32px; }
+.fr:first-child { padding-left: 0; }
+.fr + .fr { border-left: 1px solid var(--line); }
+.fr b { display: block; font: 500 clamp(40px, 4.4vw, 60px)/1 var(--serif); font-variation-settings: 'opsz' 144; letter-spacing: -.02em; color: var(--paper); }
+.fr span { display: block; margin-top: 12px; color: var(--muted); font-size: 16px; max-width: 300px; }
+@media (max-width: 760px) {
+  .free .wrap { grid-template-columns: 1fr; gap: 26px; }
+  .fr, .fr:first-child { padding: 0; }
+  .fr + .fr { border-left: 0; border-top: 1px solid var(--line); padding-top: 26px; }
+}
+
 /* scroll reveal: quiet fade and lift, only when JS runs and motion is fine */
 .js .rv { opacity: 0; transform: translateY(18px); transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); transition-delay: calc(var(--i, 0) * 70ms); }
 .js .rv.in { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .js .rv { opacity: 1; transform: none; transition: none; }
   html { scroll-behavior: auto; }
-  .looks img, .chill img { transition: none; }
+  .looks img, .chill img, .film img { transition: none; }
+  .chill img, .chill img.on { transform: none; }
+  .flow i { animation: none; }
 }
 
 @media (max-width: 1000px) {
@@ -311,15 +385,10 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   .st, .st + .st { padding: 24px 0 4px; border-left: 0; }
   .st + .st { border-top: 1px solid var(--line); }
   .mix, .pane { grid-template-columns: 1fr; }
-  .phones { grid-template-columns: repeat(2, 1fr); }
-  .pair { padding-right: 0; padding-bottom: 0; }
-  .pair .phone { position: relative; width: 30%; margin: -16% 4% 0 auto; bottom: auto; }
-  .pair figcaption { max-width: none; }
   .notes { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   body { font-size: 16px; }
-  .grid2 { grid-template-columns: 1fr; }
   .chill { aspect-ratio: 4 / 3; }
   .dl { grid-template-columns: 1fr auto; gap: 10px 16px; padding: 22px 0; }
   .dl .d { grid-column: 1 / -1; grid-row: 2; }
@@ -332,7 +401,6 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   .tabs { gap: 18px; }
   .seg { width: 100%; }
   .seg button { flex: 1; padding: 0 6px; font-size: 14px; }
-  .pair .phone { width: 40%; margin-top: -20%; }
 }
 
 /* image viewer */
@@ -413,10 +481,19 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   </div>
 </section>
 
+<section class="free" id="free">
+  <div class="wrap">
+    <div class="fr rv"><b>0 €</b><span data-t="fr1"></span></div>
+    <div class="fr rv" style="--i:1"><b>0</b><span data-t="fr2"></span></div>
+    <div class="fr rv" style="--i:2"><b data-t="fr3b"></b><span data-t="fr3"></span></div>
+  </div>
+</section>
+
 <section class="sec" id="how">
   <div class="wrap">
     <div class="sh"><div class="lab rv"><span data-t="nav1"></span></div><h2 class="rv" data-h="a1h"></h2><p class="rv" data-t="a1p"></p></div>
     <div class="chain">
+      <div class="flow" aria-hidden="true"><i></i><i></i><i></i></div>
       <div class="st rv"><div class="t" data-t="s1t"></div><h3 data-t="s1"></h3><p data-t="s1p"></p><dl><div><dt data-t="s1a"></dt><dd>NAS / Host</dd></div><div><dt data-t="s1b"></dt><dd>Upload</dd></div><div><dt>MP3 · FLAC · M4A · OGG</dt><dd>Tags</dd></div></dl></div>
       <div class="st rv" style="--i:1"><div class="t" data-t="s2t"></div><h3 data-t="s2"></h3><p data-t="s2p"></p><dl><div><dt data-t="s2a"></dt><dd>LXC</dd></div><div><dt data-t="s2b"></dt><dd>Rust</dd></div><div><dt data-t="s2c"></dt><dd>SQLite</dd></div></dl></div>
       <div class="st rv" style="--i:2"><div class="t" data-t="s3t"></div><h3 data-t="s3"></h3><p data-t="s3p"></p><dl><div><dt>Android</dt><dd>APK</dd></div><div><dt>Windows · Linux</dt><dd>Desktop</dd></div><div><dt data-t="browser"></dt><dd>Web</dd></div></dl></div>
@@ -428,11 +505,28 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   <div class="wrap">
     <div class="sh"><div class="lab rv"><span data-t="navP"></span></div><h2 class="rv" data-h="gh"></h2><p class="rv" data-t="gp"></p></div>
 
-    <figure class="shot pair rv" data-gal="pair">
-      <img class="zm" src="shots/v2/d-artist.webp" alt="" data-ta="altPairD" loading="lazy" decoding="async" width="1600" height="1000">
-      <div class="phone"><img class="zm" src="shots/v2/m-fs.webp" alt="" data-ta="altPairM" loading="lazy" decoding="async" width="780" height="1688"></div>
-      <figcaption class="cap" data-t="sh1"></figcaption>
-    </figure>
+    <div class="film" id="film">
+      <div class="film-pin">
+        <ol class="film-txt">
+          <li class="on"><button type="button" data-k="0"><b data-t="fm1"></b><span data-t="fm1p"></span></button></li>
+          <li><button type="button" data-k="1"><b data-t="fm2"></b><span data-t="fm2p"></span></button></li>
+          <li><button type="button" data-k="2"><b data-t="fm3"></b><span data-t="fm3p"></span></button></li>
+        </ol>
+        <div class="film-stage" data-gal="film">
+          <div class="film-desk">
+            <img class="zm on" src="shots/v2/d-artist.webp" alt="" data-ta="fm1" decoding="async" width="1920" height="1200">
+            <img class="zm" src="shots/v2/d-fs.webp" alt="" data-ta="fm2" loading="lazy" decoding="async" width="1920" height="1200">
+            <img class="zm" src="shots/v2/d-album.webp" alt="" data-ta="fm3" loading="lazy" decoding="async" width="1920" height="1200">
+          </div>
+          <div class="film-phone">
+            <img class="zm on" src="shots/v2/m-artist.webp" alt="" data-ta="fm1" decoding="async" width="780" height="1688">
+            <img class="zm" src="shots/v2/m-fs.webp" alt="" data-ta="fm2" loading="lazy" decoding="async" width="780" height="1688">
+            <img class="zm" src="shots/v2/m-album.webp" alt="" data-ta="fm3" loading="lazy" decoding="async" width="780" height="1688">
+          </div>
+        </div>
+        <div class="film-bar" aria-hidden="true"><i></i></div>
+      </div>
+    </div>
 
     <div class="block">
       <div class="block-h rv"><div><h3 class="sub" data-t="lkH"></h3><p class="subp" data-t="lkP"></p></div>
@@ -441,25 +535,6 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
         <img class="zm on" src="shots/v2/d-home.webp" alt="Standard" loading="lazy" decoding="async">
         <img class="zm" src="shots/v2/d-glass.webp" alt="Liquid Glass" loading="lazy" decoding="async">
         <img class="zm" src="shots/v2/d-green.webp" alt="Green" loading="lazy" decoding="async">
-      </div>
-    </div>
-
-    <div class="block">
-      <div class="block-h rv"><div><h3 class="sub" data-t="phH"></h3><p class="subp" data-t="phP"></p></div></div>
-      <div class="phones" data-gal="phones">
-        <figure class="shot rv"><img class="zm" src="shots/v2/m-home.webp" alt="" loading="lazy" decoding="async" width="780" height="1688"><figcaption class="cap" data-t="f1"></figcaption></figure>
-        <figure class="shot rv" style="--i:1"><img class="zm" src="shots/v2/m-album.webp" alt="" loading="lazy" decoding="async" width="780" height="1688"><figcaption class="cap" data-t="f4"></figcaption></figure>
-        <figure class="shot rv" style="--i:2"><img class="zm" src="shots/v2/m-queue.webp" alt="" loading="lazy" decoding="async" width="780" height="1688"><figcaption class="cap" data-t="f5"></figcaption></figure>
-        <figure class="shot rv" style="--i:3"><img class="zm" src="shots/v2/m-green-fs.webp" alt="" loading="lazy" decoding="async" width="780" height="1688"><figcaption class="cap" data-t="f7"></figcaption></figure>
-      </div>
-    </div>
-
-    <div class="block">
-      <div class="grid2" data-gal="details">
-        <figure class="shot rv"><img class="zm" src="shots/v2/d-album.webp" alt="" loading="lazy" decoding="async"><figcaption class="cap"><b data-t="d1"></b><span data-t="d1p"></span></figcaption></figure>
-        <figure class="shot rv" style="--i:1"><img class="zm" src="shots/v2/x-search.webp" alt="" loading="lazy" decoding="async"><figcaption class="cap"><b data-t="d3"></b><span data-t="d3p"></span></figcaption></figure>
-        <figure class="shot rv"><img class="zm" src="shots/v2/x-settings.webp" alt="" loading="lazy" decoding="async"><figcaption class="cap"><b data-t="d2"></b><span data-t="d2p"></span></figcaption></figure>
-        <figure class="shot rv" style="--i:1"><img class="zm" src="shots/v2/x-welcome.webp" alt="" loading="lazy" decoding="async"><figcaption class="cap"><b data-t="d4"></b><span data-t="d4p"></span></figcaption></figure>
       </div>
     </div>
 
@@ -589,8 +664,9 @@ const T = {
   en: {
     settings: 'Settings', close: 'Close', menu: 'Menu', lang: 'Language', accent: 'Accent colour', blue: 'Blue', green: 'Green', purple: 'Purple', dynColor: 'From the playing cover',
     nav1: 'How it works', navP: 'The app', nav2: 'The mix', nav3: 'Server', nav4: 'Download', nav5: 'Questions',
-    h1: 'Your music,<br>on your own <em>server.</em>',
-    lead: 'Streyn is a small server for your Proxmox host, with apps for <b>Android, Windows and Linux</b>. No subscription, no ads, no third-party cloud. It learns from what you actually play and builds your mix from that.',
+    h1: 'Stream like Spotify.<br><em>Completely free.</em>',
+    lead: 'Search any song and play it, get mixes built from what you like, on every device. Streyn runs on your own server with apps for <b>Android, Windows and Linux</b>. No subscription, no ads, no account anywhere else.',
+    fr1: 'a month. No subscription, no trial, no premium tier.', fr2: 'ads. Not in the apps, not between songs.', fr3b: '1 search', fr3: 'for Spotify, YouTube, SoundCloud and your own files.',
     dlFor: 'Download for {os}', dlAll: 'Download the apps', listen: 'Play a short demo loop', listenStop: 'Stop the demo loop',
     metaVer: 'Version', metaFree: 'Free', metaOs: 'Source available', nowPlaying: 'Now playing',
     a1h: 'Your files, a server,<br>and your apps.', a1p: 'Your files stay on your hardware. The server reads them in, keeps track of what you play and streams to every app you connect.',
@@ -598,12 +674,13 @@ const T = {
     s2t: 'Server', s2: 'Streyn server', s2p: 'A small program written in Rust that runs as a container in Proxmox. It needs little memory and holds everything together.', s2a: 'Proxmox container', s2b: 'Mix algorithm', s2c: 'Users, playlists, likes',
     s3t: 'Output', s3: 'Your apps', s3p: 'Enter the address, sign in, listen. Playlists and likes are the same on every device.', browser: 'Browser',
     gh: 'What it looks like.', gp: 'Screenshots from the current app with a demo library. Nothing retouched.',
-    altPairD: 'Artist page in the desktop app', altPairM: 'Full-screen player on the phone',
-    sh1: 'The artist page on the desktop and the player on the phone. Both are connected to the same server and stay in sync.',
+
     lkH: 'Three looks', lkP: 'Standard, Liquid Glass and Green. Switch in the settings; every device keeps its own.',
-    phH: 'On the phone', phP: 'The Android app plays in the background and shows controls on the lock screen.',
-    f1: 'Home with your mix', f4: 'Album', f5: 'Queue', f7: 'Player in Green',
-    d1: 'Albums', d1p: 'Cover, year, length and every track, with the artist one click away.', d2: 'Settings', d2p: 'Searchable, and each switch says what it does.', d3: 'Search', d3p: 'Your library, Spotify and YouTube Music in one search.', d4: 'First start', d4p: 'Six short questions, then you are ready.',
+    
+    onDesk: 'desktop', onPhone: 'phone',
+    fm1: 'Artist pages', fm1p: 'Popular songs, albums and singles, the same on the desktop and the phone.',
+    fm2: 'The player', fm2p: 'Full screen with a visualizer, lyrics and the queue. Both devices play from the same server.',
+    fm3: 'Albums and playlists', fm3p: 'Play, shuffle or share an album. Your playlists sit in the sidebar on the desktop.',
     rlH: 'Chillscreen', rlP: 'A full-screen room for listening. The record turns and the light follows the cover. It is the same room you see at the top of this page.',
     a2h: 'A mix built from<br>what you play.', a2p: 'Every play is a signal for the song, the artist, the album and the genre. This is how much each one counts.',
     w1: 'Like', w1d: 'The strongest signal. The song and the artist move up.',
@@ -651,8 +728,9 @@ const T = {
   de: {
     settings: 'Einstellungen', close: 'Schließen', menu: 'Menü', lang: 'Sprache', accent: 'Akzentfarbe', blue: 'Blau', green: 'Grün', purple: 'Lila', dynColor: 'Aus dem laufenden Cover',
     nav1: 'So funktioniert’s', navP: 'Die App', nav2: 'Der Mix', nav3: 'Server', nav4: 'Download', nav5: 'Fragen',
-    h1: 'Deine Musik,<br>auf deinem eigenen <em>Server.</em>',
-    lead: 'Streyn ist ein kleiner Server für deinen Proxmox-Host, mit Apps für <b>Android, Windows und Linux</b>. Kein Abo, keine Werbung, keine fremde Cloud. Er lernt aus dem, was du wirklich hörst, und baut daraus deinen Mix.',
+    h1: 'Streamen wie bei Spotify.<br><em>Komplett kostenlos.</em>',
+    lead: 'Jeden Song suchen und abspielen, Mixes nach deinem Geschmack, auf jedem Gerät. Streyn läuft auf deinem eigenen Server, mit Apps für <b>Android, Windows und Linux</b>. Kein Abo, keine Werbung, kein Konto bei irgendwem.',
+    fr1: 'im Monat. Kein Abo, keine Testphase, kein Premium.', fr2: 'Werbung. Nicht in den Apps, nicht zwischen den Songs.', fr3b: '1 Suche', fr3: 'für Spotify, YouTube, SoundCloud und deine eigenen Dateien.',
     dlFor: 'Für {os} herunterladen', dlAll: 'Apps herunterladen', listen: 'Kurze Demo-Schleife abspielen', listenStop: 'Demo-Schleife stoppen',
     metaVer: 'Version', metaFree: 'Kostenlos', metaOs: 'Quellcode einsehbar', nowPlaying: 'Läuft gerade',
     a1h: 'Deine Dateien, ein Server<br>und deine Apps.', a1p: 'Deine Dateien bleiben auf deiner Hardware. Der Server liest sie ein, merkt sich, was du hörst, und streamt an jede App, die du verbindest.',
@@ -660,12 +738,13 @@ const T = {
     s2t: 'Server', s2: 'Streyn-Server', s2p: 'Ein kleines Programm in Rust, das als Container in Proxmox läuft. Braucht wenig Speicher und hält alles zusammen.', s2a: 'Proxmox-Container', s2b: 'Mix-Algorithmus', s2c: 'Nutzer, Playlists, Likes',
     s3t: 'Ausgang', s3: 'Deine Apps', s3p: 'Adresse eintragen, anmelden, hören. Playlists und Likes sind auf jedem Gerät gleich.', browser: 'Browser',
     gh: 'So sieht es aus.', gp: 'Bilder aus der aktuellen App mit einer Demo-Bibliothek. Nichts nachbearbeitet.',
-    altPairD: 'Künstlerseite in der Desktop-App', altPairM: 'Vollbild-Player am Handy',
-    sh1: 'Die Künstlerseite am PC und der Player am Handy. Beide hängen am selben Server und bleiben synchron.',
+
     lkH: 'Drei Looks', lkP: 'Standard, Liquid Glass und Green. Umschalten in den Einstellungen, jedes Gerät merkt sich seinen.',
-    phH: 'Am Handy', phP: 'Die Android-App spielt im Hintergrund weiter und zeigt die Steuerung im Sperrbildschirm.',
-    f1: 'Start mit deinem Mix', f4: 'Album', f5: 'Warteschlange', f7: 'Player in Green',
-    d1: 'Alben', d1p: 'Cover, Jahr, Länge und jeder Song, der Künstler ist einen Klick entfernt.', d2: 'Einstellungen', d2p: 'Durchsuchbar, und jeder Schalter sagt, was er tut.', d3: 'Suche', d3p: 'Deine Bibliothek, Spotify und YouTube Music in einer Suche.', d4: 'Erster Start', d4p: 'Sechs kurze Fragen, dann geht es los.',
+    
+    onDesk: 'PC', onPhone: 'Handy',
+    fm1: 'Künstlerseiten', fm1p: 'Beliebte Songs, Alben und Singles, gleich am PC und am Handy.',
+    fm2: 'Der Player', fm2p: 'Vollbild mit Visualizer, Songtext und Warteschlange. Beide Geräte spielen vom selben Server.',
+    fm3: 'Alben und Playlists', fm3p: 'Album abspielen, mischen oder teilen. Deine Playlists stehen am PC in der Seitenleiste.',
     rlH: 'Chillscreen', rlP: 'Ein Raum im Vollbild, nur zum Zuhören. Die Platte dreht sich, das Licht folgt dem Cover. Es ist derselbe Raum wie oben auf dieser Seite.',
     a2h: 'Ein Mix aus dem,<br>was du hörst.', a2p: 'Jedes Abspielen ist ein Signal für den Song, den Künstler, das Album und das Genre. So viel zählt jedes davon.',
     w1: 'Like', w1d: 'Das stärkste Signal. Song und Künstler rücken nach vorne.',
@@ -961,6 +1040,7 @@ function render() {
   $$('[data-t]').forEach((el) => (el.textContent = d[el.dataset.t] ?? ''));
   $$('[data-h]').forEach((el) => (el.innerHTML = d[el.dataset.h] ?? ''));
   $$('[data-ta]').forEach((el) => { const v = d[el.dataset.ta] ?? ''; el.setAttribute(el.tagName === 'IMG' ? 'alt' : 'aria-label', v); });
+  $$('.film-desk img').forEach((im) => (im.alt += ` (${d.onDesk})`)); $$('.film-phone img').forEach((im) => (im.alt += ` (${d.onPhone})`));
   $$('[data-l]').forEach((b) => b.classList.toggle('on', b.dataset.l === lang));
   $$('[data-a]').forEach((b) => b.classList.toggle('on', !dyn && b.dataset.a === accent));
   $('[data-dyn]').classList.toggle('on', dyn);
@@ -1024,6 +1104,63 @@ resetDemo(); render();
   go(0);
   hold($('.chill'), () => clearTimeout(ft), () => loop());
   new IntersectionObserver((es) => es.forEach((e) => { on = e.isIntersecting; loop(); }), { threshold: .3 }).observe($('.chill'));
+})();
+
+/* ── scroll-linked motion: one rAF per scroll, reads first, then writes CSS variables ── */
+(() => {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const tall = matchMedia('(min-height: 560px)');
+  const clamp = (v) => Math.max(0, Math.min(1, v));
+  const ease = (t) => t * t * (3 - 2 * t);
+  const hero = $('#hero'), chain = $('.chain'), sts = $$('.chain .st');
+  const film = $('#film'), txt = $$('.film-txt li'), desk = $$('.film-desk img'), mob = $$('.film-phone img');
+  let scene = 0, queued = false;
+  const live = () => film.classList.contains('live');
+  const setScene = (k) => {
+    if (k === scene) return; scene = k;
+    [txt, desk, mob].forEach((l) => l.forEach((el, j) => el.classList.toggle('on', j === k)));
+    [...desk, ...mob].forEach((im) => { im.tabIndex = im.classList.contains('on') ? 0 : -1; });
+  };
+  // a step button scrolls to its scene; without the pinned film it just shows it
+  $$('.film-txt button').forEach((bt) => bt.addEventListener('click', () => {
+    const k = +bt.dataset.k;
+    if (!live()) { setScene(k); return; }
+    const top = film.getBoundingClientRect().top + scrollY;
+    scrollTo({ top: top + (film.offsetHeight - innerHeight) * [.2, .56, .88][k], behavior: 'smooth' });
+  }));
+  if (reduce) return;
+  // only work while one of the moving parts is on screen
+  const vis = new Set();
+  const ob = new IntersectionObserver((es) => es.forEach((e) => { e.isIntersecting ? vis.add(e.target) : vis.delete(e.target); if (e.target === chain && !e.isIntersecting) chain.classList.remove('full'); ask(); }));
+  [hero, film, chain].forEach((el) => ob.observe(el));
+  const frame = () => {
+    queued = false;
+    const vh = innerHeight;
+    // read
+    const hr = vis.has(hero) && hero.getBoundingClientRect();
+    const fr = vis.has(film) && live() && film.getBoundingClientRect();
+    const cr = vis.has(chain) && chain.getBoundingClientRect();
+    // write
+    if (hr) hero.style.setProperty('--hp', clamp(-hr.top / hr.height).toFixed(3));
+    if (fr) {
+      const p = clamp(-fr.top / (fr.height - vh));
+      film.style.setProperty('--p', p.toFixed(3));
+      film.style.setProperty('--e', ease(clamp((vh - fr.top) / (vh * 1.1))).toFixed(3));
+      setScene(p < .4 ? 0 : p < .72 ? 1 : 2);
+    }
+    if (cr) {
+      const c = clamp((vh * .95 - cr.top) / (vh * .6));
+      chain.style.setProperty('--cp', c.toFixed(3));
+      chain.classList.toggle('full', c >= 1);
+      sts.forEach((st, i) => st.classList.toggle('lit', c >= i / sts.length + .02));
+    }
+  };
+  function ask() { if (!queued) { queued = true; requestAnimationFrame(frame); } }
+  // the pinned film needs a tall enough screen; short landscape phones get the plain layout
+  const mode = () => { film.classList.toggle('live', tall.matches); film.style.setProperty('--e', 1); ask(); };
+  tall.addEventListener('change', mode); mode();
+  addEventListener('scroll', ask, { passive: true });
+  addEventListener('resize', ask);
 })();
 
 // scroll reveal: elements fade in once as they enter the view
@@ -1136,7 +1273,7 @@ try {
   let down = null;
   addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; }, true);
   // keyboard: every screenshot can be focused and opened with Enter or Space
-  document.querySelectorAll('img.zm').forEach((im) => { im.tabIndex = im.closest('.looks, .chill') && !im.classList.contains('on') ? -1 : 0; im.setAttribute('role', 'button'); });
+  document.querySelectorAll('img.zm').forEach((im) => { im.tabIndex = im.closest('.looks, .chill, .film') && !im.classList.contains('on') ? -1 : 0; im.setAttribute('role', 'button'); });
   document.addEventListener('keydown', (e) => {
     const im = e.target.closest && e.target.closest('img.zm');
     if (!im || (e.key !== 'Enter' && e.key !== ' ') || document.querySelector('.lb')) return;
