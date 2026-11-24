@@ -54,8 +54,8 @@ img { max-width: 100%; }
 .ib.sq svg { width: 18px; height: 18px; }
 .dc[hidden] { display: none; }
 #burger { display: none; }
-.sheet { position: fixed; z-index: 29; top: 64px; left: 0; right: 0; padding: 8px var(--gut) 18px; background: rgba(11,11,12,.97); border-bottom: 1px solid var(--line); opacity: 0; transform: translateY(-6px); pointer-events: none; transition: opacity .2s, transform .2s; }
-.sheet.open { opacity: 1; transform: none; pointer-events: auto; }
+.sheet { position: fixed; z-index: 29; top: 64px; left: 0; right: 0; padding: 8px var(--gut) 18px; background: rgba(11,11,12,.97); border-bottom: 1px solid var(--line); opacity: 0; transform: translateY(-6px); pointer-events: none; visibility: hidden; transition: opacity .2s, transform .2s, visibility .2s; }
+.sheet.open { opacity: 1; transform: none; pointer-events: auto; visibility: visible; }
 .sheet a { display: block; padding: 13px 2px; border-bottom: 1px solid var(--line); font-size: 17px; }
 .sheet a:last-child { border-bottom: 0; }
 @media (max-width: 1020px) { .links { display: none; } #burger { display: inline-flex; } }
@@ -360,7 +360,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
       <a href="#how" data-t="nav1"></a><a href="#app" data-t="navP"></a><a href="#mix" data-t="nav2"></a><a href="#download" data-t="nav4"></a><a href="#server" data-t="nav3"></a><a href="docs/">Docs</a>
     </nav>
     <a class="ib dc" data-discord href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener" aria-label="Discord"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.3 5.4A16.6 16.6 0 0 0 15.2 4l-.5 1a15.4 15.4 0 0 0-5.4 0l-.5-1a16.6 16.6 0 0 0-4.1 1.4C2.1 9.3 1.4 13.1 1.7 16.8a16.7 16.7 0 0 0 5 2.6l1.1-1.7c-.6-.2-1.2-.5-1.7-.8l.4-.3a11.9 11.9 0 0 0 11 0l.4.3c-.5.3-1.1.6-1.7.8l1.1 1.7a16.6 16.6 0 0 0 5-2.6c.4-4.3-.7-8.1-3-11.4zM8.6 14.6c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2zm6.8 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2z"/></svg><span>Discord</span></a>
-    <button class="ib wp" id="wp" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><span data-t="wp"></span></button>
+    <button type="button" class="ib wp" id="wp" aria-haspopup="dialog" data-ta="wp"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><span data-t="wp"></span></button>
     <button class="ib sq" id="gear" data-ta="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     <button class="ib sq" id="burger" aria-expanded="false" aria-controls="sheet" data-ta="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg></button>
   </div>
@@ -547,7 +547,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
     <div class="pane" data-pane="dock">
       <div class="term"><div class="term-h">bash<button data-copy="dock" data-t="copy"></button></div>
 <pre><span class="p">$</span> <span data-cmd="dock">git clone https://github.com/Labtoso/Musik.git &amp;&amp; cd Musik &amp;&amp; docker compose up -d --build</span></pre></div>
-      <ol class="steps"><li data-h="dock1"></li><li data-h="dock2"></li></ol>
+      <ol class="steps"><li data-h="dock1"></li><li data-h="dock2"></li><li data-h="dock3"></li></ol>
     </div>
     <div class="pane" data-pane="win">
       <div>
@@ -620,7 +620,7 @@ const T = {
     windows: 'Installs without admin rights. The media keys on your keyboard work.',
     linux: 'AppImage. Make it executable and run it.',
     yours: 'Your device', bins: 'Server only:', get: 'Download', all: 'All versions',
-    b2h: 'Set up the server.', b2p: 'One command sets everything up. Running the same command again later updates the server to the newest version.',
+    b2h: 'Set up the server.', b2p: 'One command sets everything up. Running the same command again later updates the server to the newest version (Docker has its own update step).',
     copy: 'Select', aLike: 'Like', aPlayed: 'Played to the end', aSkip: 'Skip', aPrev: 'Previous', aNext: 'Next', aShot: 'Picture {n}', marked: 'Selected · Ctrl+C', markedTouch: 'Selected · tap Copy',
     px1: 'In Proxmox click the node and open <b>Shell</b>. Paste the command and press Enter. The installer asks whether you want Streyn on the go too (with Tailscale) or only at home.',
     px2: 'If your music is already on the host, put the folder in front: <code>MUSIC_HOST_DIR=/mnt/nas/music</code>. Otherwise upload songs in the app.',
@@ -633,6 +633,7 @@ const T = {
     zima3: 'To update, restart the app on the dashboard. It fetches the newest version on start.',
     dock1: 'Put your music into <code>music/</code> next to <code>docker-compose.yml</code>.',
     dock2: 'The server then runs on port <code>8484</code>.',
+    dock3: 'To update, run <code>cd Musik &amp;&amp; git pull &amp;&amp; docker compose up -d --build</code> instead of the command above.',
     win1: 'The command downloads the newest server and starts it. It uses your Music folder. Run it again to update.',
     winDl: 'Or download it directly: streyn-server-windows-x64.exe',
     win2: 'Other folders go into a <code>.env</code> next to the exe: <code>MUSIC_DIRS=D:\\Music</code>.',
@@ -681,7 +682,7 @@ const T = {
     windows: 'Installation ohne Admin-Rechte. Die Medientasten der Tastatur funktionieren.',
     linux: 'AppImage. Ausführbar machen und starten.',
     yours: 'Dein Gerät', bins: 'Nur der Server:', get: 'Herunterladen', all: 'Alle Versionen',
-    b2h: 'Server einrichten.', b2p: 'Ein Befehl richtet alles ein. Denselben Befehl später noch einmal ausführen bringt den Server auf die neueste Version.',
+    b2h: 'Server einrichten.', b2p: 'Ein Befehl richtet alles ein. Denselben Befehl später noch einmal ausführen bringt den Server auf die neueste Version (Docker hat einen eigenen Update-Schritt).',
     copy: 'Markieren', aLike: 'Gefällt mir', aPlayed: 'Bis zum Ende gehört', aSkip: 'Überspringen', aPrev: 'Zurück', aNext: 'Weiter', aShot: 'Bild {n}', marked: 'Markiert · Strg+C', markedTouch: 'Markiert · Kopieren tippen',
     px1: 'In Proxmox die Node anklicken und <b>Shell</b> öffnen. Befehl einfügen, Enter. Der Installer fragt, ob du Streyn auch unterwegs nutzen willst (mit Tailscale) oder nur zuhause.',
     px2: 'Liegt deine Musik schon auf dem Host, schreib den Ordner davor: <code>MUSIC_HOST_DIR=/mnt/nas/music</code>. Sonst lädst du Songs in der App hoch.',
@@ -694,6 +695,7 @@ const T = {
     zima3: 'Zum Aktualisieren die App im Dashboard neu starten. Sie holt beim Start die neueste Version.',
     dock1: 'Musik in den Ordner <code>music/</code> neben der <code>docker-compose.yml</code> legen.',
     dock2: 'Der Server läuft dann auf Port <code>8484</code>.',
+    dock3: 'Zum Aktualisieren statt des Befehls oben <code>cd Musik &amp;&amp; git pull &amp;&amp; docker compose up -d --build</code> ausführen.',
     win1: 'Der Befehl lädt den neuesten Server und startet ihn. Er nimmt deinen Musik-Ordner. Zum Updaten noch einmal ausführen.',
     winDl: 'Oder direkt laden: streyn-server-windows-x64.exe',
     win2: 'Andere Ordner kommen in eine <code>.env</code> neben der exe: <code>MUSIC_DIRS=D:\\Musik</code>.',
@@ -1090,6 +1092,13 @@ try {
 (() => {
   let down = null;
   addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; }, true);
+  // keyboard: every screenshot can be focused and opened with Enter or Space
+  document.querySelectorAll('img.zm').forEach((im) => { im.tabIndex = 0; im.setAttribute('role', 'button'); });
+  document.addEventListener('keydown', (e) => {
+    const im = e.target.closest && e.target.closest('img.zm');
+    if (!im || (e.key !== 'Enter' && e.key !== ' ') || document.querySelector('.lb')) return;
+    e.preventDefault(); down = null; im.click();
+  });
   document.addEventListener('click', (e) => {
     const img = e.target.closest('img.zm');
     if (!img || (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6)) return;
