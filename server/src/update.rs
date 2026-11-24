@@ -127,7 +127,8 @@ fn desktop_version(release: &Value) -> Option<String> {
 /// GET /api/update?force=1: versions and whether the server can update itself.
 async fn status(Auth(u, _): Auth, axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> R {
     let force = q.contains_key("force");
-    let l = tokio::task::spawn_blocking(move || latest(force)).await.map_err(|_| ApiError::new(500, "internal"))?;
+    // how() probes the file system: run it off the async workers together with the lookup
+    let (l, how) = tokio::task::spawn_blocking(move || (latest(force), how())).await.map_err(|_| ApiError::new(500, "internal"))?;
     let (latest_v, notes, url, desktop) = match &l {
         Ok(v) => (v["version"].as_str().unwrap_or_default().to_string(), v["notes"].clone(), v["url"].clone(), v["desktop"].clone()),
         Err(_) => (String::new(), Value::Null, Value::Null, Value::Null),
@@ -137,7 +138,7 @@ async fn status(Auth(u, _): Auth, axum::extract::Query(q): axum::extract::Query<
         "latest": if latest_v.is_empty() { Value::Null } else { json!(latest_v) },
         "available": !latest_v.is_empty() && newer(&latest_v, VERSION),
         "desktop": desktop,
-        "how": how(),
+        "how": how,
         "admin": u.admin,
         "notes": notes,
         "url": url,
@@ -150,17 +151,30 @@ async fn apply(State(_st): State<St>, Auth(u, _): Auth) -> R {
     if !u.admin {
         return Err(ApiError::new(403, "forbidden"));
     }
-    match how() {
+    let mode = tokio::task::spawn_blocking(how).await.map_err(|_| ApiError::new(500, "internal"))?;
+    match mode {
         "self" => {}
         "docker" => return Err(ApiError::new(409, "update_docker")),
         "readonly" => return Err(ApiError::new(409, "update_readonly")),
         _ => return Err(ApiError::new(409, "update_unsupported")),
     }
+    // one update at a time: two runs would write the same .new file
+    static UPDATING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    struct Permit;
+    impl Drop for Permit {
+        fn drop(&mut self) {
+            UPDATING.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    if UPDATING.compare_exchange(false, true, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst).is_err() {
+        return Err(ApiError::new(409, "update_busy"));
+    }
+    let permit = Permit;
     LOG.lock().unwrap().clear();
     log(format!("$ streyn-update   (running v{VERSION})"));
     // keep a copy of the database before the new version touches it
     let db = _st.db.clone();
-    let to = tokio::task::spawn_blocking(move || -> Result<String, ApiError> {
+    let (to, exe) = tokio::task::spawn_blocking(move || -> Result<(String, PathBuf), ApiError> {
         log("Looking up the latest release on GitHub ...");
         let l = latest(true).inspect_err(|_| log("GitHub is not reachable."))?;
         let v = l["version"].as_str().unwrap_or_default().to_string();
@@ -171,23 +185,31 @@ async fn apply(State(_st): State<St>, Auth(u, _): Auth) -> R {
         log(format!("New version: v{v}"));
         log("Backing up the database ...");
         match backup_db(&db.lock().unwrap()) {
-            Some(p) => log(format!("Saved {}", p.display())),
-            None => log("No backup made (no database file)."),
+            Ok(Some(p)) => log(format!("Saved {}", p.display())),
+            Ok(None) => log("No backup made (no database file)."),
+            Err(e) => {
+                log(format!("Backup failed: {e}. Update cancelled."));
+                return Err(ApiError::new(500, "update_backup"));
+            }
         }
-        install(&v).inspect_err(|e| log(format!("Failed: {}", e.1)))?;
-        Ok(v)
+        let exe = install(&v).inspect_err(|e| log(format!("Failed: {}", e.1)))?;
+        Ok((v, exe))
     })
     .await
     .map_err(|_| ApiError::new(500, "internal"))??;
     log(format!("Restarting: v{VERSION} -> v{to}"));
-    std::thread::spawn(|| {
+    // the permit stays taken until the process restarts
+    std::mem::forget(permit);
+    std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(800));
-        restart();
+        restart(&exe);
     });
     Ok(Json(json!({ "ok": true, "from": VERSION, "to": to })))
 }
 
-fn install(version: &str) -> Result<(), ApiError> {
+/// Downloads and swaps in the new binary; gives back the install path (read before the swap,
+/// afterwards /proc/self/exe points to a deleted file).
+fn install(version: &str) -> Result<PathBuf, ApiError> {
     let name = asset().ok_or(ApiError::new(409, "update_unsupported"))?;
     let exe = exe().ok_or(ApiError::new(500, "update_failed"))?;
     let url = format!("https://github.com/{REPO}/releases/download/v{version}/{name}");
@@ -197,13 +219,22 @@ fn install(version: &str) -> Result<(), ApiError> {
         .timeout(Duration::from_secs(300))
         .call()
         .map_err(|_| ApiError::new(502, "update_unreachable"))?;
+    let expected: Option<u64> = res.header("Content-Length").and_then(|v| v.trim().parse().ok());
     let new = exe.with_extension("new");
     let mut f = std::fs::File::create(&new).map_err(|_| ApiError::new(500, "update_readonly"))?;
-    let n = std::io::copy(&mut res.into_reader(), &mut f).map_err(|_| ApiError::new(502, "update_unreachable"))?;
-    f.flush().ok();
+    let copied = std::io::copy(&mut res.into_reader(), &mut f);
+    let flushed = f.flush().and_then(|_| f.sync_all());
     drop(f);
+    let n = match (copied, flushed) {
+        (Ok(n), Ok(())) => n,
+        _ => {
+            let _ = std::fs::remove_file(&new);
+            return Err(ApiError::new(502, "update_unreachable"));
+        }
+    };
     log(format!("Downloaded {:.1} MB", n as f64 / 1_048_576.0));
-    if n < 1_000_000 {
+    // a cut-off download must never replace the working binary
+    if n < 1_000_000 || expected.is_some_and(|e| e != n) {
         let _ = std::fs::remove_file(&new);
         return Err(ApiError::new(502, "update_failed"));
     }
@@ -220,18 +251,27 @@ fn install(version: &str) -> Result<(), ApiError> {
         let old = exe.with_extension("old.exe");
         let _ = std::fs::remove_file(&old);
         std::fs::rename(&exe, &old).map_err(|_| ApiError::new(500, "update_readonly"))?;
-        std::fs::rename(&new, &exe).map_err(|_| ApiError::new(500, "update_readonly"))?;
+        if let Err(e) = std::fs::rename(&new, &exe) {
+            // put the old binary back, so the next start still finds it
+            if let Err(e2) = std::fs::rename(&old, &exe) {
+                log(format!("Could not swap in the new binary ({e}) nor restore the old one ({e2}); it is kept as {}", old.display()));
+            }
+            let _ = std::fs::remove_file(&new);
+            return Err(ApiError::new(500, "update_readonly"));
+        }
     }
-    Ok(())
+    Ok(exe)
 }
 
 /// Under systemd (Restart=always) exiting is enough; otherwise start the new binary directly.
 /// It waits for the port on its own (STREYN_RESTART), so no shell or delay command is needed.
-fn restart() {
+fn restart(exe: &std::path::Path) {
     let under_service = std::env::var_os("INVOCATION_ID").is_some();
     if !under_service {
-        if let Some(exe) = exe() {
-            let _ = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).env("STREYN_RESTART", "1").spawn();
+        if let Err(e) = std::process::Command::new(exe).args(std::env::args_os().skip(1)).env("STREYN_RESTART", "1").spawn() {
+            // keep this process serving rather than leaving nothing running
+            log(format!("Could not start {}: {e}. Restart the server by hand.", exe.display()));
+            return;
         }
     }
     std::process::exit(0);
@@ -268,11 +308,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("streyn-bk-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let conn = crate::db::open(Some(&dir)).unwrap();
-        let f = backup_db(&conn).expect("backup");
+        let f = backup_db(&conn).expect("backup").expect("file");
         assert!(f.is_file() && std::fs::metadata(&f).unwrap().len() > 0);
         for _ in 0..7 {
             std::thread::sleep(Duration::from_millis(1100));
-            backup_db(&conn);
+            backup_db(&conn).unwrap();
         }
         assert_eq!(std::fs::read_dir(dir.join("backups")).unwrap().count(), 5);
         let _ = std::fs::remove_dir_all(&dir);
@@ -280,13 +320,14 @@ mod tests {
 }
 
 /// Copies the database to <data>/backups/<date>_v<version>.db and keeps the last five copies.
-pub fn backup_db(conn: &rusqlite::Connection) -> Option<PathBuf> {
-    let path = conn.path().filter(|p| !p.is_empty()).map(PathBuf::from)?;
-    let dir = path.parent()?.join("backups");
-    std::fs::create_dir_all(&dir).ok()?;
+/// Ok(None): the database has no file (in memory).
+pub fn backup_db(conn: &rusqlite::Connection) -> Result<Option<PathBuf>, String> {
+    let Some(path) = conn.path().filter(|p| !p.is_empty()).map(PathBuf::from) else { return Ok(None) };
+    let dir = path.parent().ok_or_else(|| format!("no folder for {}", path.display()))?.join("backups");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let file = dir.join(format!("{secs}_v{VERSION}.db"));
-    conn.execute("VACUUM INTO ?1", [file.to_string_lossy()]).ok()?;
+    conn.execute("VACUUM INTO ?1", [file.to_string_lossy()]).map_err(|e| format!("writing {}: {e}", file.display()))?;
     let mut old: Vec<PathBuf> = std::fs::read_dir(&dir)
         .map(|r| r.flatten().map(|e| e.path()).filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "db")).collect())
         .unwrap_or_default();
@@ -295,5 +336,5 @@ pub fn backup_db(conn: &rusqlite::Connection) -> Option<PathBuf> {
     for p in old.into_iter().take(n) {
         let _ = std::fs::remove_file(p);
     }
-    Some(file)
+    Ok(Some(file))
 }
