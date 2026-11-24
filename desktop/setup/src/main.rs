@@ -2,9 +2,12 @@
 //!
 //! - one plain Rust program, no installer framework, no plug-in DLLs unpacked to %TEMP%
 //! - no administrator rights (manifest: asInvoker), no services, no autostart, no scheduled tasks
-//! - writes exactly: %LOCALAPPDATA%\Streyn\Streyn.exe and streyn-server.exe, the Start menu
-//!   shortcut (plus a Desktop shortcut on the first install) and its own entry under
-//!   HKCU\...\Uninstall\Streyn so it shows up in "Installed apps"
+//! - writes exactly: %APPDATA%\Streyn\Streyn.exe and streyn-server.exe (where Spotify keeps
+//!   Spotify.exe), the Start menu shortcut (plus a Desktop shortcut on the first install) and its
+//!   own entry under HKCU\...\Uninstall\Streyn so it shows up in "Installed apps"
+//! - the app keeps its data like Spotify: %APPDATA%\Streyn\prefs and %LOCALAPPDATA%\Streyn\
+//!   Browser, Storage (offline downloads) and Data; the app moves the files of earlier versions
+//! - removes the program files of earlier versions from %LOCALAPPDATA%\Streyn (only those names)
 //! - never looks at other processes: a running Streyn keeps running from its renamed old file
 //!   (Windows allows renaming a running program), the new files are used on the next start
 //!
@@ -106,6 +109,26 @@ fn is_leftover(lower_name: &str) -> bool {
     (known && (lower_name.contains(".old-") || lower_name.ends_with(".new"))) || lower_name == "uninstall.exe"
 }
 
+/// The program folder up to 1.33 (%LOCALAPPDATA%\Streyn) is the app's data folder now. Only the old
+/// program files go; a file still in use (the old Streyn that started this update) is renamed and
+/// removed by the app on its next start. Browser, Storage and Data are not touched.
+fn retire_old_install(old: &Path, new: &Path) {
+    if old == new {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(old) else { return };
+    for e in rd.flatten() {
+        let n = e.file_name().to_string_lossy().to_ascii_lowercase();
+        let program = n == "streyn.exe" || n == "streyn-server.exe" || is_leftover(&n);
+        if !program || !e.path().is_file() {
+            continue;
+        }
+        if std::fs::remove_file(e.path()).is_err() && !n.contains(".old-") {
+            let _ = std::fs::rename(e.path(), old.join(format!("{n}.old-{}", std::process::id())));
+        }
+    }
+}
+
 fn install(dir: &Path) -> Result<bool, String> {
     // unpack and check everything first: a damaged setup changes nothing
     let files: Vec<(&str, Vec<u8>)> = payloads().iter().map(|p| unpack(p).map(|d| (p.name, d))).collect::<Result<_, _>>()?;
@@ -126,14 +149,23 @@ fn main() {
     let args = parse_args(std::env::args().skip(1));
     let Some(dir) = win::install_dir() else {
         if !args.silent {
-            win::message("Streyn Setup", "The folder for apps (%LOCALAPPDATA%) was not found.", true);
+            win::message("Streyn Setup", "The folder for apps (%APPDATA%) was not found.", true);
         }
         std::process::exit(1);
     };
+    // an installation from before 1.34 lives in %LOCALAPPDATA%\Streyn: that is an update, not a
+    // first install, so no Desktop shortcut is added that the user did not have
+    let old = win::old_install_dir();
+    let had_old = old.as_ref().map(|o| o.join(APP_EXE).is_file()).unwrap_or(false);
     let result = install(&dir).and_then(|fresh| {
+        let fresh = fresh && !had_old;
         let size: u64 = [APP_EXE, SERVER_EXE].iter().filter_map(|n| std::fs::metadata(dir.join(n)).ok()).map(|m| m.len()).sum();
         win::register(&dir, VERSION, size)?;
         win::shortcuts(&dir, fresh);
+        // the old program files only go once the new entry and shortcuts are in place
+        if let Some(old) = &old {
+            retire_old_install(old, &dir);
+        }
         Ok(())
     });
     match result {
@@ -205,6 +237,31 @@ mod tests {
         assert!(d.join("notes.txt").exists(), "only known leftovers are removed");
         assert!(d.join("Streyn.exe").exists());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn old_install_keeps_data() {
+        let t = tmpdir("retire");
+        let (old, new) = (t.join("Local/Streyn"), t.join("Roaming/Streyn"));
+        for d in ["Storage/music", "Browser/EBWebView", "Data"] {
+            std::fs::create_dir_all(old.join(d)).unwrap();
+        }
+        for f in ["Streyn.exe", "streyn-server.exe", "uninstall.exe", "streyn.exe.old-9"] {
+            std::fs::write(old.join(f), b"x").unwrap();
+        }
+        std::fs::write(old.join("Storage/music/a.opus"), b"song").unwrap();
+        retire_old_install(&old, &new);
+        for f in ["Streyn.exe", "streyn-server.exe", "uninstall.exe", "streyn.exe.old-9"] {
+            assert!(!old.join(f).exists(), "{f}");
+        }
+        assert!(old.join("Storage/music/a.opus").is_file());
+        assert!(old.join("Browser/EBWebView").is_dir());
+        // never against the install folder itself
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(new.join("Streyn.exe"), b"x").unwrap();
+        retire_old_install(&new, &new);
+        assert!(new.join("Streyn.exe").exists());
+        let _ = std::fs::remove_dir_all(&t);
     }
 
     #[test]
