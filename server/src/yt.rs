@@ -58,8 +58,9 @@ pub fn parse_search(json: &Value) -> Vec<Value> {
     let mut seen = std::collections::HashSet::new();
     found
         .into_iter()
-        .filter(|v| seen.insert(v["videoId"].as_str().unwrap_or("").to_string()))
+        // an id is only taken by a row that passes the checks
         .filter(|v| !text(&v["lengthText"]).is_empty()) // no live streams
+        .filter(|v| seen.insert(v["videoId"].as_str().unwrap_or("").to_string()))
         .map(|v| {
             let id = v["videoId"].as_str().unwrap_or("");
             let channel = [&v["ownerText"], &v["longBylineText"], &v["shortBylineText"]]
@@ -153,7 +154,7 @@ pub fn parse_music(json: &Value) -> Vec<Value> {
             .as_str()
             .or_else(|| watch.and_then(|w| w["videoId"].as_str()))
             .unwrap_or("");
-        if id.len() != 11 || !seen.insert(id.to_string()) {
+        if id.len() != 11 || seen.contains(id) {
             continue;
         }
         // ATV = the plain audio track; OMV/UGC are videos
@@ -163,6 +164,7 @@ pub fn parse_music(json: &Value) -> Vec<Value> {
         if kind != "MUSIC_VIDEO_TYPE_ATV" {
             continue;
         }
+        seen.insert(id.to_string());
         let title = text(cols[0]);
         let meta: Vec<&Value> = cols.iter().skip(1).flat_map(|c| runs(c)).collect();
         let mut artists: Vec<String> = meta.iter().filter(|x| page_type(x) == "MUSIC_PAGE_TYPE_ARTIST").filter_map(|x| x["text"].as_str().map(String::from)).collect();
@@ -254,8 +256,13 @@ pub fn msik_order(videos: &[Value], title: &str, artist: &str, duration: f64) ->
             if NOT_ORIGINAL.iter().any(|b| { let b = plain(b); has(&b) && !tn.contains(&b) && !an.contains(&b) }) {
                 return false;
             }
-            // most of the title words, and the artist in title or channel
-            let tmatch = if tw.is_empty() { 1.0 } else { tw.iter().filter(|w| hay.contains(w.as_str())).count() as f64 / tw.len() as f64 };
+            // the other way round: a version the song asks for ("Live", "Acoustic", ...) has to be there
+            let vpad = format!(" {vt} ");
+            if NOT_ORIGINAL.iter().any(|b| { let b = plain(b); format!(" {tn} ").contains(&format!(" {b} ")) && !an.contains(&b) && !vpad.contains(&format!(" {b} ")) }) {
+                return false;
+            }
+            // most of the title words as whole words of the video title, and the artist in title or channel
+            let tmatch = if tw.is_empty() { 1.0 } else { tw.iter().filter(|w| vt.split_whitespace().any(|x| x == w.as_str())).count() as f64 / tw.len() as f64 };
             let amatch = aw.is_empty() || aw.iter().any(|w| w.len() > 1 && hay.contains(w.as_str()));
             if tmatch < 0.6 || !amatch {
                 return false;
@@ -288,7 +295,8 @@ fn pick_song_within(songs: &[Value], title: &str, artist: &str, duration: f64, p
         let st = plain(s["title"].as_str().unwrap_or(""));
         let sa = plain(s["artist"].as_str().unwrap_or(""));
         let sbase = plain(&crate::ext::norm(s["title"].as_str().unwrap_or("")));
-        if !first.is_empty() && !sa.contains(&first) {
+        // the artist as whole words ("Adele" in "Adele, Someone", not in "Adelee")
+        if !first.is_empty() && !format!(" {sa} ").contains(&format!(" {first} ")) {
             continue;
         }
         let words_in = |hay: &str| tw.iter().filter(|w| hay.split_whitespace().any(|h| h == **w)).count() as f64 / tw.len().max(1) as f64;
@@ -304,8 +312,10 @@ fn pick_song_within(songs: &[Value], title: &str, artist: &str, duration: f64, p
         if duration > 0.0 && d > 0.0 && off > (duration * part).max(secs) {
             continue;
         }
-        // whole seconds count, small differences (rounding, 1-2 s) are the same recording
-        ok.push(((off / 3.0).floor(), i, s["id"].as_str().unwrap_or("").to_string()));
+        // whole seconds count, small differences (rounding, 1-2 s) are the same recording;
+        // a hit without a length only comes after the measured ones
+        let rank = if duration > 0.0 && d <= 0.0 { f64::MAX } else { (off / 3.0).floor() };
+        ok.push((rank, i, s["id"].as_str().unwrap_or("").to_string()));
     }
     ok.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal).then(a.1.cmp(&b.1)));
     ok.into_iter().map(|x| x.2).filter(|x| !x.is_empty()).collect()
@@ -402,11 +412,11 @@ mod tests {
     #[test]
     fn parses_a_real_answer() {
         let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/yt-search.json");
-        if let Ok(t) = std::fs::read_to_string(p) {
-            let v = parse_search(&serde_json::from_str(&t).unwrap());
-            assert!(v.len() >= 5);
-            assert!(v.iter().all(|x| x["id"].as_str().unwrap().len() == 11 && x["duration"].as_f64().unwrap() > 0.0));
-        }
+        let t = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("reading {}: {e}", p.display()));
+        let j: Value = serde_json::from_str(&t).unwrap_or_else(|e| panic!("parsing {}: {e}", p.display()));
+        let v = parse_search(&j);
+        assert!(v.len() >= 5);
+        assert!(v.iter().all(|x| x["id"].as_str().unwrap().len() == 11 && x["duration"].as_f64().unwrap() > 0.0));
     }
 
     #[test]
@@ -443,6 +453,12 @@ mod tests {
         // a live song stays live
         let l = vec![json!({"id":"l","title":"Green Day - Basket Case (Live)","channel":"Green Day","duration":200.0})];
         assert_eq!(msik_order(&l, "Basket Case - Live", "Green Day", 200.0), vec!["l".to_string()]);
+        // asked for the live version: the studio recording is left out
+        let both = vec![
+            json!({"id":"s","title":"Green Day - Basket Case [Official Music Video]","channel":"Green Day","duration":181.0}),
+            json!({"id":"l","title":"Green Day - Basket Case (Live)","channel":"Green Day","duration":190.0}),
+        ];
+        assert_eq!(msik_order(&both, "Basket Case (Live)", "Green Day", 190.0), vec!["l".to_string()]);
     }
 
     #[test]
