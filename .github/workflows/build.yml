@@ -341,9 +341,20 @@ jobs:
           printf '\n---\n<sub>`streyn-desktop-*` and `streyn-setup-*` are the unchanged Windows files that every release reuses (kept here for the build). To install, download **Streyn.exe**.</sub>\n' >> "$FULL"
           NOTES="$FULL"
           # an older version finishing after a newer one must not become "latest" (the download links use it)
+          # compared with the release GitHub actually marks as latest (not with site/version.json,
+          # which is only written after the release and may have failed to push)
           LATEST=--latest
-          git fetch -q origin main || true
-          CURV="$(git show origin/main:site/version.json 2>/dev/null | sed -n 's/.*"tag_name":"v\{0,1\}\([^"]*\)".*/\1/p' | head -n1 || true)"
+          ERR="$(mktemp)"
+          if CURT="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" -q .tag_name 2>"$ERR")"; then
+            CURV="${CURT#v}"
+          elif grep -q 'HTTP 404' "$ERR"; then
+            echo "No release yet, v$V becomes latest"
+            CURV=""
+          else
+            cat "$ERR" >&2
+            echo "::error::Could not look up the latest release"
+            exit 1
+          fi
           if [ -n "$CURV" ] && [ "$CURV" != "$V" ] && [ "$(printf '%s\n%s\n' "$CURV" "$V" | sort -V | tail -n1)" = "$CURV" ]; then
             echo "v$CURV is newer than v$V, so v$V is not marked as latest"
             LATEST=--latest=false
