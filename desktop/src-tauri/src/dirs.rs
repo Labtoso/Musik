@@ -73,16 +73,15 @@ fn windows_layout(roaming: &Path, local: &Path, ident: &str, exe: Option<&Path>)
     let old_cfg = old_roaming.join("config.json");
     if !prefs.exists() && old_cfg.is_file() {
         if std::fs::rename(&old_cfg, &prefs).is_err() {
-            if std::fs::copy(&old_cfg, &prefs).is_ok() {
+            // copy into a file of our own first, so `prefs` never exists half written
+            let tmp = home.join(format!("prefs.tmp-{}", std::process::id()));
+            if std::fs::copy(&old_cfg, &tmp).is_ok() && std::fs::rename(&tmp, &prefs).is_ok() {
                 let _ = std::fs::remove_file(&old_cfg);
             } else {
+                let _ = std::fs::remove_file(&tmp);
                 // not movable right now: keep reading the old file, the next start tries again
                 // (unless another start has just moved it, then the new file is the right one)
-                if old_cfg.exists() {
-                    // a failed copy may leave a partial prefs file that would block the next try
-                    let _ = std::fs::remove_file(&prefs);
-                    prefs = old_cfg.clone();
-                } else if !prefs.is_file() {
+                if !prefs.is_file() {
                     prefs = old_cfg.clone();
                 }
             }
