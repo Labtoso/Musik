@@ -174,7 +174,14 @@ class FocusKeeper(
         if (inCall()) return pauseFor(true)
         // lower the music right away for a short sound, then look at what the other app plays
         if (transient) duck(DUCK)
-        val r = Runnable { decide = null; judge(transient) }
+        lateinit var r: Runnable
+        r = Runnable {
+            // our own output changed meanwhile: wait until the system's list has caught up
+            val left = graceUntil - System.currentTimeMillis()
+            if (left > 0) return@Runnable run { main.postDelayed(r, left) }
+            decide = null
+            judge(transient)
+        }
         decide = r
         // the other app usually opens its audio a moment after it asked for focus;
         // and if our own output just changed, wait until the system's list has caught up
