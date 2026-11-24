@@ -157,9 +157,17 @@ mod win_ytdlp {
                 if let Some(t) = &latest {
                     std::fs::write(fresh.join(".tag"), t).ok();
                 }
-                std::fs::remove_dir_all(&dir).ok();
+                // keep the installed copy until the new one is in place
+                let backup = bin.join("yt-dlp.old");
+                std::fs::remove_dir_all(&backup).ok();
+                let had = dir.exists() && std::fs::rename(&dir, &backup).is_ok();
                 if std::fs::rename(&fresh, &dir).is_err() {
                     std::fs::remove_dir_all(&fresh).ok();
+                    if had {
+                        std::fs::rename(&backup, &dir).ok();
+                    }
+                } else {
+                    std::fs::remove_dir_all(&backup).ok();
                 }
             }
             Ok(()) => {
@@ -196,19 +204,28 @@ mod win_ytdlp {
     }
 }
 
+/// Unpacks one file; it only appears under `to` once it is complete and executable.
 fn unzip_one(zip: &Path, name: &str, to: &Path) -> Result<(), String> {
-    let f = std::fs::File::open(zip).map_err(|e| e.to_string())?;
-    let mut a = zip::ZipArchive::new(f).map_err(|e| e.to_string())?;
-    let mut e = a.by_name(name).map_err(|e| e.to_string())?;
-    let mut f = std::fs::File::create(to).map_err(|e| e.to_string())?;
-    std::io::copy(&mut e, &mut f).map_err(|e| e.to_string())?;
-    drop(f);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o755)).ok();
+    let tmp = to.with_extension("part");
+    let res = (|| -> Result<(), String> {
+        let f = std::fs::File::open(zip).map_err(|e| e.to_string())?;
+        let mut a = zip::ZipArchive::new(f).map_err(|e| e.to_string())?;
+        let mut e = a.by_name(name).map_err(|e| e.to_string())?;
+        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        std::io::copy(&mut e, &mut f).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+        drop(f);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+        }
+        std::fs::rename(&tmp, to).map_err(|e| e.to_string())
+    })();
+    if res.is_err() {
+        std::fs::remove_file(&tmp).ok();
     }
-    Ok(())
+    res
 }
 
 /// Finds or fetches yt-dlp and a JavaScript runtime in the background; playback waits for it.
@@ -356,6 +373,8 @@ fn run(args: &[&str], js: Option<&str>, timeout: Duration) -> Result<String, Str
         }
         if start.elapsed() > timeout {
             child.kill().ok();
+            // reap it, so no zombie process is left behind
+            child.wait().ok();
             return Err("yt-dlp timeout".into());
         }
         std::thread::sleep(Duration::from_millis(40));
@@ -666,13 +685,14 @@ fn fetch_full(vid: &str) -> Result<(), String> {
     if !busy.lock().unwrap().insert(vid.to_string()) {
         return Ok(());
     }
+    let part = dir.join(format!("{vid}.part"));
     let r = (|| {
         let mut s = stream_with(vid, false)?;
-        let part = dir.join(format!("{vid}.part"));
         for attempt in 0..2 {
             match download_ranges(&s, &part, vid) {
                 Ok(ctype) => {
-                    std::fs::write(dir.join(format!("{vid}.type")), &ctype).ok();
+                    // the type file first: an .audio file is only published together with it
+                    std::fs::write(dir.join(format!("{vid}.type")), &ctype).map_err(|e| e.to_string())?;
                     std::fs::rename(&part, dir.join(format!("{vid}.audio"))).map_err(|e| e.to_string())?;
                     trim_cache(&dir);
                     return Ok(());
@@ -681,14 +701,15 @@ fn fetch_full(vid: &str) -> Result<(), String> {
                     forget(vid);
                     s = stream_with(vid, true).map_err(|e2| format!("{e}; {e2}"))?;
                 }
-                Err(e) => {
-                    std::fs::remove_file(&part).ok();
-                    return Err(e);
-                }
+                Err(e) => return Err(e),
             }
         }
         Err("failed".into())
     })();
+    // no half written file stays behind, whatever went wrong
+    if r.is_err() {
+        std::fs::remove_file(&part).ok();
+    }
     busy.lock().unwrap().remove(vid);
     if let Some(m) = DL_PROG.get() {
         m.lock().unwrap().remove(vid);
@@ -733,6 +754,28 @@ fn download_ranges(s: &Stream, to: &Path, vid: &str) -> Result<String, String> {
             req = req.set(k, v);
         }
         let r = req.set("range", &format!("bytes={}-{}", pos, pos + STEP - 1)).call().map_err(|e| e.to_string())?;
+        // only bytes that are confirmed to start where the file stands are appended
+        let mut range_end: Option<u64> = None;
+        match r.status() {
+            206 => {
+                let cr = r.header("content-range").unwrap_or("");
+                let span = cr.trim().strip_prefix("bytes ").and_then(|x| x.split('/').next()).and_then(|x| x.split_once('-'));
+                let (a, b) = span
+                    .and_then(|(a, b)| Some((a.trim().parse::<u64>().ok()?, b.trim().parse::<u64>().ok()?)))
+                    .ok_or("bad content-range")?;
+                if a != pos || b < a {
+                    return Err("unexpected range".into());
+                }
+                if let Some(t) = cr.rsplit('/').next().and_then(|n| n.trim().parse::<u64>().ok()) {
+                    if total != u64::MAX && t != total {
+                        return Err("size changed".into());
+                    }
+                }
+                range_end = Some(b);
+            }
+            200 if pos == 0 => {}
+            _ => return Err("range not honoured".into()),
+        }
         if total == u64::MAX {
             total = r
                 .header("content-range")
@@ -749,6 +792,9 @@ fn download_ranges(s: &Stream, to: &Path, vid: &str) -> Result<String, String> {
         r.into_reader().take(STEP).read_to_end(&mut buf).map_err(|e| e.to_string())?;
         if buf.is_empty() {
             return Err("empty".into());
+        }
+        if range_end.is_some_and(|b| buf.len() as u64 != (b - pos + 1).min(STEP)) {
+            return Err("short range".into());
         }
         f.write_all(&buf).map_err(|e| e.to_string())?;
         pos += buf.len() as u64;
@@ -772,9 +818,11 @@ fn trim_cache(dir: &Path) {
         if sum <= CACHE_MAX {
             break;
         }
-        std::fs::remove_file(&p).ok();
-        std::fs::remove_file(p.with_extension("type")).ok();
-        sum = sum.saturating_sub(len);
+        // only what was really deleted counts; the type file goes after its audio file
+        if std::fs::remove_file(&p).is_ok() {
+            sum = sum.saturating_sub(len);
+            std::fs::remove_file(p.with_extension("type")).ok();
+        }
     }
 }
 

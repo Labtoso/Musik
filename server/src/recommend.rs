@@ -80,12 +80,11 @@ pub fn similarity(a: &Track, b: &Track) -> f64 {
     if !a.album.is_empty() && a.album.to_lowercase() == b.album.to_lowercase() && aa == artist_key(b) {
         s += 0.2;
     }
-    let ga = split_genres(&a.genre);
-    let gb = split_genres(&b.genre);
+    let ga: HashSet<_> = split_genres(&a.genre).into_iter().collect();
+    let gb: HashSet<_> = split_genres(&b.genre).into_iter().collect();
     if !ga.is_empty() && !gb.is_empty() {
-        let sb: HashSet<_> = gb.iter().collect();
-        let inter = ga.iter().filter(|g| sb.contains(g)).count() as f64;
-        let uni = ga.iter().chain(gb.iter()).collect::<HashSet<_>>().len() as f64;
+        let inter = ga.intersection(&gb).count() as f64;
+        let uni = ga.union(&gb).count() as f64;
         s += 0.25 * inter / uni;
     }
     if let (Some(ya), Some(yb)) = (a.year, b.year) {
@@ -198,9 +197,7 @@ impl Recommender {
                 return c.clone();
             }
         }
-        let mut st = db.prepare("SELECT id, artist, album, album_artist, genre, year, added, title FROM tracks").unwrap();
-        let rows: Vec<Track> = st
-            .query_map([], |r| {
+        let rows: Vec<Track> = rows_or_log(db, "SELECT id, artist, album, album_artist, genre, year, added, title FROM tracks", [], |r| {
                 Ok(Track {
                     id: r.get(0)?,
                     artist: r.get(1)?,
@@ -211,23 +208,14 @@ impl Recommender {
                     added: r.get(6)?,
                     title: r.get(7)?,
                 })
-            })
-            .unwrap()
-            .filter_map(Result::ok)
-            .collect();
+            });
         let by_id: HashMap<i64, usize> = rows.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
 
         // Co-listening across all users.
-        let mut st = db
-            .prepare("SELECT user_id, track_id, ts, played, duration, kind FROM plays ORDER BY id DESC LIMIT 40000")
-            .unwrap();
-        let mut events: Vec<(i64, Event)> = st
-            .query_map([], |r| {
+        let mut events: Vec<(i64, Event)> =
+            rows_or_log(db, "SELECT user_id, track_id, ts, played, duration, kind FROM plays ORDER BY id DESC LIMIT 40000", [], |r| {
                 Ok((r.get(0)?, Event { track_id: r.get(1)?, ts: r.get(2)?, played: r.get(3)?, duration: r.get(4)?, kind: r.get(5)? }))
-            })
-            .unwrap()
-            .filter_map(Result::ok)
-            .collect();
+            });
         events.reverse();
         let mut per_user: HashMap<i64, Vec<Event>> = HashMap::new();
         for (u, e) in events {
@@ -242,7 +230,9 @@ impl Recommender {
             }
             *co.entry(a).or_default().entry(b).or_insert(0.0) += w;
         };
-        for list in per_user.values() {
+        for list in per_user.values_mut() {
+            // neighbours by play time (events sent later from offline devices arrive out of order)
+            list.sort_by_key(|e| e.ts);
             for i in 0..list.len() {
                 for d in 1..=3usize {
                     if i + d >= list.len() {
@@ -259,10 +249,12 @@ impl Recommender {
             }
         }
         let mut pop = HashMap::new();
-        let mut st = db
-            .prepare("SELECT track_id, COUNT(*) FROM plays WHERE kind = 'complete' OR (duration > 0 AND played / duration > 0.5) GROUP BY track_id")
-            .unwrap();
-        for r in st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))).unwrap().flatten() {
+        for r in rows_or_log(
+            db,
+            "SELECT track_id, COUNT(*) FROM plays WHERE kind = 'complete' OR (duration > 0 AND played / duration > 0.5) GROUP BY track_id",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+        ) {
             pop.insert(r.0, r.1 as f64);
         }
         let ctx = std::sync::Arc::new(Ctx { at: now, rows, by_id, co, popularity: norm(&pop) });
@@ -284,16 +276,11 @@ impl Recommender {
 
     fn profile_with(&self, db: &Connection, user_id: i64, ctx: &Ctx) -> Profile {
         let now = (self.now)();
-        let mut st = db
-            .prepare("SELECT track_id, ts, played, duration, kind FROM plays WHERE user_id = ? ORDER BY ts DESC LIMIT 5000")
-            .unwrap();
-        let events: Vec<Event> = st
-            .query_map([user_id], |r| Ok(Event { track_id: r.get(0)?, ts: r.get(1)?, played: r.get(2)?, duration: r.get(3)?, kind: r.get(4)? }))
-            .unwrap()
-            .filter_map(Result::ok)
-            .collect();
-        let mut st = db.prepare("SELECT track_id FROM likes WHERE user_id = ?").unwrap();
-        let likes: Vec<i64> = st.query_map([user_id], |r| r.get(0)).unwrap().filter_map(Result::ok).collect();
+        let events: Vec<Event> =
+            rows_or_log(db, "SELECT track_id, ts, played, duration, kind FROM plays WHERE user_id = ? ORDER BY ts DESC LIMIT 5000", [user_id], |r| {
+                Ok(Event { track_id: r.get(0)?, ts: r.get(1)?, played: r.get(2)?, duration: r.get(3)?, kind: r.get(4)? })
+            });
+        let likes: Vec<i64> = rows_or_log(db, "SELECT track_id FROM likes WHERE user_id = ?", [user_id], |r| r.get(0));
         // songs the user left out of the taste profile (settings: tasteExclude) count for nothing
         let left_out = excluded(db, user_id);
         let events: Vec<Event> = events.into_iter().filter(|e| !left_out.contains(&e.track_id)).collect();
@@ -547,10 +534,9 @@ impl Recommender {
         let ctx = self.ctx(db);
         let p = self.profile_with(db, user_id, &ctx);
         let now = (self.now)();
-        let mut st = db.prepare("SELECT track_id FROM plays WHERE user_id = ? ORDER BY ts DESC LIMIT 200").unwrap();
         let mut recent = Vec::new();
         let mut seen = HashSet::new();
-        for id in st.query_map([user_id], |r| r.get::<_, i64>(0)).unwrap().flatten() {
+        for id in rows_or_log(db, "SELECT track_id FROM plays WHERE user_id = ? ORDER BY ts DESC LIMIT 200", [user_id], |r| r.get::<_, i64>(0)) {
             if !ctx.by_id.contains_key(&id) || !seen.insert(id) {
                 continue;
             }
@@ -568,7 +554,7 @@ impl Recommender {
         }
         let mut arts: Vec<(&String, &f64)> = p.artist_aff.iter().filter(|(_, v)| **v > 0.0).collect();
         arts.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-        let top_artists = arts.into_iter().take(10).filter_map(|(k, _)| names.get(k).cloned()).collect();
+        let top_artists = arts.into_iter().filter_map(|(k, _)| names.get(k).cloned()).take(10).collect();
         let mut red: Vec<(i64, f64)> = p
             .track_aff
             .iter()
@@ -580,6 +566,20 @@ impl Recommender {
         drop(ctx);
         let mix = self.mix(db, user_id, 12);
         (p.cold, recent, mix, top_artists, rediscover)
+    }
+}
+
+
+/// Runs a read query; an error is logged and gives no rows instead of a panic
+/// (a panic would poison the shared database mutex).
+fn rows_or_log<T, P: rusqlite::Params>(db: &Connection, sql: &str, params: P, f: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>) -> Vec<T> {
+    let res = db.prepare(sql).and_then(|mut st| Ok(st.query_map(params, f)?.filter_map(Result::ok).collect::<Vec<T>>()));
+    match res {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("recommend: query failed: {e}");
+            Vec::new()
+        }
     }
 }
 

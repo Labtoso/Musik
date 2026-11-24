@@ -186,11 +186,17 @@ pub fn track_json(r: &rusqlite::Row) -> rusqlite::Result<Value> {
 }
 
 pub fn query_tracks(db: &Connection, sql: &str, args: &[rusqlite::types::Value]) -> Vec<Value> {
-    let mut st = db.prepare(sql).unwrap();
-    st.query_map(params_from_iter(args.iter()), track_json)
-        .unwrap()
-        .filter_map(Result::ok)
-        .collect()
+    // A panic here would poison the shared DB mutex, so errors are logged and give no rows.
+    let rows = db.prepare(sql).and_then(|mut st| {
+        Ok(st.query_map(params_from_iter(args.iter()), track_json)?.filter_map(Result::ok).collect::<Vec<_>>())
+    });
+    match rows {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("track query failed: {e}");
+            Vec::new()
+        }
+    }
 }
 
 pub fn tracks_by_ids(db: &Connection, ids: &[i64]) -> Vec<Value> {
@@ -202,7 +208,9 @@ pub fn tracks_by_ids(db: &Connection, ids: &[i64]) -> Vec<Value> {
         );
         let args: Vec<rusqlite::types::Value> = chunk.iter().map(|i| (*i).into()).collect();
         for t in query_tracks(db, &q, &args) {
-            out.insert(t["id"].as_i64().unwrap(), t);
+            if let Some(id) = t["id"].as_i64() {
+                out.insert(id, t);
+            }
         }
     }
     ids.iter().filter_map(|id| out.get(id).cloned()).collect()
@@ -391,21 +399,80 @@ async fn setup(State(st): State<St>, req: Request) -> R {
     Ok(Json(json!({ "token": token, "user": u })))
 }
 
+/// Failed sign-ins per account name: after 10 failures within 15 minutes the name is locked
+/// for the rest of that window, on every listener.
+fn login_failures(name: &str, failed: Option<bool>) -> bool {
+    const WINDOW: i64 = 15 * 60_000;
+    const MAX_FAILS: u32 = 10;
+    const MAX_ENTRIES: usize = 10_000;
+    // (entries, time of the last sweep for expired entries)
+    static F: Mutex<Option<(HashMap<String, (i64, u32)>, i64)>> = Mutex::new(None);
+    // Names are capped in length, so a key never takes more than a few hundred bytes.
+    let key: String = name.trim().to_lowercase().chars().take(64).collect();
+    let now = now_ms();
+    let mut guard = F.lock().unwrap_or_else(|e| e.into_inner());
+    let (map, last_sweep) = guard.get_or_insert_with(|| (HashMap::new(), 0));
+    // Sweep at most once per minute instead of on every call.
+    if map.len() > MAX_ENTRIES / 2 && now - *last_sweep > 60_000 {
+        map.retain(|_, (start, _)| now - *start < WINDOW);
+        *last_sweep = now;
+    }
+    match failed {
+        None => map.get(&key).is_none_or(|(start, n)| now - start >= WINDOW || *n < MAX_FAILS),
+        Some(true) => {
+            if map.len() >= MAX_ENTRIES && !map.contains_key(&key) {
+                // Full: evict the oldest window so the map stays bounded.
+                if let Some(oldest) = map.iter().min_by_key(|(_, (start, _))| *start).map(|(k, _)| k.clone()) {
+                    map.remove(&oldest);
+                }
+            }
+            let e = map.entry(key).or_insert((now, 0));
+            if now - e.0 >= WINDOW {
+                *e = (now, 0);
+            }
+            e.1 += 1;
+            true
+        }
+        Some(false) => {
+            map.remove(&key);
+            true
+        }
+    }
+}
+
 async fn login(State(st): State<St>, req: Request) -> R {
     let public = req.extensions().get::<PublicSide>().is_some();
     let b: Login = body_json(req).await?;
+    if !login_failures(&b.name, None) {
+        return Err(ApiError::new(429, "too_many"));
+    }
+    let name = b.name.clone();
     let st2 = st.clone();
     // Password hashing is CPU heavy, keep it off the async workers.
+    // The lock check, the password check and counting a failure all happen while the DB lock
+    // is held, so no further password check can start once a name reached its limit.
     let res = tokio::task::spawn_blocking(move || {
         let db = st2.db.lock().unwrap();
-        let u = auth::check_login(&db, &b.name, &b.password)?;
-        if public && u.admin {
-            return Err(auth::AuthError(403, "local_only"));
+        if !login_failures(&name, None) {
+            return Err(auth::AuthError(429, "too_many"));
         }
+        let res = auth::check_login(&db, &b.name, &b.password).and_then(|u| {
+            if public && u.admin {
+                return Err(auth::AuthError(403, "local_only"));
+            }
+            Ok(u)
+        });
+        match &res {
+            Err(auth::AuthError(401, _)) => login_failures(&name, Some(true)),
+            Ok(_) => login_failures(&name, Some(false)),
+            Err(_) => true,
+        };
+        let u = res?;
         Ok((auth::issue(&db, u.id, &b.client), u))
     })
     .await
-    .map_err(|_| ApiError::new(500, "error"))??;
+    .map_err(|_| ApiError::new(500, "error"))?;
+    let res = res?;
     Ok(Json(json!({ "token": res.0, "user": res.1 })))
 }
 
@@ -581,16 +648,32 @@ async fn delete_track(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64
         return Err(ApiError::new(403, "forbidden"));
     }
     let path: String = st.db.lock().unwrap().query_row("SELECT path FROM tracks WHERE id = ?", [id], |r| r.get(0)).map_err(|_| nf())?;
-    let p = std::path::PathBuf::from(&path);
-    if !st.library.roots().iter().any(|r| p.starts_with(r)) {
-        return Err(ApiError::new(403, "forbidden"));
-    }
-    std::fs::remove_file(&p).map_err(|_| ApiError::new(500, "delete_failed"))?;
+    let roots = st.library.roots();
+    tokio::task::spawn_blocking(move || -> Result<(), ApiError> {
+        let p = std::path::PathBuf::from(&path);
+        match std::fs::canonicalize(&p) {
+            Ok(real) => {
+                // compare real paths, so links and ".." segments can't point outside the music folders
+                let inside = roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).any(|r| real.starts_with(&r));
+                if !inside {
+                    return Err(ApiError::new(403, "forbidden"));
+                }
+                std::fs::remove_file(&real).map_err(|_| ApiError::new(500, "delete_failed"))
+            }
+            // already gone (e.g. a repeated delete): only clean up the index
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && roots.iter().any(|r| p.starts_with(r)) => Ok(()),
+            Err(_) => Err(ApiError::new(403, "forbidden")),
+        }
+    })
+    .await
+    .map_err(|_| ApiError::new(500, "error"))??;
     {
-        let db = st.db.lock().unwrap();
-        db.execute("DELETE FROM playlist_tracks WHERE track_id = ?", [id]).ok();
-        db.execute("DELETE FROM likes WHERE track_id = ?", [id]).ok();
-        db.execute("DELETE FROM tracks WHERE id = ?", [id]).ok();
+        let mut db = st.db.lock().unwrap();
+        let tx = db.transaction().map_err(|_| ApiError::new(500, "error"))?;
+        tx.execute("DELETE FROM playlist_tracks WHERE track_id = ?", [id]).map_err(|_| ApiError::new(500, "error"))?;
+        tx.execute("DELETE FROM likes WHERE track_id = ?", [id]).map_err(|_| ApiError::new(500, "error"))?;
+        tx.execute("DELETE FROM tracks WHERE id = ?", [id]).map_err(|_| ApiError::new(500, "error"))?;
+        tx.commit().map_err(|_| ApiError::new(500, "error"))?;
     }
     let st2 = st.clone();
     tokio::task::spawn_blocking(move || {
@@ -840,16 +923,27 @@ async fn upload(
         p.file_stem().unwrap().to_string_lossy().to_string(),
         p.extension().unwrap().to_string_lossy().to_string(),
     );
+    // reserve the target name atomically, so two uploads with the same name never share a file
     let mut target = dir.join(&name);
     let mut i = 1;
-    while target.exists() {
-        target = dir.join(format!("{stem} ({i}).{ext}"));
-        i += 1;
+    loop {
+        match tokio::fs::OpenOptions::new().write(true).create_new(true).open(&target).await {
+            Ok(_) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && i < 10_000 => {
+                target = dir.join(format!("{stem} ({i}).{ext}"));
+                i += 1;
+            }
+            Err(_) => return Err(ApiError::new(500, "error")),
+        }
     }
-    let tmp = target.with_extension(format!("{ext}.part"));
-    let mut file = tokio::fs::File::create(&tmp)
-        .await
-        .map_err(|_| ApiError::new(500, "error"))?;
+    let tmp = target.with_extension(format!("{ext}.{:016x}.part", rand::random::<u64>()));
+    let mut file = match tokio::fs::File::create(&tmp).await {
+        Ok(f) => f,
+        Err(_) => {
+            tokio::fs::remove_file(&target).await.ok();
+            return Err(ApiError::new(500, "error"));
+        }
+    };
     let mut stream = req.into_body().into_data_stream();
     let mut size = 0u64;
     let mut failed: Option<ApiError> = None;
@@ -872,30 +966,40 @@ async fn upload(
             }
         }
     }
-    file.flush().await.ok();
+    if failed.is_none() && file.flush().await.is_err() {
+        failed = Some(ApiError::new(500, "error"));
+    }
     drop(file);
     if let Some(e) = failed {
         tokio::fs::remove_file(&tmp).await.ok();
+        tokio::fs::remove_file(&target).await.ok();
         return Err(e);
     }
-    tokio::fs::rename(&tmp, &target)
-        .await
-        .map_err(|_| ApiError::new(500, "error"))?;
+    if tokio::fs::rename(&tmp, &target).await.is_err() {
+        tokio::fs::remove_file(&tmp).await.ok();
+        tokio::fs::remove_file(&target).await.ok();
+        return Err(ApiError::new(500, "error"));
+    }
     let st2 = st.clone();
     let t2 = target.clone();
     let id =
         tokio::task::spawn_blocking(move || st2.library.add_file(&st2.db.lock().unwrap(), &t2))
             .await
             .ok()
-            .flatten()
-            .ok_or(ApiError::new(500, "error"))?;
+            .flatten();
+    let Some(id) = id else {
+        if let Err(e) = tokio::fs::remove_file(&target).await {
+            eprintln!("upload: could not index or remove {}: {e}", target.display());
+        }
+        return Err(ApiError::new(500, "error"));
+    };
     st.rec.invalidate();
     let db = st.db.lock().unwrap();
     let (title, artist): (String, String) = db
         .query_row("SELECT title, artist FROM tracks WHERE id = ?", [id], |r| {
             Ok((r.get(0)?, r.get(1)?))
         })
-        .unwrap();
+        .map_err(|_| ApiError::new(500, "error"))?;
     Ok(Json(json!({ "id": id, "title": title, "artist": artist })))
 }
 
@@ -992,30 +1096,40 @@ fn playlist_ids(db: &Connection, id: i64) -> Vec<i64> {
         .filter_map(Result::ok)
         .collect()
 }
-pub fn set_playlist_tracks(db: &mut Connection, id: i64, ids: &[i64]) {
-    let tx = db.transaction().unwrap();
-    tx.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", [id])
-        .ok();
-    for (i, t) in ids.iter().take(5000).enumerate() {
+pub const PLAYLIST_MAX: usize = 5000;
+/// Replaces the tracks of a playlist. On any error nothing changes (the transaction rolls back).
+pub fn set_playlist_tracks(db: &mut Connection, id: i64, ids: &[i64]) -> rusqlite::Result<()> {
+    let tx = db.transaction()?;
+    tx.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", [id])?;
+    for (i, t) in ids.iter().take(PLAYLIST_MAX).enumerate() {
         tx.execute(
             "INSERT INTO playlist_tracks (playlist_id, pos, track_id) VALUES (?,?,?)",
             params![id, i as i64, t],
-        )
-        .ok();
+        )?;
     }
     tx.execute(
         "UPDATE playlists SET updated = ? WHERE id = ?",
         params![now_ms(), id],
-    )
-    .ok();
-    tx.commit().ok();
+    )?;
+    tx.commit()
 }
-fn valid_ids(db: &Connection, ids: &[i64]) -> Vec<i64> {
-    let ok: HashSet<i64> = tracks_by_ids(db, ids)
-        .iter()
-        .filter_map(|t| t["id"].as_i64())
-        .collect();
-    ids.iter().copied().filter(|i| ok.contains(i)).collect()
+pub fn db_err(e: rusqlite::Error) -> ApiError {
+    eprintln!("database error: {e}");
+    ApiError::new(500, "error")
+}
+/// Keeps only ids of existing tracks. A query error is returned (not an empty list),
+/// so a caller never replaces playlist contents based on a failed lookup.
+fn valid_ids(db: &Connection, ids: &[i64]) -> Result<Vec<i64>, ApiError> {
+    let mut ok: HashSet<i64> = HashSet::new();
+    for chunk in ids.chunks(500) {
+        let q = format!("SELECT id FROM tracks WHERE id IN ({})", vec!["?"; chunk.len()].join(","));
+        let mut st = db.prepare(&q).map_err(db_err)?;
+        let rows = st.query_map(params_from_iter(chunk.iter()), |r| r.get::<_, i64>(0)).map_err(db_err)?;
+        for r in rows {
+            ok.insert(r.map_err(db_err)?);
+        }
+    }
+    Ok(ids.iter().copied().filter(|i| ok.contains(i)).collect())
 }
 
 async fn playlists(State(st): State<St>, Auth(u, _): Auth) -> R {
@@ -1052,16 +1166,22 @@ async fn create_playlist(State(st): State<St>, Auth(u, _): Auth, req: Request) -
     }
     let mut db = st.db.lock().unwrap();
     let now = now_ms();
-    db.execute(
+    let ids = match b.track_ids {
+        Some(ids) => Some(valid_ids(&db, &to_ids(&ids))?),
+        None => None,
+    };
+    let tx = db.transaction().map_err(db_err)?;
+    tx.execute(
         "INSERT INTO playlists (user_id, name, description, created, updated) VALUES (?,?,?,?,?)",
         params![u.id, name, b.description.as_deref().unwrap_or("").trim().chars().take(300).collect::<String>(), now, now],
     )
-    .ok();
-    let id = db.last_insert_rowid();
-    if let Some(ids) = b.track_ids {
-        let ids = valid_ids(&db, &to_ids(&ids));
-        set_playlist_tracks(&mut db, id, &ids);
+    .map_err(db_err)?;
+    let id = tx.last_insert_rowid();
+    for (i, t) in ids.unwrap_or_default().iter().take(PLAYLIST_MAX).enumerate() {
+        tx.execute("INSERT INTO playlist_tracks (playlist_id, pos, track_id) VALUES (?,?,?)", params![id, i as i64, t])
+            .map_err(db_err)?;
     }
+    tx.commit().map_err(db_err)?;
     Ok(Json(json!({ "id": id, "name": name })))
 }
 async fn get_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
@@ -1134,8 +1254,8 @@ async fn update_playlist(
         if !can_edit(&db, &u, id) {
             return Err(ApiError::new(403, "read_only"));
         }
-        let ids = valid_ids(&db, &to_ids(&ids));
-        set_playlist_tracks(&mut db, id, &ids);
+        let ids = valid_ids(&db, &to_ids(&ids))?;
+        set_playlist_tracks(&mut db, id, &ids).map_err(db_err)?;
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -1149,8 +1269,11 @@ async fn add_to_playlist(
     let mut db = st.db.lock().unwrap();
     let (id, _, _) = edit_playlist(&db, &u, id)?;
     let mut ids = playlist_ids(&db, id);
-    ids.extend(valid_ids(&db, &to_ids(&b.track_ids.unwrap_or_default())));
-    set_playlist_tracks(&mut db, id, &ids);
+    ids.extend(valid_ids(&db, &to_ids(&b.track_ids.unwrap_or_default()))?);
+    if ids.len() > PLAYLIST_MAX {
+        return Err(ApiError::new(409, "playlist_full"));
+    }
+    set_playlist_tracks(&mut db, id, &ids).map_err(db_err)?;
     Ok(Json(json!({ "ok": true })))
 }
 async fn delete_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
@@ -1171,14 +1294,14 @@ async fn events(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
         serde_json::from_value(v).ok().into_iter().collect()
     };
     let mut db = st.db.lock().unwrap();
-    let tx = db.transaction().unwrap();
+    let tx = db.transaction().map_err(db_err)?;
     let now = now_ms();
     let mut n = 0;
     for e in list.into_iter().take(200) {
         let f = |v: &Value| v.as_f64().unwrap_or(0.0).max(0.0);
-        let ts = e.ts.as_i64().filter(|t| (now - t).abs() < 30 * 86_400_000).unwrap_or(now);
+        let ts = e.ts.as_i64().filter(|t| now.abs_diff(*t) < 30 * 86_400_000).unwrap_or(now);
         if e.song.is_object() {
-            if crate::taste::record(&tx, u.id, &e.song, &e.kind, f(&e.played), f(&e.duration), ts) {
+            if crate::taste::record(&tx, u.id, &e.song, &e.kind, f(&e.played), f(&e.duration), ts).map_err(db_err)? {
                 n += 1;
             }
             continue;
@@ -1200,10 +1323,10 @@ async fn events(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R {
             "INSERT INTO plays (user_id, track_id, ts, played, duration, kind) VALUES (?,?,?,?,?,?)",
             params![u.id, id, ts, f(&e.played), f(&e.duration), e.kind],
         )
-        .ok();
+        .map_err(db_err)?;
         n += 1;
     }
-    tx.commit().ok();
+    tx.commit().map_err(db_err)?;
     Ok(Json(json!({ "saved": n })))
 }
 
@@ -1326,30 +1449,47 @@ async fn web(State(st): State<St>, method: Method, req_headers: HeaderMap, uri: 
     } else {
         rel
     };
-    if rel.split('/').any(|s| s == "..") {
+    // only plain names below the web folder: no "..", ".", roots, drive letters or backslashes
+    if rel.contains('\\')
+        || rel.split('/').any(|s| s == ".." || s == ".")
+        || !std::path::Path::new(rel).components().all(|c| matches!(c, std::path::Component::Normal(_)))
+    {
         return ApiError::new(404, "not_found").into_response();
     }
     let has_ext = std::path::Path::new(rel).extension().is_some();
-    let load = |name: &str| -> Option<Vec<u8>> {
-        if let Some(dir) = &st.web_dir {
-            let f = dir.join(name);
-            if f.is_file() {
-                return std::fs::read(f).ok();
+    let loaded = if let Some(dir) = st.web_dir.clone() {
+        // files from WEB_DIR are read off the async workers
+        let rel = rel.to_string();
+        tokio::task::spawn_blocking(move || {
+            let load = |name: &str| -> Option<Vec<u8>> {
+                let f = dir.join(name);
+                if f.is_file() {
+                    return std::fs::read(f).ok();
+                }
+                if f.is_dir() {
+                    return std::fs::read(f.join("index.html")).ok();
+                }
+                None
+            };
+            match load(&rel) {
+                Some(d) => Some((rel, d)),
+                None if !has_ext => load("index.html").map(|d| ("index.html".to_string(), d)),
+                None => None,
             }
-            if f.is_dir() {
-                return std::fs::read(f.join("index.html")).ok();
-            }
-            return None;
+        })
+        .await
+        .ok()
+        .flatten()
+    } else {
+        let load = |name: &str| WebAssets::get(name).map(|f| f.data.into_owned());
+        match load(rel) {
+            Some(d) => Some((rel.to_string(), d)),
+            None if !has_ext => load("index.html").map(|d| ("index.html".to_string(), d)),
+            None => None,
         }
-        WebAssets::get(name).map(|f| f.data.into_owned())
     };
-    let (name, data) = match load(rel) {
-        Some(d) => (rel.to_string(), d),
-        None if !has_ext => match load("index.html") {
-            Some(d) => ("index.html".to_string(), d),
-            None => return ApiError::new(404, "not_found").into_response(),
-        },
-        None => return ApiError::new(404, "not_found").into_response(),
+    let Some((name, data)) = loaded else {
+        return ApiError::new(404, "not_found").into_response();
     };
     // a shared link: name, picture and description for the preview in Discord, WhatsApp & co.
     let data = if name == "share.html" && uri.path().starts_with("/s/") {
@@ -1366,20 +1506,23 @@ async fn web(State(st): State<St>, method: Method, req_headers: HeaderMap, uri: 
     };
     headers.insert(header::CONTENT_TYPE, ct.parse().unwrap());
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
-    // a content tag: the app asks "still the same?" and gets an empty answer when nothing changed
-    let tag = {
+    let packable = mime.type_() == "text" || matches!(mime.subtype().as_str(), "javascript" | "json" | "svg" | "xml" | "manifest+json");
+    let wants_gz = req_headers.get(header::ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).is_some_and(accepts_gzip);
+    let use_gz = packable && wants_gz && data.len() > 1024;
+    // a content tag: the app asks "still the same?" and gets an empty answer when nothing changed;
+    // the gzip form gets its own tag, it is a different set of bytes
+    let hash = {
         use sha2::Digest;
         let h = sha2::Sha256::digest(&data);
-        format!("\"{}\"", h[..10].iter().map(|b| format!("{b:02x}")).collect::<String>())
+        h[..10].iter().map(|b| format!("{b:02x}")).collect::<String>()
     };
+    let tag = if use_gz { format!("\"{hash}-gz\"") } else { format!("\"{hash}\"") };
     headers.insert(header::ETAG, tag.parse().unwrap());
     headers.insert(header::VARY, HeaderValue::from_static("Accept-Encoding"));
     if req_headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()).is_some_and(|v| v.split(',').any(|x| x.trim() == tag)) {
         return (axum::http::StatusCode::NOT_MODIFIED, headers).into_response();
     }
-    let packable = mime.type_() == "text" || matches!(mime.subtype().as_str(), "javascript" | "json" | "svg" | "xml" | "manifest+json");
-    let wants_gz = req_headers.get(header::ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).is_some_and(|v| v.contains("gzip"));
-    let data: Vec<u8> = if packable && wants_gz && data.len() > 1024 {
+    let data: Vec<u8> = if use_gz {
         let cache = WEB_GZ.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
         let hit = cache.lock().unwrap().get(&tag).cloned();
         let gz = match hit {
@@ -1404,6 +1547,26 @@ async fn web(State(st): State<St>, method: Method, req_headers: HeaderMap, uri: 
         return (headers, Body::empty()).into_response();
     }
     (headers, data).into_response()
+}
+
+/// Accept-Encoding allows gzip (a "gzip" or "*" entry whose q value is not 0).
+fn accepts_gzip(v: &str) -> bool {
+    let mut gzip: Option<bool> = None;
+    let mut star: Option<bool> = None;
+    for part in v.split(',') {
+        let mut it = part.split(';');
+        let coding = it.next().unwrap_or("").trim().to_ascii_lowercase();
+        let q = it
+            .filter_map(|p| p.trim().strip_prefix("q=").or_else(|| p.trim().strip_prefix("Q=")))
+            .find_map(|q| q.trim().parse::<f32>().ok())
+            .unwrap_or(1.0);
+        match coding.as_str() {
+            "gzip" | "x-gzip" => gzip = Some(q > 0.0),
+            "*" => star = Some(q > 0.0),
+            _ => {}
+        }
+    }
+    gzip.or(star).unwrap_or(false)
 }
 
 fn share_preview(st: &St, token: &str, page: Vec<u8>) -> Vec<u8> {

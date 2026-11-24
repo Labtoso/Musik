@@ -160,16 +160,33 @@ impl Library {
         if self.scanning.swap(true, Ordering::SeqCst) {
             return None;
         }
+        // clears the flag on every way out, also when the scan panics
+        struct Reset<'a>(&'a std::sync::atomic::AtomicBool);
+        impl Drop for Reset<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::SeqCst);
+            }
+        }
+        let _reset = Reset(&self.scanning);
         let started = now_ms();
         self.found.store(0, Ordering::Relaxed);
         self.done.store(0, Ordering::Relaxed);
         let known: HashMap<String, (i64, i64, i64)> = {
             let c = db.lock().unwrap();
-            let mut st = c.prepare("SELECT id, path, mtime, size FROM tracks").unwrap();
-            st.query_map([], |r| Ok((r.get::<_, String>(1)?, (r.get(0)?, r.get(2)?, r.get(3)?))))
-                .unwrap()
-                .filter_map(Result::ok)
-                .collect()
+            let rows = c.prepare("SELECT id, path, mtime, size FROM tracks").and_then(|mut st| {
+                Ok(st
+                    .query_map([], |r| Ok((r.get::<_, String>(1)?, (r.get(0)?, r.get(2)?, r.get(3)?))))?
+                    .filter_map(Result::ok)
+                    .collect::<HashMap<_, _>>())
+            });
+            match rows {
+                Ok(m) => m,
+                Err(e) => {
+                    // without the known list nothing can be compared or removed safely
+                    eprintln!("scan: reading the index failed: {e}");
+                    return None;
+                }
+            }
         };
         let mut seen = HashSet::new();
         let (mut added, mut updated) = (0u64, 0u64);
@@ -179,16 +196,22 @@ impl Library {
                 return;
             }
             let mut c = db.lock().unwrap();
-            let tx = c.transaction().unwrap();
+            let Ok(tx) = c.transaction() else {
+                batch.clear();
+                return;
+            };
             for (p, size, mtime, tags) in batch.drain(..) {
                 upsert(&tx, &p, size, mtime, &tags);
             }
             tx.commit().ok();
         };
+        // roots that could be read in this scan; tracks under any other root are kept
+        let mut live_roots: Vec<PathBuf> = Vec::new();
         for root in self.roots() {
             if !root.exists() {
                 continue;
             }
+            let found_before = seen.len();
             for entry in walkdir::WalkDir::new(&root)
                 .follow_links(true)
                 .into_iter()
@@ -220,14 +243,19 @@ impl Library {
                     flush(&mut batch);
                 }
             }
+            // a root that suddenly shows no audio at all (e.g. an unmounted drive that left an
+            // empty mount point) while the index knows tracks under it counts as unreachable
+            let had_tracks = known.keys().any(|p| Path::new(p).starts_with(&root));
+            if seen.len() > found_before || !had_tracks {
+                live_roots.push(root);
+            }
         }
         flush(&mut batch);
-        // Remove tracks whose files are gone (only inside the scanned roots).
-        let roots: Vec<PathBuf> = self.roots();
+        // Remove tracks whose files are gone (only inside roots that were reachable in this scan).
+        let roots: Vec<PathBuf> = live_roots;
         let mut removed = 0u64;
-        {
-            let mut c = db.lock().unwrap();
-            let tx = c.transaction().unwrap();
+        if let Ok(mut c) = db.lock() {
+            let Ok(tx) = c.transaction() else { return None };
             for (p, (id, _, _)) in &known {
                 if seen.contains(p) {
                     continue;
@@ -244,7 +272,6 @@ impl Library {
         let total = db.lock().unwrap().query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0)).unwrap_or(0);
         let res = ScanResult { at: now_ms(), ms: now_ms() - started, added, updated, removed, total };
         *self.last_scan.lock().unwrap() = Some(res.clone());
-        self.scanning.store(false, Ordering::SeqCst);
         Some(res)
     }
 

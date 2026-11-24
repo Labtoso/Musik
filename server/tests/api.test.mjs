@@ -1,3 +1,4 @@
+import http from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -178,8 +179,17 @@ test('static web files and SPA fallback', async (t) => {
   let res = await fetch(s.base + '/');
   assert.equal(res.status, 200);
   assert.match(await res.text(), /<html/i);
-  res = await fetch(s.base + '/../../etc/passwd');
-  assert.notEqual(res.status, 500);
+  // the raw path with dot segments, as sent (fetch would normalise it away)
+  const rawStatus = (p) =>
+    new Promise((resolve, reject) => {
+      const u = new URL(s.base);
+      http.get({ host: u.hostname, port: u.port, path: p }, (r) => {
+        r.resume();
+        resolve(r.statusCode);
+      }).on('error', reject);
+    });
+  assert.equal(await rawStatus('/../../etc/passwd'), 404);
+  assert.equal(await rawStatus('/js/../../server/Cargo.toml'), 404);
   res = await fetch(s.base + '/nope.js');
   assert.equal(res.status, 404);
   res = await fetch(s.base + '/api/info', {

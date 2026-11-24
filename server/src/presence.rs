@@ -37,7 +37,17 @@ async fn report(Auth(u, _): Auth, req: Request) -> R {
     let b: Value = body_json(req).await?;
     let dev = clean(b["device"].as_str().unwrap_or(""), 64);
     let now = now_ms();
-    let mut all = map().lock().unwrap();
+    let mut all = map().lock().unwrap_or_else(|e| e.into_inner());
+    // at most once a minute: drop stale devices and empty entries of every account,
+    // also of accounts whose devices stopped reporting
+    static SWEPT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+    if now - SWEPT.load(std::sync::atomic::Ordering::Relaxed) > 60_000 {
+        SWEPT.store(now, std::sync::atomic::Ordering::Relaxed);
+        for devs in all.values_mut() {
+            devs.retain(|_, d| now - d.seen < STALE_MS);
+        }
+        all.retain(|_, devs| !devs.is_empty());
+    }
     let mine = all.entry(u.id).or_default();
     mine.retain(|_, d| now - d.seen < STALE_MS);
     let mut cmds = vec![];
@@ -77,13 +87,21 @@ async fn command(Auth(u, _): Auth, Path(dev): Path<String>, req: Request) -> R {
     if !["pause", "play", "next", "prev"].contains(&cmd) {
         return Ok(Json(json!({ "ok": false })));
     }
-    let mut all = map().lock().unwrap();
-    let ok = match all.get_mut(&u.id).and_then(|m| m.get_mut(&dev)) {
-        Some(d) => {
-            if d.cmds.len() < 10 {
-                d.cmds.push(json!({ "cmd": cmd, "at": now_ms() }));
+    let now = now_ms();
+    let mut all = map().lock().unwrap_or_else(|e| e.into_inner());
+    let ok = match all.get_mut(&u.id) {
+        Some(m) => {
+            // a device that stopped reporting would never pick the command up
+            if m.get(&dev).is_some_and(|d| now - d.seen >= STALE_MS) {
+                m.remove(&dev);
             }
-            true
+            match m.get_mut(&dev) {
+                Some(d) if d.cmds.len() < 10 => {
+                    d.cmds.push(json!({ "cmd": cmd, "at": now }));
+                    true
+                }
+                _ => false,
+            }
         }
         None => false,
     };

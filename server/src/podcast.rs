@@ -100,7 +100,13 @@ fn local(name: &[u8]) -> &[u8] {
 }
 
 /// Reads an RSS podcast feed. Lenient: unknown tags are skipped, broken bits are left empty.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_feed(xml: &str) -> Show {
+    parse_feed_checked(xml).0
+}
+/// The show and whether the whole document could be read (false: the XML broke off part way).
+fn parse_feed_checked(xml: &str) -> (Show, bool) {
+    let mut complete = true;
     let mut rd = quick_xml::Reader::from_str(xml);
     rd.config_mut().trim_text(false);
     rd.config_mut().check_end_names = false;
@@ -122,7 +128,10 @@ pub fn parse_feed(xml: &str) -> Show {
     loop {
         let ev = match rd.read_event() {
             Ok(e) => e,
-            Err(_) => break,
+            Err(_) => {
+                complete = false;
+                break;
+            }
         };
         match ev {
             Event::Eof => break,
@@ -220,7 +229,7 @@ pub fn parse_feed(xml: &str) -> Show {
     }
     // newest first, like Spotify
     show.episodes.sort_by(|a, b| b.date.cmp(&a.date));
-    show
+    (show, complete)
 }
 
 fn handle_attrs(
@@ -327,7 +336,23 @@ pub fn parse_iso(s: &str) -> i64 {
     }
     let t = s.get(11..19).unwrap_or("00:00:00");
     let v: Vec<i64> = t.split(':').map(|x| x.parse().unwrap_or(0)).collect();
-    (days_from_civil(y, m, d) * 86400 + v.first().unwrap_or(&0) * 3600 + v.get(1).unwrap_or(&0) * 60 + v.get(2).unwrap_or(&0)) * 1000
+    // UTC offset after the time ("+02:00", "-0500"; "Z" or none = UTC), fractions skipped
+    let offset_min = s
+        .get(19..)
+        .map(|rest| rest.trim_start_matches(|c: char| c == '.' || c.is_ascii_digit()))
+        .and_then(|z| {
+            let sign = match z.as_bytes().first()? {
+                b'+' => 1,
+                b'-' => -1,
+                _ => return None,
+            };
+            let digits: String = z[1..].chars().filter(|c| c.is_ascii_digit()).take(4).collect();
+            let h: i64 = digits.get(0..2)?.parse().ok()?;
+            let m: i64 = digits.get(2..4).and_then(|x| x.parse().ok()).unwrap_or(0);
+            Some(sign * (h * 60 + m))
+        })
+        .unwrap_or(0);
+    (days_from_civil(y, m, d) * 86400 + v.first().unwrap_or(&0) * 3600 + v.get(1).unwrap_or(&0) * 60 + v.get(2).unwrap_or(&0) - offset_min * 60) * 1000
 }
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
@@ -354,8 +379,11 @@ pub fn html_to_text(s: &str) -> String {
     while let Some((i, c)) = chars.next() {
         if c == '<' {
             let rest = &s[i..];
-            // byte positions only where a letter starts: a lone "<" before "ö" must not split the letter
-            let end = rest.find('>').unwrap_or(rest.len());
+            // a "<" that is never closed starts a cut-off tag: the rest is dropped in one step
+            // (searching again for every following "<" would take quadratic time)
+            let Some(end) = rest.find('>') else {
+                break;
+            };
             let tag = rest.get(1..end).unwrap_or("").trim().to_ascii_lowercase();
             let tname: String = tag.trim_start_matches('/').chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
             if matches!(tname.as_str(), "br" | "p" | "div" | "li" | "h1" | "h2" | "h3" | "h4" | "tr" | "ul" | "ol") {
@@ -453,6 +481,56 @@ pub fn decode_entities(s: &str) -> String {
 // ---------- fetching ----------
 const UA: &str = "Mozilla/5.0 (compatible; Streyn podcast player)";
 
+/// True for addresses on the open internet; loopback, private, link-local, CGNAT, multicast and
+/// similar ranges are refused, so a feed or enclosure link can't make the server reach into its own network.
+fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v) => {
+            let o = v.octets();
+            !(v.is_loopback()
+                || v.is_private()
+                || v.is_link_local()
+                || v.is_unspecified()
+                || v.is_broadcast()
+                || v.is_documentation()
+                || v.is_multicast()
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xc0) == 64)
+                || (o[0] == 198 && (o[1] & 0xfe) == 18)
+                || o[0] >= 240)
+        }
+        IpAddr::V6(v) => {
+            if let Some(v4) = v.to_ipv4_mapped() {
+                return is_public_ip(IpAddr::V4(v4));
+            }
+            let seg = v.segments();
+            !(v.is_loopback()
+                || v.is_unspecified()
+                || v.is_multicast()
+                || (seg[0] & 0xfe00) == 0xfc00
+                || (seg[0] & 0xffc0) == 0xfe80
+                || (seg[0] == 0x2001 && seg[1] == 0x0db8))
+        }
+    }
+}
+/// HTTP agent for links taken from feeds: every connection, also after a redirect, goes only to
+/// public addresses. `read` limits how long a single read may wait for data.
+fn public_agent(read: Duration) -> ureq::Agent {
+    use std::net::ToSocketAddrs;
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout_read(read)
+        .resolver(|addr: &str| -> std::io::Result<Vec<std::net::SocketAddr>> {
+            let list: Vec<std::net::SocketAddr> = addr.to_socket_addrs()?.filter(|a| is_public_ip(a.ip())).collect();
+            if list.is_empty() {
+                return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "address not allowed"));
+            }
+            Ok(list)
+        })
+        .build()
+}
+
 fn http_text(url: &str, max: u64) -> Result<String, ApiError> {
     let r = ureq::get(url)
         .set("user-agent", UA)
@@ -468,10 +546,14 @@ fn http_text(url: &str, max: u64) -> Result<String, ApiError> {
 }
 /// ETag and Last-Modified of every feed: asking again costs the host (and us) almost nothing when nothing changed.
 static VALIDATORS: OnceLock<Mutex<HashMap<i64, (String, String)>>> = OnceLock::new();
-/// The feed text, or None when the host says it did not change.
-fn fetch_feed(id: i64, url: &str) -> Result<Option<String>, ApiError> {
+const FEED_MAX: u64 = 40 << 20;
+/// The feed text with its ETag and Last-Modified, or None when the host says it did not change.
+/// The validators are only kept once the feed proved good (see load_show).
+/// Feed text with its (ETag, Last-Modified).
+type FeedText = (String, (String, String));
+fn fetch_feed(id: i64, url: &str) -> Result<Option<FeedText>, ApiError> {
     let (etag, lm) = VALIDATORS.get_or_init(Default::default).lock().unwrap().get(&id).cloned().unwrap_or_default();
-    let mut req = ureq::get(url).set("user-agent", UA).timeout(Duration::from_secs(20));
+    let mut req = public_agent(Duration::from_secs(20)).get(url).set("user-agent", UA).timeout(Duration::from_secs(20));
     if !etag.is_empty() {
         req = req.set("if-none-match", &etag);
     }
@@ -489,9 +571,13 @@ fn fetch_feed(id: i64, url: &str) -> Result<Option<String>, ApiError> {
     };
     let v = (r.header("etag").unwrap_or("").to_string(), r.header("last-modified").unwrap_or("").to_string());
     let mut buf = Vec::new();
-    r.into_reader().take(40 << 20).read_to_end(&mut buf).map_err(|_| ApiError::new(502, "podcast_unreachable"))?;
-    VALIDATORS.get_or_init(Default::default).lock().unwrap().insert(id, v);
-    Ok(Some(String::from_utf8_lossy(&buf).into_owned()))
+    // one byte more than allowed tells a too large feed from one that just fits
+    r.into_reader().take(FEED_MAX + 1).read_to_end(&mut buf).map_err(|_| ApiError::new(502, "podcast_unreachable"))?;
+    if buf.len() as u64 > FEED_MAX {
+        eprintln!("podcast feed {url}: larger than {FEED_MAX} bytes");
+        return Err(ApiError::new(502, "podcast_bad_feed"));
+    }
+    Ok(Some((String::from_utf8_lossy(&buf).into_owned(), v)))
 }
 
 /// Keeps every followed show current on its own: each feed is looked at every few minutes, so a new
@@ -502,8 +588,13 @@ pub fn start_refresher(st: St) {
         loop {
             let ids: Vec<i64> = {
                 let db = st.db.lock().unwrap();
-                let mut s = db.prepare("SELECT DISTINCT show_id FROM pod_subs").unwrap();
-                s.query_map([], |r| r.get(0)).unwrap().filter_map(Result::ok).collect()
+                // an error is logged and tried again on the next round
+                db.prepare("SELECT DISTINCT show_id FROM pod_subs")
+                    .and_then(|mut s| Ok(s.query_map([], |r| r.get(0))?.filter_map(Result::ok).collect()))
+                    .unwrap_or_else(|e| {
+                        eprintln!("podcast refresh: {e}");
+                        Vec::new()
+                    })
             };
             for id in ids {
                 let before = FEEDS.get_or_init(Default::default).lock().unwrap().get(&id).and_then(|(_, s)| s.episodes.first().map(|e| e.date));
@@ -563,7 +654,7 @@ fn feed_of(st: &St, id: i64) -> Result<String, ApiError> {
         return Err(ApiError::new(404, "podcast_no_feed"));
     }
     st.db.lock().unwrap().execute(
-        "INSERT INTO pod_shows (id, feed, title, author, cover, updated) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET feed = excluded.feed, updated = excluded.updated",
+        "INSERT INTO pod_shows (id, feed, title, author, cover, updated) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET feed = excluded.feed, title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE title END, author = CASE WHEN excluded.author <> '' THEN excluded.author ELSE author END, cover = CASE WHEN excluded.cover <> '' THEN excluded.cover ELSE cover END, updated = excluded.updated",
         params![id, feed, r["collectionName"].as_str().unwrap_or(""), r["artistName"].as_str().unwrap_or(""), big_art(r), now_ms()],
     ).ok();
     Ok(feed)
@@ -580,7 +671,7 @@ fn load_show(st: &St, id: i64, fresh: bool) -> Result<Arc<Show>, ApiError> {
         }
     }
     let feed = feed_of(st, id)?;
-    let xml = match fetch_feed(id, &feed) {
+    let (xml, validators) = match fetch_feed(id, &feed) {
         Ok(Some(x)) => x,
         // the feed did not change since the last look: the copy we have is current again
         Ok(None) => {
@@ -600,9 +691,12 @@ fn load_show(st: &St, id: i64, fresh: bool) -> Result<Arc<Show>, ApiError> {
         }
     };
     // a feed written in a way nobody thought of must never take the page down
-    let show = std::panic::catch_unwind(|| parse_feed(&xml)).map_err(|_| ApiError::new(502, "podcast_bad_feed"))?;
-    if show.title.is_empty() && show.episodes.is_empty() {
-        return Err(ApiError::new(502, "podcast_bad_feed"));
+    let parsed = std::panic::catch_unwind(|| parse_feed_checked(&xml));
+    let (show, complete) = parsed.unwrap_or_default();
+    if !complete || (show.title.is_empty() && show.episodes.is_empty()) {
+        // a broken feed never replaces the last good copy
+        let m = FEEDS.get_or_init(Default::default).lock().unwrap();
+        return m.get(&id).map(|(_, s)| s.clone()).ok_or(ApiError::new(502, "podcast_bad_feed"));
     }
     let show = Arc::new(show);
     st.db.lock().unwrap().execute(
@@ -610,10 +704,19 @@ fn load_show(st: &St, id: i64, fresh: bool) -> Result<Arc<Show>, ApiError> {
         params![show.title, show.author, show.author, show.cover, now_ms(), id],
     ).ok();
     let mut m = FEEDS.get_or_init(Default::default).lock().unwrap();
-    if m.len() > 200 {
+    let mut vals = VALIDATORS.get_or_init(Default::default).lock().unwrap();
+    if m.len() >= 200 {
         m.retain(|_, (at, _)| at.elapsed() < FEED_TTL);
+        // still full of fresh feeds: drop the oldest ones
+        while m.len() >= 200 {
+            let Some(oldest) = m.iter().min_by_key(|(_, (at, _))| *at).map(|(k, _)| *k) else { break };
+            m.remove(&oldest);
+        }
+        vals.retain(|k, _| m.contains_key(k) || *k == id);
     }
+    // feed and validators change together, so a later 304 always refers to this copy
     m.insert(id, (Instant::now(), show.clone()));
+    vals.insert(id, validators);
     Ok(show)
 }
 async fn load_show_async(st: &St, id: i64, fresh: bool) -> Result<Arc<Show>, ApiError> {
@@ -762,14 +865,22 @@ async fn search(Auth(_u, _): Auth, Query(q): Query<HashMap<String, String>>) -> 
     if let Some(v) = cached_list(&key, Duration::from_secs(1800)) {
         return Ok(Json(v));
     }
-    let v = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
+    let v = tokio::task::spawn_blocking(move || -> Result<(Value, bool), ApiError> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (asked_ok, asked_bad) = (AtomicUsize::new(0), AtomicUsize::new(0));
         // like Spotify, typing does not have to be exact: other spellings of the words are asked too
         // (â → ä, ae → ä, no accents at all), then the single words, and the best matches come first
         let ask = |entity: &str, words: &str, limit: u32| -> Vec<Value> {
-            http_json(&format!("https://itunes.apple.com/search?media=podcast&entity={entity}&limit={limit}&country={cc}&term={}", enc(words)))
-                .ok()
-                .and_then(|j| j["results"].as_array().cloned())
-                .unwrap_or_default()
+            match http_json(&format!("https://itunes.apple.com/search?media=podcast&entity={entity}&limit={limit}&country={cc}&term={}", enc(words))) {
+                Ok(j) => {
+                    asked_ok.fetch_add(1, Ordering::Relaxed);
+                    j["results"].as_array().cloned().unwrap_or_default()
+                }
+                Err(_) => {
+                    asked_bad.fetch_add(1, Ordering::Relaxed);
+                    Vec::new()
+                }
+            }
         };
         let variants = spellings(&term);
         let mut found: Vec<Vec<Value>> = std::thread::scope(|sc| {
@@ -826,11 +937,20 @@ async fn search(Auth(_u, _): Auth, Query(q): Query<HashMap<String, String>>) -> 
                     .collect()
             })
             .unwrap_or_default();
-        Ok(json!({ "shows": shows, "episodes": episodes }))
+        // the directory did not answer at all: an error, not "nothing found"
+        if asked_ok.load(Ordering::Relaxed) == 0 {
+            return Err(ApiError::new(502, "podcast_unreachable"));
+        }
+        let complete = asked_bad.load(Ordering::Relaxed) == 0;
+        Ok((json!({ "shows": shows, "episodes": episodes }), complete))
     })
     .await
     .map_err(|_| ApiError::new(500, "internal"))??;
-    keep_list(&key, &v);
+    let (v, complete) = v;
+    // only complete answers are kept, a half failed one is asked again next time
+    if complete {
+        keep_list(&key, &v);
+    }
     Ok(Json(v))
 }
 
@@ -876,11 +996,16 @@ async fn top(Auth(_u, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
 
 fn progress_map(st: &St, user: i64, show: i64) -> HashMap<String, (f64, f64, bool)> {
     let db = st.db.lock().unwrap();
-    let mut s = db.prepare("SELECT ep, pos, dur, done FROM pod_progress WHERE user_id = ? AND show_id = ?").unwrap();
-    s.query_map(params![user, show], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, f64>(1)?, r.get::<_, f64>(2)?, r.get::<_, i64>(3)? != 0))))
-        .unwrap()
-        .filter_map(Result::ok)
-        .collect()
+    db.prepare("SELECT ep, pos, dur, done FROM pod_progress WHERE user_id = ? AND show_id = ?")
+        .and_then(|mut s| {
+            Ok(s.query_map(params![user, show], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, f64>(1)?, r.get::<_, f64>(2)?, r.get::<_, i64>(3)? != 0))))?
+                .filter_map(Result::ok)
+                .collect())
+        })
+        .unwrap_or_else(|e| {
+            eprintln!("podcast progress: {e}");
+            HashMap::new()
+        })
 }
 fn ep_json(e: &Episode, show_id: i64, show: &Show, prog: &HashMap<String, (f64, f64, bool)>, desc_len: usize) -> Value {
     let p = prog.get(&e.id).copied().unwrap_or((0.0, 0.0, false));
@@ -907,9 +1032,11 @@ async fn show(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>, Query
     let s = load_show_async(&st, id, q.contains_key("fresh")).await?;
     let prog = progress_map(&st, u.id, id);
     let followed = st.db.lock().unwrap().query_row("SELECT 1 FROM pod_subs WHERE user_id = ? AND show_id = ?", params![u.id, id], |_| Ok(())).is_ok();
-    // opened: its new episodes count as seen (the dot in the library goes away)
+    // opened: the episodes shown count as seen (the dot in the library goes away); an older
+    // cached copy never moves the mark back
     if followed {
-        st.db.lock().unwrap().execute("UPDATE pod_subs SET seen = ? WHERE user_id = ? AND show_id = ?", params![now_ms(), u.id, id]).ok();
+        let newest = s.episodes.first().map(|e| e.date).unwrap_or(0).min(now_ms());
+        st.db.lock().unwrap().execute("UPDATE pod_subs SET seen = MAX(seen, ?) WHERE user_id = ? AND show_id = ?", params![newest, u.id, id]).ok();
     }
     let cover: String = st.db.lock().unwrap().query_row("SELECT cover FROM pod_shows WHERE id = ?", [id], |r| r.get(0)).unwrap_or_default();
     let eps: Vec<Value> = s.episodes.iter().take(1500).map(|e| ep_json(e, id, &s, &prog, 320)).collect();
@@ -938,8 +1065,10 @@ fn show_by_name(name: &str, cc: &str) -> Option<i64> {
         return v.as_i64();
     }
     let mut best: Option<(f64, i64)> = None;
+    let mut failed = false;
     for v in spellings(name) {
         let j = http_json(&format!("https://itunes.apple.com/search?media=podcast&entity=podcast&limit=15&country={cc}&term={}", enc(&v))).ok();
+        failed |= j.is_none();
         for r in j.as_ref().and_then(|j| j["results"].as_array()).into_iter().flatten() {
             let id = r["collectionId"].as_i64().unwrap_or(0);
             if id == 0 || !r["feedUrl"].is_string() {
@@ -955,7 +1084,10 @@ fn show_by_name(name: &str, cc: &str) -> Option<i64> {
         }
     }
     let id = best.filter(|b| b.0 >= 0.6).map(|b| b.1);
-    keep_list(&key, &json!(id));
+    // "not found" is only remembered when every lookup answered
+    if id.is_some() || !failed {
+        keep_list(&key, &json!(id));
+    }
     id
 }
 /// The episode of a show with this title (and about this length).
@@ -1043,14 +1175,20 @@ async fn audio(State(st): State<St>, AuthQ(_u): AuthQ, Path((id, ep)): Path<(i64
     let url = match load_show_async(&st, id, false).await {
         Ok(s) => match find(&s, &ep) {
             Some(e) => Some(e.url.clone()),
-            None => load_show_async(&st, id, true).await.ok().and_then(|s| find(&s, &ep).map(|e| e.url.clone())),
+            // a refresh that fails is reported as such; 404 only when the fresh feed lacks the episode
+            None => match load_show_async(&st, id, true).await {
+                Ok(s) => find(&s, &ep).map(|e| e.url.clone()),
+                Err(e) => return e.into_response(),
+            },
         },
         Err(e) => return e.into_response(),
     };
     let Some(url) = url else { return ApiError::new(404, "not_found").into_response() };
     let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(String::from);
     let res = tokio::task::spawn_blocking(move || {
-        let mut req = ureq::get(&url).set("user-agent", UA);
+        // public addresses only (also after redirects); a host that stops sending ends the
+        // stream after a minute instead of holding the reader thread forever
+        let mut req = public_agent(Duration::from_secs(60)).get(&url).set("user-agent", UA);
         if let Some(r) = &range {
             req = req.set("range", r);
         }
@@ -1112,8 +1250,9 @@ async fn audio(State(st): State<St>, AuthQ(_u): AuthQ, Path((id, ep)): Path<(i64
 async fn pulse(State(st): State<St>, Auth(u, _): Auth) -> R {
     let ids: Vec<i64> = {
         let db = st.db.lock().unwrap();
-        let mut s = db.prepare("SELECT show_id FROM pod_subs WHERE user_id = ?").unwrap();
-        s.query_map([u.id], |r| r.get(0)).unwrap().filter_map(Result::ok).collect()
+        db.prepare("SELECT show_id FROM pod_subs WHERE user_id = ?")
+            .and_then(|mut s| Ok(s.query_map([u.id], |r| r.get(0))?.filter_map(Result::ok).collect()))
+            .map_err(crate::api::db_err)?
     };
     let m = FEEDS.get_or_init(Default::default).lock().unwrap();
     let newest = ids
@@ -1130,10 +1269,9 @@ async fn pulse(State(st): State<St>, Auth(u, _): Auth) -> R {
 async fn subs(State(st): State<St>, Auth(u, _): Auth) -> R {
     let rows: Vec<(i64, String, String, String, i64, i64)> = {
         let db = st.db.lock().unwrap();
-        let mut s = db
-            .prepare("SELECT s.show_id, COALESCE(p.title,''), COALESCE(p.author,''), COALESCE(p.cover,''), s.created, s.seen FROM pod_subs s LEFT JOIN pod_shows p ON p.id = s.show_id WHERE s.user_id = ? ORDER BY s.created DESC")
-            .unwrap();
-        s.query_map([u.id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))).unwrap().filter_map(Result::ok).collect()
+        db.prepare("SELECT s.show_id, COALESCE(p.title,''), COALESCE(p.author,''), COALESCE(p.cover,''), s.created, s.seen FROM pod_subs s LEFT JOIN pod_shows p ON p.id = s.show_id WHERE s.user_id = ? ORDER BY s.created DESC")
+            .and_then(|mut s| Ok(s.query_map([u.id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?.filter_map(Result::ok).collect()))
+            .map_err(crate::api::db_err)?
     };
     let list: Vec<Value> = rows
         .into_iter()
@@ -1148,19 +1286,23 @@ async fn subscribe(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>, 
     let v: Value = body_json(req).await?;
     let text = |k: &str| v[k].as_str().unwrap_or("").chars().take(1000).collect::<String>();
     {
-        let db = st.db.lock().unwrap();
-        // what the app already knows of the show, so the library shows it before the feed was read
-        db.execute(
-            "INSERT INTO pod_shows (id, feed, title, author, cover, updated) VALUES (?, '', ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE title END, author = CASE WHEN excluded.author <> '' THEN excluded.author ELSE author END, cover = CASE WHEN excluded.cover <> '' THEN excluded.cover ELSE cover END",
+        let mut db = st.db.lock().unwrap();
+        let tx = db.transaction().map_err(crate::api::db_err)?;
+        // what the app already knows of the show, so the library shows it before the feed was read;
+        // it only fills empty fields and never overwrites what the directory or the feed said
+        tx.execute(
+            "INSERT INTO pod_shows (id, feed, title, author, cover, updated) VALUES (?, '', ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = CASE WHEN title = '' THEN excluded.title ELSE title END, author = CASE WHEN author = '' THEN excluded.author ELSE author END, cover = CASE WHEN cover = '' THEN excluded.cover ELSE cover END",
             params![id, text("title"), text("author"), text("cover"), now_ms()],
         )
-        .ok();
-        db.execute("INSERT OR IGNORE INTO pod_subs (user_id, show_id, created) VALUES (?,?,?)", params![u.id, id, now_ms()]).ok();
+        .map_err(crate::api::db_err)?;
+        tx.execute("INSERT OR IGNORE INTO pod_subs (user_id, show_id, created) VALUES (?,?,?)", params![u.id, id, now_ms()])
+            .map_err(crate::api::db_err)?;
+        tx.commit().map_err(crate::api::db_err)?;
     }
     Ok(Json(json!({ "following": true })))
 }
 async fn unsubscribe(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
-    st.db.lock().unwrap().execute("DELETE FROM pod_subs WHERE user_id = ? AND show_id = ?", params![u.id, id]).ok();
+    st.db.lock().unwrap().execute("DELETE FROM pod_subs WHERE user_id = ? AND show_id = ?", params![u.id, id]).map_err(crate::api::db_err)?;
     Ok(Json(json!({ "following": false })))
 }
 
@@ -1174,13 +1316,14 @@ async fn save_progress(State(st): State<St>, Auth(u, _): Auth, req: Request) -> 
     }
     let pos = v["pos"].as_f64().unwrap_or(0.0).max(0.0);
     let dur = v["dur"].as_f64().unwrap_or(0.0).max(0.0);
-    let done = v["done"].as_bool().unwrap_or(dur > 0.0 && pos >= dur - 30.0);
+    // the last 30 seconds count as the end, but never more than 5% of a (short) episode
+    let done = v["done"].as_bool().unwrap_or(dur > 0.0 && pos >= dur - (dur * 0.05).min(30.0));
     let pos = if done && !v["keep"].as_bool().unwrap_or(false) { 0.0 } else { pos };
     let data = v.get("meta").map(|m| m.to_string()).filter(|s| s.len() < 4000).unwrap_or_else(|| "{}".into());
     st.db.lock().unwrap().execute(
         "INSERT INTO pod_progress (user_id, show_id, ep, pos, dur, done, data, updated) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id, show_id, ep) DO UPDATE SET pos = excluded.pos, dur = CASE WHEN excluded.dur > 0 THEN excluded.dur ELSE dur END, done = excluded.done, data = CASE WHEN excluded.data <> '{}' THEN excluded.data ELSE data END, updated = excluded.updated",
         params![u.id, show, ep, pos, dur, done as i64, data, now_ms()],
-    ).ok();
+    ).map_err(crate::api::db_err)?;
     Ok(Json(json!({ "ok": true, "done": done })))
 }
 
@@ -1189,7 +1332,7 @@ async fn continue_list(State(st): State<St>, Auth(u, _): Auth) -> R {
     let db = st.db.lock().unwrap();
     let mut s = db
         .prepare("SELECT show_id, ep, pos, dur, data FROM pod_progress WHERE user_id = ? AND done = 0 AND pos > 5 ORDER BY updated DESC LIMIT 20")
-        .unwrap();
+        .map_err(crate::api::db_err)?;
     let list: Vec<Value> = s
         .query_map([u.id], |r| {
             let meta: Value = serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or(json!({}));
@@ -1201,7 +1344,7 @@ async fn continue_list(State(st): State<St>, Auth(u, _): Auth) -> R {
             }
             Ok(v)
         })
-        .unwrap()
+        .map_err(crate::api::db_err)?
         .filter_map(Result::ok)
         .collect();
     Ok(Json(json!(list)))
@@ -1211,8 +1354,9 @@ async fn continue_list(State(st): State<St>, Auth(u, _): Auth) -> R {
 async fn new_episodes(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
     let ids: Vec<i64> = {
         let db = st.db.lock().unwrap();
-        let mut s = db.prepare("SELECT show_id FROM pod_subs WHERE user_id = ? ORDER BY created DESC LIMIT 60").unwrap();
-        s.query_map([u.id], |r| r.get(0)).unwrap().filter_map(Result::ok).collect()
+        db.prepare("SELECT show_id FROM pod_subs WHERE user_id = ? ORDER BY created DESC LIMIT 60")
+            .and_then(|mut s| Ok(s.query_map([u.id], |r| r.get(0))?.filter_map(Result::ok).collect()))
+            .map_err(crate::api::db_err)?
     };
     let limit: usize = q.get("limit").and_then(|l| l.parse().ok()).unwrap_or(30).min(100);
     // a few feeds at once, each one from the cache when it is fresh
@@ -1222,7 +1366,8 @@ async fn new_episodes(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<Ha
         for t in tasks {
             if let Ok((id, Ok(s))) = t.await {
                 let prog = progress_map(&st, u.id, id);
-                all.extend(s.episodes.iter().take(5).map(|e| ep_json(e, id, &s, &prog, 220)));
+                // up to `limit` per show: one show may hold all of the newest episodes
+                all.extend(s.episodes.iter().take(limit).map(|e| ep_json(e, id, &s, &prog, 220)));
             }
         }
     }

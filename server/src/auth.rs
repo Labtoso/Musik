@@ -99,7 +99,8 @@ pub fn set_password(db: &Connection, user_id: i64, password: &str) -> Result<(),
     if password.chars().count() < 4 {
         return Err(AuthError(400, "password_short"));
     }
-    db.execute("UPDATE users SET pass_hash = ? WHERE id = ?", params![hash_password(password), user_id]).ok();
+    db.execute("UPDATE users SET pass_hash = ? WHERE id = ?", params![hash_password(password), user_id])
+        .map_err(|_| AuthError(500, "error"))?;
     db.execute("DELETE FROM tokens WHERE user_id = ?", [user_id]).ok();
     Ok(())
 }

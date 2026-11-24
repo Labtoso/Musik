@@ -206,20 +206,23 @@ async fn token(State(st): State<St>, Auth(u, _): Auth) -> R {
         return Err(ApiError::new(401, "spotify_login"));
     }
     let r2 = refresh.clone();
-    let v = tokio::task::spawn_blocking(move || {
-        ureq::post("https://accounts.spotify.com/api/token")
+    // only a refusal of the refresh token (400/401) means signing in again; network trouble,
+    // timeouts and server errors are temporary and keep the stored token
+    let v: Value = tokio::task::spawn_blocking(move || {
+        match ureq::post("https://accounts.spotify.com/api/token")
             .timeout(Duration::from_secs(15))
             .send_form(&[("grant_type", "refresh_token"), ("refresh_token", &r2), ("client_id", &client)])
-            .ok()
-            .and_then(|r| r.into_json::<Value>().ok())
+        {
+            Ok(r) => r.into_json::<Value>().map_err(|_| ApiError::new(502, "spotify_unreachable")),
+            Err(ureq::Error::Status(400 | 401, _)) => Err(ApiError::new(401, "spotify_login")),
+            Err(_) => Err(ApiError::new(502, "spotify_unreachable")),
+        }
     })
     .await
-    .ok()
-    .flatten();
-    let Some(access) = v.as_ref().and_then(|v| v["access_token"].as_str()).map(str::to_string) else {
+    .map_err(|_| ApiError::new(500, "internal"))??;
+    let Some(access) = v["access_token"].as_str().map(str::to_string) else {
         return Err(ApiError::new(401, "spotify_login"));
     };
-    let v = v.unwrap();
     let exp = now_ms() + (v["expires_in"].as_i64().unwrap_or(3600) - 60) * 1000;
     let refresh = v["refresh_token"].as_str().map(str::to_string).unwrap_or(refresh);
     st.db.lock().unwrap().execute("UPDATE spotify_tokens SET access = ?, refresh = ?, exp = ? WHERE user_id = ?", params![access, refresh, exp, u.id]).ok();

@@ -45,15 +45,28 @@ export async function startServer(opts = {}) {
   if (opts.files) for (const f of opts.files) writeWav(path.join(music, f), 2);
   const port = await freePort();
   const env = { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: path.join(root, 'data'), MUSIC_DIRS: music, SCAN_INTERVAL: '0' };
+  // never pick up a WEB_DIR from the environment of the test run
   if (opts.webDir) env.WEB_DIR = opts.webDir;
+  else delete env.WEB_DIR;
   const proc = spawn(BIN, [], { env, cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
+  // registered right away, so neither a failed start nor an early exit is missed
+  let spawnError = null;
+  proc.once('error', (e) => (spawnError = e));
+  const exited = new Promise((r) => proc.once('close', r));
   const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 100; i++) {
+  let ready = false;
+  const deadline = Date.now() + 10_000;
+  while (!ready && !spawnError && Date.now() < deadline) {
     try {
-      const r = await fetch(base + '/api/info');
-      if (r.ok) break;
+      const r = await fetch(base + '/api/info', { signal: AbortSignal.timeout(1000) });
+      ready = r.ok;
     } catch {}
-    await sleep(50);
+    if (!ready) await sleep(50);
+  }
+  if (!ready) {
+    if (!spawnError) proc.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+    throw new Error(`server ${BIN} did not start${spawnError ? `: ${spawnError.message}` : ''}`);
   }
   let token = null;
   const api = async (method, p, body, headers = {}) => {
@@ -86,8 +99,8 @@ export async function startServer(opts = {}) {
     waitScan,
     setToken: (t) => (token = t),
     close: async () => {
-      proc.kill();
-      await new Promise((r) => proc.once('exit', r));
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill();
+      await exited;
       fs.rmSync(root, { recursive: true, force: true });
     }
   };
