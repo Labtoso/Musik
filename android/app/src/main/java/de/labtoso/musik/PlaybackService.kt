@@ -77,7 +77,7 @@ class PlaybackService : MediaSessionService() {
                 androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(enableFloatOutput)
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .setAudioProcessors(arrayOf(androidx.media3.exoplayer.audio.TeeAudioProcessor(VizTap)))
+                    .setAudioProcessors(arrayOf(VizProcessor()))
                     .build()
         }
         val player = ExoPlayer.Builder(this, renderers)

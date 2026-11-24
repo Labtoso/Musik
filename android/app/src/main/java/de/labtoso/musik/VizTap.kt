@@ -5,7 +5,8 @@ import android.media.AudioTrack
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.audio.TeeAudioProcessor
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.BaseAudioProcessor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
@@ -25,7 +26,7 @@ import kotlin.math.sqrt
  * every device, and it is read at the moment the sound is actually heard (the audio buffer runs ahead).
  */
 @OptIn(UnstableApi::class)
-object VizTap : TeeAudioProcessor.AudioBufferSink {
+object VizTap {
     /** Only copy sound while a visualizer is on screen; switching on starts with fresh time marks. */
     @Volatile var wanted = false
         set(v) {
@@ -69,7 +70,7 @@ object VizTap : TeeAudioProcessor.AudioBufferSink {
     private val cosT = DoubleArray(FFT / 2) { cos(2 * PI * it / FFT) }
     private val sinT = DoubleArray(FFT / 2) { -sin(2 * PI * it / FFT) }
 
-    override fun flush(sampleRateHz: Int, channelCount: Int, encoding: Int) {
+    fun flush(sampleRateHz: Int, channelCount: Int, encoding: Int) {
         synchronized(lock) {
             rate = if (sampleRateHz > 0) sampleRateHz else 44100
             channels = max(1, channelCount)
@@ -82,7 +83,7 @@ object VizTap : TeeAudioProcessor.AudioBufferSink {
         }
     }
 
-    override fun handleBuffer(buffer: ByteBuffer) {
+    fun handleBuffer(buffer: ByteBuffer) {
         if (!wanted) return
         val b = buffer.duplicate().order(ByteOrder.nativeOrder())
         synchronized(lock) {
@@ -211,5 +212,25 @@ object VizTap : TeeAudioProcessor.AudioBufferSink {
         val minUs = if (minBytes > 0) minBytes.toLong() / frame * 1_000_000L / rate else 0L
         val us = (minUs * 4).coerceIn(250_000L, 750_000L)
         return us * 1000L
+    }
+}
+
+/**
+ * Hands the decoded sound on unchanged and gives VizTap a copy. Only a real flush (seek, new format)
+ * starts VizTap over; the end of a stream does not, so the bars keep going while the buffer plays out.
+ */
+@OptIn(UnstableApi::class)
+class VizProcessor : BaseAudioProcessor() {
+    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat = inputAudioFormat
+
+    override fun queueInput(inputBuffer: ByteBuffer) {
+        val n = inputBuffer.remaining()
+        if (n == 0) return
+        VizTap.handleBuffer(inputBuffer)
+        replaceOutputBuffer(n).put(inputBuffer).flip()
+    }
+
+    override fun onFlush() {
+        VizTap.flush(inputAudioFormat.sampleRate, inputAudioFormat.channelCount, inputAudioFormat.encoding)
     }
 }
