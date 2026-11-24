@@ -174,7 +174,10 @@ async fn apply(State(_st): State<St>, Auth(u, _): Auth) -> R {
     log(format!("$ streyn-update   (running v{VERSION})"));
     // keep a copy of the database before the new version touches it
     let db = _st.db.clone();
-    let (to, exe) = tokio::task::spawn_blocking(move || -> Result<(String, PathBuf), ApiError> {
+    // The blocking task owns the permit: if the client goes away, the handler future is dropped,
+    // but the lock stays taken until the install itself has finished.
+    let (to, exe, permit) = tokio::task::spawn_blocking(move || -> Result<(String, PathBuf, Permit), ApiError> {
+        let permit = permit;
         log("Looking up the latest release on GitHub ...");
         let l = latest(true).inspect_err(|_| log("GitHub is not reachable."))?;
         let v = l["version"].as_str().unwrap_or_default().to_string();
@@ -193,16 +196,17 @@ async fn apply(State(_st): State<St>, Auth(u, _): Auth) -> R {
             }
         }
         let exe = install(&v).inspect_err(|e| log(format!("Failed: {}", e.1)))?;
-        Ok((v, exe))
+        Ok((v, exe, permit))
     })
     .await
     .map_err(|_| ApiError::new(500, "internal"))??;
     log(format!("Restarting: v{VERSION} -> v{to}"));
-    // the permit stays taken until the process restarts
-    std::mem::forget(permit);
+    // the permit stays taken until the process restarts; if starting the new process fails,
+    // restart() returns and dropping the permit allows another attempt
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(800));
         restart(&exe);
+        drop(permit);
     });
     Ok(Json(json!({ "ok": true, "from": VERSION, "to": to })))
 }

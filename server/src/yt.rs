@@ -307,6 +307,10 @@ fn pick_song_within(songs: &[Value], title: &str, artist: &str, duration: f64, p
         if NOT_ORIGINAL.iter().any(|b| { let b = plain(b); pad.contains(&format!(" {b} ")) && !tfull.contains(&b) }) {
             continue;
         }
+        // the other way round: a version the song asks for ("Live", "Acoustic", ...) has to be there
+        if NOT_ORIGINAL.iter().any(|b| { let b = plain(b); format!(" {tfull} ").contains(&format!(" {b} ")) && !pad.contains(&format!(" {b} ")) }) {
+            continue;
+        }
         let d = s["duration"].as_f64().unwrap_or(0.0);
         let off = if duration > 0.0 && d > 0.0 { (d - duration).abs() } else { 0.0 };
         if duration > 0.0 && d > 0.0 && off > (duration * part).max(secs) {
@@ -468,6 +472,12 @@ mod tests {
         assert_eq!(pick_song_loose(&songs, "Mayonaise (2011 Remaster)", "The Smashing Pumpkins", 310.0), vec!["aaaaaaaaaaa"]);
         let live = vec![json!({ "id": "bbbbbbbbbbb", "title": "Mayonaise (Live)", "artist": "The Smashing Pumpkins", "duration": 349.0 })];
         assert!(pick_song_loose(&live, "Mayonaise (2011 Remaster)", "The Smashing Pumpkins", 349.0).is_empty());
+        // asked for the live version: a studio recording with a length does not win over it
+        let both = vec![
+            json!({ "id": "lllllllllll", "title": "Basket Case (Live)", "artist": "Green Day", "duration": 0.0 }),
+            json!({ "id": "sssssssssss", "title": "Basket Case", "artist": "Green Day", "duration": 181.0 }),
+        ];
+        assert_eq!(pick_song(&both, "Basket Case (Live)", "Green Day", 190.0), vec!["lllllllllll"]);
     }
 
     #[test]

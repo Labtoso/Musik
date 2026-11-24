@@ -379,10 +379,11 @@ pub fn html_to_text(s: &str) -> String {
     while let Some((i, c)) = chars.next() {
         if c == '<' {
             let rest = &s[i..];
-            // a "<" that is never closed is plain text
+            // a "<" that is never closed is plain text, and so is everything after it
+            // (searching again for every following "<" would take quadratic time)
             let Some(end) = rest.find('>') else {
-                out.push(c);
-                continue;
+                out.push_str(rest);
+                break;
             };
             let tag = rest[1..end].trim().to_ascii_lowercase();
             let tname: String = tag.trim_start_matches('/').chars().take_while(|c| c.is_ascii_alphanumeric()).collect();

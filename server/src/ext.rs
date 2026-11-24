@@ -850,7 +850,16 @@ pub fn art_version(db: &Connection, kind: &str, id: i64) -> i64 {
 /// Covers of streaming songs for the device copy (offline): fetched by the server, only from the known image hosts.
 /// Picture hosts of the platforms; the server only fetches cover images from these.
 fn image_host_ok(u: &str) -> bool {
-    let host = u.strip_prefix("https://").and_then(|r| r.split('/').next()).unwrap_or("").to_ascii_lowercase();
+    // The authority ends at the first '/', '?', '#' or '\\'. Only plain host names are accepted
+    // (no userinfo, port or other characters), so a suffix check can't be fooled by URL syntax.
+    let host = u
+        .strip_prefix("https://")
+        .and_then(|r| r.split(['/', '?', '#', '\\']).next())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if host.is_empty() || !host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
+        return false;
+    }
     ["i.scdn.co", "mosaic.scdn.co", "i.ytimg.com", "lh3.googleusercontent.com", "yt3.ggpht.com", "cdn-images.dzcdn.net", "e-cdns-images.dzcdn.net", "i1.sndcdn.com"]
         .iter()
         .any(|h| host == *h)
@@ -2383,7 +2392,7 @@ async fn save_share(State(st): State<St>, Auth(u, _): Auth, Path(token): Path<St
         "INSERT INTO imports (user_id, source, name, url, cover, created, updated) VALUES (?,?,?,?,?,?,?)",
         params![u.id, "share", clip(&title, 120), format!("/s/{token}"), "", now, now],
     )
-    .ok();
+    .map_err(crate::api::db_err)?;
     let id = db.last_insert_rowid();
     write_items(&mut db, id, "share", &items);
     Ok(Json(

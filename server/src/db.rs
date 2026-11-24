@@ -94,7 +94,12 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
                 }
                 if !ok {
                     for ext in moved {
-                        let _ = std::fs::rename(d.join(format!("streyn.db{ext}")), d.join(format!("musik.db{ext}")));
+                        let (from, to) = (d.join(format!("streyn.db{ext}")), d.join(format!("musik.db{ext}")));
+                        if let Err(e) = std::fs::rename(&from, &to) {
+                            // musik.db without its WAL must not be opened: stop instead.
+                            eprintln!("could not move {} back to {}: {e}", from.display(), to.display());
+                            return Err(rusqlite::Error::InvalidPath(to));
+                        }
                     }
                     db = d.join("musik.db");
                 }

@@ -404,17 +404,28 @@ async fn setup(State(st): State<St>, req: Request) -> R {
 fn login_failures(name: &str, failed: Option<bool>) -> bool {
     const WINDOW: i64 = 15 * 60_000;
     const MAX_FAILS: u32 = 10;
-    static F: Mutex<Option<HashMap<String, (i64, u32)>>> = Mutex::new(None);
-    let key = name.trim().to_lowercase();
+    const MAX_ENTRIES: usize = 10_000;
+    // (entries, time of the last sweep for expired entries)
+    static F: Mutex<Option<(HashMap<String, (i64, u32)>, i64)>> = Mutex::new(None);
+    // Names are capped in length, so a key never takes more than a few hundred bytes.
+    let key: String = name.trim().to_lowercase().chars().take(64).collect();
     let now = now_ms();
     let mut guard = F.lock().unwrap_or_else(|e| e.into_inner());
-    let map = guard.get_or_insert_with(HashMap::new);
-    if map.len() > 10_000 {
+    let (map, last_sweep) = guard.get_or_insert_with(|| (HashMap::new(), 0));
+    // Sweep at most once per minute instead of on every call.
+    if map.len() > MAX_ENTRIES / 2 && now - *last_sweep > 60_000 {
         map.retain(|_, (start, _)| now - *start < WINDOW);
+        *last_sweep = now;
     }
     match failed {
         None => map.get(&key).is_none_or(|(start, n)| now - start >= WINDOW || *n < MAX_FAILS),
         Some(true) => {
+            if map.len() >= MAX_ENTRIES && !map.contains_key(&key) {
+                // Full: evict the oldest window so the map stays bounded.
+                if let Some(oldest) = map.iter().min_by_key(|(_, (start, _))| *start).map(|(k, _)| k.clone()) {
+                    map.remove(&oldest);
+                }
+            }
             let e = map.entry(key).or_insert((now, 0));
             if now - e.0 >= WINDOW {
                 *e = (now, 0);
@@ -438,21 +449,29 @@ async fn login(State(st): State<St>, req: Request) -> R {
     let name = b.name.clone();
     let st2 = st.clone();
     // Password hashing is CPU heavy, keep it off the async workers.
+    // The lock check, the password check and counting a failure all happen while the DB lock
+    // is held, so no further password check can start once a name reached its limit.
     let res = tokio::task::spawn_blocking(move || {
         let db = st2.db.lock().unwrap();
-        let u = auth::check_login(&db, &b.name, &b.password)?;
-        if public && u.admin {
-            return Err(auth::AuthError(403, "local_only"));
+        if !login_failures(&name, None) {
+            return Err(auth::AuthError(429, "too_many"));
         }
+        let res = auth::check_login(&db, &b.name, &b.password).and_then(|u| {
+            if public && u.admin {
+                return Err(auth::AuthError(403, "local_only"));
+            }
+            Ok(u)
+        });
+        match &res {
+            Err(auth::AuthError(401, _)) => login_failures(&name, Some(true)),
+            Ok(_) => login_failures(&name, Some(false)),
+            Err(_) => true,
+        };
+        let u = res?;
         Ok((auth::issue(&db, u.id, &b.client), u))
     })
     .await
     .map_err(|_| ApiError::new(500, "error"))?;
-    match &res {
-        Err(auth::AuthError(401, _)) => login_failures(&name, Some(true)),
-        Ok(_) => login_failures(&name, Some(false)),
-        Err(_) => true,
-    };
     let res = res?;
     Ok(Json(json!({ "token": res.0, "user": res.1 })))
 }
@@ -1098,12 +1117,19 @@ pub fn db_err(e: rusqlite::Error) -> ApiError {
     eprintln!("database error: {e}");
     ApiError::new(500, "error")
 }
-fn valid_ids(db: &Connection, ids: &[i64]) -> Vec<i64> {
-    let ok: HashSet<i64> = tracks_by_ids(db, ids)
-        .iter()
-        .filter_map(|t| t["id"].as_i64())
-        .collect();
-    ids.iter().copied().filter(|i| ok.contains(i)).collect()
+/// Keeps only ids of existing tracks. A query error is returned (not an empty list),
+/// so a caller never replaces playlist contents based on a failed lookup.
+fn valid_ids(db: &Connection, ids: &[i64]) -> Result<Vec<i64>, ApiError> {
+    let mut ok: HashSet<i64> = HashSet::new();
+    for chunk in ids.chunks(500) {
+        let q = format!("SELECT id FROM tracks WHERE id IN ({})", vec!["?"; chunk.len()].join(","));
+        let mut st = db.prepare(&q).map_err(db_err)?;
+        let rows = st.query_map(params_from_iter(chunk.iter()), |r| r.get::<_, i64>(0)).map_err(db_err)?;
+        for r in rows {
+            ok.insert(r.map_err(db_err)?);
+        }
+    }
+    Ok(ids.iter().copied().filter(|i| ok.contains(i)).collect())
 }
 
 async fn playlists(State(st): State<St>, Auth(u, _): Auth) -> R {
@@ -1140,7 +1166,10 @@ async fn create_playlist(State(st): State<St>, Auth(u, _): Auth, req: Request) -
     }
     let mut db = st.db.lock().unwrap();
     let now = now_ms();
-    let ids = b.track_ids.map(|ids| valid_ids(&db, &to_ids(&ids)));
+    let ids = match b.track_ids {
+        Some(ids) => Some(valid_ids(&db, &to_ids(&ids))?),
+        None => None,
+    };
     let tx = db.transaction().map_err(db_err)?;
     tx.execute(
         "INSERT INTO playlists (user_id, name, description, created, updated) VALUES (?,?,?,?,?)",
@@ -1225,7 +1254,7 @@ async fn update_playlist(
         if !can_edit(&db, &u, id) {
             return Err(ApiError::new(403, "read_only"));
         }
-        let ids = valid_ids(&db, &to_ids(&ids));
+        let ids = valid_ids(&db, &to_ids(&ids))?;
         set_playlist_tracks(&mut db, id, &ids).map_err(db_err)?;
     }
     Ok(Json(json!({ "ok": true })))
@@ -1240,7 +1269,7 @@ async fn add_to_playlist(
     let mut db = st.db.lock().unwrap();
     let (id, _, _) = edit_playlist(&db, &u, id)?;
     let mut ids = playlist_ids(&db, id);
-    ids.extend(valid_ids(&db, &to_ids(&b.track_ids.unwrap_or_default())));
+    ids.extend(valid_ids(&db, &to_ids(&b.track_ids.unwrap_or_default()))?);
     if ids.len() > PLAYLIST_MAX {
         return Err(ApiError::new(409, "playlist_full"));
     }
