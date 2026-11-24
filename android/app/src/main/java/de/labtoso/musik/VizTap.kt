@@ -120,10 +120,11 @@ object VizTap {
         }
     }
 
-    /** A seek: the buffered sound is thrown away, so are the time marks (the sound itself goes on in the ring). */
+    /** A seek: the buffered sound is thrown away, so are the time marks and the ring. */
     fun seeked() {
         synchronized(lock) {
             marks.clear()
+            written = 0 // the first window after a seek holds only new sound
             mag.fill(0.0)
         }
     }
