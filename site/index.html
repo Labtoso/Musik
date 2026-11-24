@@ -436,8 +436,8 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
     <div class="block">
       <div class="block-h rv"><div><h3 class="sub" data-t="lkH"></h3><p class="subp" data-t="lkP"></p></div>
-        <div class="seg" role="tablist"><button role="tab" data-look="0" class="on" aria-selected="true">Standard</button><button role="tab" data-look="1" aria-selected="false">Liquid Glass</button><button role="tab" data-look="2" aria-selected="false">Green</button></div></div>
-      <div class="looks rv" id="looks" data-gal="looks">
+        <div class="seg" role="tablist"><button type="button" role="tab" id="look-tab-0" aria-controls="looks" data-look="0" class="on" aria-selected="true">Standard</button><button type="button" role="tab" id="look-tab-1" aria-controls="looks" data-look="1" aria-selected="false" tabindex="-1">Liquid Glass</button><button type="button" role="tab" id="look-tab-2" aria-controls="looks" data-look="2" aria-selected="false" tabindex="-1">Green</button></div></div>
+      <div class="looks rv" id="looks" data-gal="looks" role="tabpanel" aria-labelledby="look-tab-0">
         <img class="zm on" src="shots/v2/d-home.webp" alt="Standard" loading="lazy" decoding="async">
         <img class="zm" src="shots/v2/d-glass.webp" alt="Liquid Glass" loading="lazy" decoding="async">
         <img class="zm" src="shots/v2/d-green.webp" alt="Green" loading="lazy" decoding="async">
@@ -893,7 +893,11 @@ burger.addEventListener('click', (e) => {
 });
 $$('a', sheet).forEach((a) => a.addEventListener('click', closeSheet));
 document.addEventListener('click', (e) => { if (sheet.classList.contains('open') && !sheet.contains(e.target)) closeSheet(); });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !sheet.classList.contains('open')) return;
+  const back = sheet.contains(document.activeElement);
+  closeSheet(); if (back) burger.focus();
+});
 
 // mark the section in view in the header
 const navLinks = $$('.links a[href^="#"]');
@@ -976,10 +980,22 @@ resetDemo(); render();
   const show = (i) => {
     cur = i;
     imgs.forEach((im, k) => { im.classList.toggle('on', k === i); im.tabIndex = k === i ? 0 : -1; });
-    tabs.forEach((t, k) => { t.classList.toggle('on', k === i); t.setAttribute('aria-selected', String(k === i)); });
+    tabs.forEach((t, k) => { t.classList.toggle('on', k === i); t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
+    stage.setAttribute('aria-labelledby', tabs[i].id);
   };
   const run = () => { clearTimeout(timer); if (!reduce && seen && !manual && !stage.contains(document.activeElement)) timer = setTimeout(() => { show((cur + 1) % imgs.length); run(); }, 5000); };
   tabs.forEach((t) => t.addEventListener('click', () => { manual = true; clearTimeout(timer); show(+t.dataset.look); }));
+  // arrow keys move between the tabs
+  tabs[0].parentElement.addEventListener('keydown', (e) => {
+    const d = { ArrowRight: 1, ArrowLeft: -1 }[e.key]; if (!d) return;
+    e.preventDefault(); const t = tabs[(cur + d + tabs.length) % tabs.length]; t.focus(); t.click();
+  });
+  // a focused picture never changes under the keyboard
+  const hold = (el, stop, start) => {
+    el.addEventListener('focusin', stop);
+    el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget)) setTimeout(start); });
+  };
+  hold(stage, () => clearTimeout(timer), () => run());
   new IntersectionObserver((es) => es.forEach((e) => { seen = e.isIntersecting; run(); }), { threshold: .4 }).observe(stage);
 
   // chillscreen: slow crossfade through the stills, dots to pick one
@@ -989,6 +1005,7 @@ resetDemo(); render();
   const go = (k) => { fi = k; frames.forEach((f, j) => { f.classList.toggle('on', j === k); f.tabIndex = j === k ? 0 : -1; }); $$('button', dots).forEach((b, j) => b.classList.toggle('on', j === k)); };
   const loop = () => { clearTimeout(ft); if (!reduce && on && !$('.chill').contains(document.activeElement)) ft = setTimeout(() => { go((fi + 1) % frames.length); loop(); }, 5500); };
   go(0);
+  hold($('.chill'), () => clearTimeout(ft), () => loop());
   new IntersectionObserver((es) => es.forEach((e) => { on = e.isIntersecting; loop(); }), { threshold: .3 }).observe($('.chill'));
 })();
 
