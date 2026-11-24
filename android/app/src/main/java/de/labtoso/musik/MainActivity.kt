@@ -688,9 +688,9 @@ class MainActivity : ComponentActivity() {
         }
         @JavascriptInterface fun setOutput(id: Int) = main.post { pickOutput(id) }
         @JavascriptInterface fun openBluetooth() = main.post { runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }
-        @JavascriptInterface fun getPlayPref(key: String): Boolean = prefs.getBoolean("play_$key", key == "pauseOnDisconnect")
+        @JavascriptInterface fun getPlayPref(key: String): Boolean = prefs.getBoolean("play_$key", key == "pauseOnDisconnect" || key == "keepWithApps")
         @JavascriptInterface fun setPlayPref(key: String, on: Boolean) {
-            if (key == "pauseOnDisconnect" || key == "resumeOnConnect") prefs.edit().putBoolean("play_$key", on).apply()
+            if (key == "pauseOnDisconnect" || key == "resumeOnConnect" || key == "keepWithApps") prefs.edit().putBoolean("play_$key", on).apply()
         }
         @JavascriptInterface fun offlineCall(method: String, path: String, body: String): String = localCall(method, path, body)
         @JavascriptInterface fun useOffline() = openLocal()
