@@ -173,7 +173,9 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
 .sec { margin-top: 30px; }
 .sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
-.card { display: block; text-align: left; padding: 10px; border-radius: var(--r-card); transition: background 0.12s; min-width: 0; }
+/* a button centres its content: cards start at the top, so a longer text never pushes the cover up */
+.card { display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; text-align: left; padding: 10px; border-radius: var(--r-card); transition: background 0.12s; min-width: 0; }
+.card > .c-title, .card > .c-sub { max-width: 100%; }
 .card:hover { background: var(--surface); }
 .c-title { font-weight: 600; margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .c-sub { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1276,7 +1278,7 @@ a.alink:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 760px) {
   .dh-text h1 .src, .dh-text h1 .src svg { width: 24px; height: 24px; }
   .cards.relgrid { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; flex-direction: initial; }
-  .relgrid .card { display: block; padding: 0; }
+  .relgrid .card { display: flex; padding: 0; }
   .relgrid .card .cover { width: 100%; height: auto; aspect-ratio: 1; border-radius: 6px; }
   .relgrid .card .c-title { margin-top: 8px; }
   .dh-over { display: none; }
