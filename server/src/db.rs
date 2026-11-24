@@ -73,6 +73,13 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
             std::fs::create_dir_all(d).ok();
             // the file was called musik.db before the app was renamed
             let mut db = d.join("streyn.db");
+            if !db.exists() && d.join("musik.db").exists() && d.join("streyn.db-wal").exists() {
+                // a WAL left over from a move that could not be undone: musik.db must not be
+                // opened without it, so stop until the files are put back by hand
+                let wal = d.join("streyn.db-wal");
+                eprintln!("{} exists without streyn.db; move it back to musik.db-wal before starting", wal.display());
+                return Err(rusqlite::Error::InvalidPath(wal));
+            }
             if !db.exists() && d.join("musik.db").exists() {
                 // side files first, the main file last; on any failure undo and keep using musik.db,
                 // so a half-moved database (main file without its WAL) is never opened
