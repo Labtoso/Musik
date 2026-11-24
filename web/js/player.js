@@ -7,6 +7,10 @@ import { YouTubeAdapter, SoundCloudAdapter, SpotifyAdapter, DeezerAdapter, showS
 import { toBands } from './viz.js';
 import { findOnYouTube, spotify } from './sources.js';
 const NQ_KEY = 'musik.nativeQueue';
+// like Spotify: the last queue, song and position, kept on this device so a closed app starts where it was
+const SESSION_KEY = 'musik.session';
+const SPOT_KEY = 'musik.sessionSpot';
+const SESSION_MAX = 500;
 const spotifyReady = () => {
   try {
     return spotify.connected();
@@ -555,6 +559,55 @@ function toItem(t) {
   };
 }
 
+/** Holds a restored queue without loading anything: nothing is fetched (and no Spotify device is woken)
+ *  until the user presses play, skips or picks a song. */
+class DormantEngine extends EventTarget {
+  constructor(player, wake) {
+    super();
+    this.p = player;
+    this.wake = wake;
+    this.pos = 0;
+  }
+  setQueue() {}
+  insert() {}
+  remove(i) {
+    // the song that was waiting is gone: the next one starts at its beginning
+    if (i !== this.p.index) return;
+    this.pos = 0;
+    this.p.position = 0;
+    this.p.duration = this.p.queue[this.p.index]?.duration || 0;
+  }
+  move() {}
+  jump(i) {
+    this.wake(i, 0);
+  }
+  play() {
+    this.wake(this.p.index, this.pos);
+  }
+  pause() {}
+  seek(sec) {
+    this.pos = Math.max(0, sec);
+  }
+  next() {
+    const { index, queue, repeat } = this.p;
+    if (index + 1 < queue.length) this.wake(index + 1, 0);
+    else if (repeat === 'all' && queue.length) this.wake(0, 0);
+  }
+  prev() {
+    if (this.p.index > 0) this.wake(this.p.index - 1, 0);
+    else this.seek(0);
+  }
+  setVolume() {}
+  setRepeat() {}
+  setSpeed() {}
+  get position() {
+    return this.pos;
+  }
+  get playing() {
+    return false;
+  }
+}
+
 const EVENTS_KEY = 'musik.pendingEvents';
 
 const warmed = new Set();
@@ -638,9 +691,182 @@ export class Player extends EventTarget {
         saveT = setTimeout(() => { try { localStorage.setItem(NQ_KEY, JSON.stringify(this.queue.slice(0, 1000))); } catch {} }, 400);
       });
     }
+    // the queue is written down when it changes, the position every few seconds and when the app goes away
+    this.meta = {};
+    this.sessionReady = false;
+    let qT = 0;
+    let spotAt = 0;
+    this.addEventListener('change', () => {
+      clearTimeout(qT);
+      qT = setTimeout(() => this.#saveSession(), 500);
+    });
+    this.addEventListener('state', () => this.#saveSpot());
+    this.addEventListener('time', () => {
+      const n = Date.now();
+      if (n - spotAt < 4000) return;
+      spotAt = n;
+      this.#saveSpot();
+    });
+    const saveNow = () => {
+      clearTimeout(qT);
+      this.#saveSession();
+    };
+    addEventListener('pagehide', saveNow);
+    document.addEventListener('visibilitychange', () => document.hidden && saveNow());
     setInterval(() => this.flushEvents(), 20000);
     addEventListener('pagehide', () => this.#finishListen('partial', true));
     this.#mediaSession();
+  }
+
+  // ---------- the last session, kept on this device ----------
+  #saveSession() {
+    if (!this.sessionReady) return;
+    try {
+      if (!this.current) {
+        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(SPOT_KEY);
+        return;
+      }
+      // a very long queue keeps the part around the song that plays
+      const start = Math.max(0, Math.min(this.index - 100, this.queue.length - SESSION_MAX));
+      const s = {
+        v: 1,
+        scope: this.sessionScope || '',
+        queue: this.queue.slice(start, start + SESSION_MAX),
+        index: this.index - start,
+        shuffled: this.shuffled,
+        original: this.shuffled && this.original ? this.original.slice(0, SESSION_MAX) : null,
+        repeat: this.repeat,
+        meta: (typeof this.sessionMeta === 'function' && this.sessionMeta()) || {},
+        at: Date.now()
+      };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    } catch {}
+    this.#saveSpot();
+  }
+  #saveSpot() {
+    const cur = this.current;
+    if (!this.sessionReady || !cur) return;
+    try {
+      localStorage.setItem(SPOT_KEY, JSON.stringify({ id: String(cur.id), pos: Math.max(0, Math.round((this.position || 0) * 10) / 10), at: Date.now() }));
+    } catch {}
+  }
+  /** Forgets the kept session (logout), so another account never sees it. */
+  forgetSession() {
+    // nothing more is written down until the next login asks for the session again
+    this.sessionReady = false;
+    this.sessionAsked = false;
+    try {
+      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(SPOT_KEY);
+    } catch {}
+  }
+  /**
+   * Brings back the last queue, song and position, paused, like Spotify after the app was closed completely.
+   * `scope` names the server, so a session from another server is not shown. Calls `done(restored)` once.
+   */
+  restoreSession(scope = '', done = () => {}) {
+    if (this.sessionAsked) return;
+    this.sessionAsked = true;
+    this.sessionScope = scope;
+    let finished = false;
+    const finish = (nativeCount = 0) => {
+      if (finished) return;
+      finished = true;
+      let ok = false;
+      // the background player still has songs (it kept playing): that queue wins
+      if (!nativeCount) {
+        try {
+          ok = this.#restore(scope);
+        } catch {}
+      }
+      this.sessionReady = true;
+      done(ok);
+    };
+    if (!this.native) return finish();
+    // Android: first ask the background player what it holds; older app versions do not answer
+    const onReady = (ev) => {
+      this.nativeEngine.removeEventListener('ready', onReady);
+      finish(Number(ev.detail?.count) || 0);
+    };
+    this.nativeEngine.addEventListener('ready', onReady);
+    try {
+      if (window.MusikAndroid.resync) window.MusikAndroid.resync();
+      else setTimeout(() => finish(this.queue.length), 3000);
+    } catch {
+      finish(this.queue.length);
+    }
+    setTimeout(() => finish(this.queue.length), 6000);
+  }
+  #restore(scope) {
+    if (this.queue.length) return false;
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    if (!s || s.v !== 1 || !Array.isArray(s.queue) || !s.queue.length) return false;
+    if ((s.scope || '') !== scope) return false;
+    const queue = s.queue.filter((x) => x && x.id != null);
+    if (queue.length !== s.queue.length) return false;
+    let index = Math.min(Math.max(0, Number(s.index) || 0), queue.length - 1);
+    let pos = 0;
+    const spots = [];
+    try {
+      spots.push(JSON.parse(localStorage.getItem(SPOT_KEY) || 'null'));
+    } catch {}
+    // Android writes down where its background player was (in milliseconds), also while the app view slept
+    try {
+      const n = this.native ? JSON.parse(window.MusikAndroid.lastSpot?.() || 'null') : null;
+      if (n) spots.push({ id: n.id, pos: (Number(n.pos) || 0) / 1000, at: n.at });
+    } catch {}
+    const spot = spots.filter((x) => x && x.id != null).sort((a, b) => (b.at || 0) - (a.at || 0))[0];
+    if (spot) {
+      const id = String(spot.id);
+      // the same song, or the background player went on to later songs of the queue
+      let i = String(queue[index].id) === id ? index : queue.findIndex((x, n) => n > index && String(x.id) === id);
+      if (i < 0) i = queue.findIndex((x) => String(x.id) === id);
+      if (i >= 0) {
+        index = i;
+        pos = Math.max(0, Number(spot.pos) || 0);
+      }
+    }
+    const cur = queue[index];
+    const dur = Number(cur.duration) || 0;
+    // almost at the end: start the song again instead of a second of it
+    if (dur && pos > dur - 3) pos = 0;
+    this.queue = queue;
+    this.index = index;
+    this.shuffled = !!s.shuffled;
+    this.original = this.shuffled && Array.isArray(s.original) ? s.original : null;
+    if (['off', 'all', 'one'].includes(s.repeat)) this.repeat = s.repeat;
+    this.meta = s.meta && typeof s.meta === 'object' ? s.meta : {};
+    this.position = pos;
+    this.duration = dur;
+    this.playing = false;
+    this.listen = null;
+    this.dormant = new DormantEngine(this, (i, p) => this.#wake(i, p));
+    this.dormant.pos = pos;
+    this.engine = this.dormant;
+    this.#emit('change');
+    this.#emit('time');
+    this.#emit('state');
+    this.#updateSession();
+    return true;
+  }
+  /** The restored queue starts for real: the first press of play, a skip or a picked song. */
+  #wake(i, pos) {
+    if (this.engine !== this.dormant) return;
+    this.dormant = null;
+    this.engine = this.native ? this.nativeEngine : this.#html();
+    this.#pickEngine(this.queue);
+    this.engine.setVolume(this.volume);
+    this.engine.setRepeat(this.repeat);
+    this.#applySpeed(this.queue[i]);
+    this.engine.setQueue(this.queue.map(toItem), i, pos || 0, true);
+  }
+  #leaveDormant() {
+    if (!this.dormant) return;
+    this.dormant = null;
+    this.engine = this.native ? this.nativeEngine : this.#html();
+    this.engine.setVolume(this.volume);
+    this.engine.setRepeat(this.repeat);
   }
 
   #html() {
@@ -897,6 +1123,7 @@ export class Player extends EventTarget {
     // answers (autoplay, smart shuffle) asked for an earlier queue are thrown away
     this.queueSeq = (this.queueSeq || 0) + 1;
     this.shuffleSeq = (this.shuffleSeq || 0) + 1;
+    this.#leaveDormant();
     let list = tracks.slice();
     let idx = start;
     this.original = null;
@@ -1015,7 +1242,7 @@ export class Player extends EventTarget {
 
   /** Android: a song from another platform joined a queue that runs in the background service. */
   #moveToHtml() {
-    if (!this.native || this.engine === this.htmlEngine) return false;
+    if (!this.native || this.engine === this.htmlEngine || this.engine === this.dormant) return false;
     const pos = this.position, playing = this.playing;
     this.engine.pause();
     this.engine = this.#html();

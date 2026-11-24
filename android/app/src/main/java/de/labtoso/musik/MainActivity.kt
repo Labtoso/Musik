@@ -322,12 +322,18 @@ class MainActivity : ComponentActivity() {
             c.addListener(playerListener)
             pending.forEach { it(c) }
             pending.clear()
-            // Tell the page about a session that was already playing (e.g. app reopened).
-            if (c.mediaItemCount > 0) {
-                emit(JSONObject().put("type", "index").put("index", c.currentMediaItemIndex).put("reason", "restore").put("count", c.mediaItemCount))
-                emit(JSONObject().put("type", "playing").put("playing", c.isPlaying))
-            }
+            announce(c)
         }, MoreExecutors.directExecutor())
+    }
+
+    /** Tells the page what the background player holds: a session that was already playing (app reopened),
+     *  then "ready", after which the page may bring back the last song itself when the player was empty. */
+    private fun announce(c: MediaController) {
+        if (c.mediaItemCount > 0) {
+            emit(JSONObject().put("type", "index").put("index", c.currentMediaItemIndex).put("reason", "restore").put("count", c.mediaItemCount))
+            emit(JSONObject().put("type", "playing").put("playing", c.isPlaying))
+        }
+        emit(JSONObject().put("type", "ready").put("count", c.mediaItemCount))
     }
 
     private fun withController(action: (MediaController) -> Unit) {
@@ -592,6 +598,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         /** Rough time (ms) from the player to the ear, so the visualizer can wait for Bluetooth. */
+        /** The page has loaded and asks again what the background player holds (the first answer may have come too early). */
+        @JavascriptInterface fun resync() = withController { c -> announce(c) }
+        /** The song and position the player was at last ({id, i, pos, at}), also after the app was closed completely. */
+        @JavascriptInterface fun lastSpot(): String = prefs.getString("lastSpot", "") ?: ""
         @JavascriptInterface fun outLatency(): Int {
             val am = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
             val outs = am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
