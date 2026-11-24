@@ -300,8 +300,7 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 .film-bar { display: none; }
 .js .film.live { height: 340vh; }
 .js .film.live .film-pin { position: sticky; top: 0; height: 100vh; height: 100svh; padding: 76px 0 24px; }
-.js .film.live .film-desk { transform: rotateX(calc((1 - var(--e, 1)) * 26deg)) scale(calc(.86 + var(--e, 1) * .14)); }
-.js .film.live .film-desk img.on { transform: scale(calc(1 + var(--k, 0) * .045)); transform-origin: 50% 0; }
+.js .film.live .film-desk { transform: rotateX(calc((1 - var(--e, 1)) * 14deg)) scale(calc(.86 + var(--e, 1) * .14)); }
 .js .film.live .film-phone { opacity: var(--e, 1); transform: translate(calc((1 - var(--e, 1)) * 40%), calc((1 - var(--e, 1)) * 30% - var(--p, 0) * 6%)); }
 .js .film.live .film-bar { display: block; position: absolute; left: 0; right: 0; bottom: 14px; height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .js .film.live .film-bar i { display: block; height: 100%; background: var(--accent); transform-origin: 0 0; transform: scaleX(var(--p, 0)); }
@@ -310,8 +309,8 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   .film-txt { order: 2; }
   .js .film.live .film-pin { align-content: center; }
   .js .film.live .film-txt { display: grid; }
-  .js .film.live .film-txt li { grid-area: 1 / 1; opacity: 0; transition: opacity .5s; border-left-color: var(--accent); }
-  .js .film.live .film-txt li.on { opacity: 1; }
+  .js .film.live .film-txt li { grid-area: 1 / 1; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .5s, visibility .5s; border-left-color: var(--accent); }
+  .js .film.live .film-txt li.on { opacity: 1; visibility: visible; pointer-events: auto; }
   .js .film.live { height: 280vh; }
   .film-phone { width: 28%; }
 }
@@ -323,10 +322,11 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 .js .chain .st.lit .t { color: var(--accent); }
 .flow { position: absolute; left: 0; right: 0; top: -3px; height: 6px; pointer-events: none; opacity: 0; transition: opacity .6s; }
 .chain.full .flow { opacity: 1; }
-.flow i { position: absolute; top: 0; left: 0; width: 6px; height: 6px; border-radius: 1px; background: var(--paper); animation: flow 4.2s linear infinite; animation-play-state: paused; }
+.flow i { position: absolute; inset: 0; animation: flow 4.2s linear infinite; animation-play-state: paused; will-change: transform; }
+.flow i::before { content: ''; position: absolute; left: 0; top: 0; width: 6px; height: 6px; border-radius: 1px; background: var(--paper); }
 .chain.full .flow i { animation-play-state: running; }
 .flow i:nth-child(2) { animation-delay: -1.4s; } .flow i:nth-child(3) { animation-delay: -2.8s; }
-@keyframes flow { from { left: 0; opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } to { left: calc(100% - 6px); opacity: 0; } }
+@keyframes flow { from { transform: translateX(0); opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } to { transform: translateX(calc(100% - 6px)); opacity: 0; } }
 .st { transition: background .3s; }
 @media (hover: hover) { .st:hover h3 { color: var(--accent); } }
 @media (max-width: 1000px) { .flow { display: none; } }
@@ -337,8 +337,8 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
 
 /* chillscreen: the still on screen slowly zooms, like the real screen */
-@keyframes kb { from { transform: scale(1); } to { transform: scale(1.06); } }
-.chill img.on { animation: kb 9s ease-out both; }
+.chill img { transform: scale(1.06); transition: opacity 1.4s ease, transform 9s ease-out; }
+.chill img.on { transform: scale(1); }
 
 /* scroll reveal: quiet fade and lift, only when JS runs and motion is fine */
 .js .rv { opacity: 0; transform: translateY(18px); transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); transition-delay: calc(var(--i, 0) * 70ms); }
@@ -347,7 +347,8 @@ footer .word .disc { width: 26px; height: 26px; background: var(--dim); }
   .js .rv { opacity: 1; transform: none; transition: none; }
   html { scroll-behavior: auto; }
   .looks img, .chill img, .film img { transition: none; }
-  .chill img.on, .flow i { animation: none; }
+  .chill img, .chill img.on { transform: none; }
+  .flow i { animation: none; }
 }
 
 @media (max-width: 1000px) {
@@ -645,14 +646,12 @@ const T = {
     s3t: 'Output', s3: 'Your apps', s3p: 'Enter the address, sign in, listen. Playlists and likes are the same on every device.', browser: 'Browser',
     gh: 'What it looks like.', gp: 'Screenshots from the current app with a demo library. Nothing retouched.',
 
-    sh1: 'The artist page on the desktop and the player on the phone. Both are connected to the same server and stay in sync.',
     lkH: 'Three looks', lkP: 'Standard, Liquid Glass and Green. Switch in the settings; every device keeps its own.',
-    phH: 'On the phone', phP: 'The Android app plays in the background and shows controls on the lock screen.',
-    f1: 'Home with your mix', f4: 'Album', f5: 'Queue', f7: 'Player in Green', fLib: 'Your library',
+    
+    onDesk: 'desktop', onPhone: 'phone',
     fm1: 'Artist pages', fm1p: 'Popular songs, albums and singles, the same on the desktop and the phone.',
     fm2: 'The player', fm2p: 'Full screen with a visualizer, lyrics and the queue. Both devices play from the same server.',
     fm3: 'Albums and playlists', fm3p: 'Play, shuffle or share an album. Your playlists sit in the sidebar on the desktop.',
-    d1: 'Albums', d1p: 'Cover, year, length and every track, with the artist one click away.', d2: 'Settings', d2p: 'Searchable, and each switch says what it does.', d3: 'Search', d3p: 'Your library, Spotify and YouTube Music in one search.', d4: 'First start', d4p: 'Six short questions, then you are ready.',
     rlH: 'Chillscreen', rlP: 'A full-screen room for listening. The record turns and the light follows the cover. It is the same room you see at the top of this page.',
     a2h: 'A mix built from<br>what you play.', a2p: 'Every play is a signal for the song, the artist, the album and the genre. This is how much each one counts.',
     w1: 'Like', w1d: 'The strongest signal. The song and the artist move up.',
@@ -710,14 +709,12 @@ const T = {
     s3t: 'Ausgang', s3: 'Deine Apps', s3p: 'Adresse eintragen, anmelden, hören. Playlists und Likes sind auf jedem Gerät gleich.', browser: 'Browser',
     gh: 'So sieht es aus.', gp: 'Bilder aus der aktuellen App mit einer Demo-Bibliothek. Nichts nachbearbeitet.',
 
-    sh1: 'Die Künstlerseite am PC und der Player am Handy. Beide hängen am selben Server und bleiben synchron.',
     lkH: 'Drei Looks', lkP: 'Standard, Liquid Glass und Green. Umschalten in den Einstellungen, jedes Gerät merkt sich seinen.',
-    phH: 'Am Handy', phP: 'Die Android-App spielt im Hintergrund weiter und zeigt die Steuerung im Sperrbildschirm.',
-    f1: 'Start mit deinem Mix', f4: 'Album', f5: 'Warteschlange', f7: 'Player in Green', fLib: 'Deine Bibliothek',
+    
+    onDesk: 'PC', onPhone: 'Handy',
     fm1: 'Künstlerseiten', fm1p: 'Beliebte Songs, Alben und Singles, gleich am PC und am Handy.',
     fm2: 'Der Player', fm2p: 'Vollbild mit Visualizer, Songtext und Warteschlange. Beide Geräte spielen vom selben Server.',
     fm3: 'Alben und Playlists', fm3p: 'Album abspielen, mischen oder teilen. Deine Playlists stehen am PC in der Seitenleiste.',
-    d1: 'Alben', d1p: 'Cover, Jahr, Länge und jeder Song, der Künstler ist einen Klick entfernt.', d2: 'Einstellungen', d2p: 'Durchsuchbar, und jeder Schalter sagt, was er tut.', d3: 'Suche', d3p: 'Deine Bibliothek, Spotify und YouTube Music in einer Suche.', d4: 'Erster Start', d4p: 'Sechs kurze Fragen, dann geht es los.',
     rlH: 'Chillscreen', rlP: 'Ein Raum im Vollbild, nur zum Zuhören. Die Platte dreht sich, das Licht folgt dem Cover. Es ist derselbe Raum wie oben auf dieser Seite.',
     a2h: 'Ein Mix aus dem,<br>was du hörst.', a2p: 'Jedes Abspielen ist ein Signal für den Song, den Künstler, das Album und das Genre. So viel zählt jedes davon.',
     w1: 'Like', w1d: 'Das stärkste Signal. Song und Künstler rücken nach vorne.',
@@ -1013,6 +1010,7 @@ function render() {
   $$('[data-t]').forEach((el) => (el.textContent = d[el.dataset.t] ?? ''));
   $$('[data-h]').forEach((el) => (el.innerHTML = d[el.dataset.h] ?? ''));
   $$('[data-ta]').forEach((el) => { const v = d[el.dataset.ta] ?? ''; el.setAttribute(el.tagName === 'IMG' ? 'alt' : 'aria-label', v); });
+  $$('.film-desk img').forEach((im) => (im.alt += ` (${d.onDesk})`)); $$('.film-phone img').forEach((im) => (im.alt += ` (${d.onPhone})`));
   $$('[data-l]').forEach((b) => b.classList.toggle('on', b.dataset.l === lang));
   $$('[data-a]').forEach((b) => b.classList.toggle('on', !dyn && b.dataset.a === accent));
   $('[data-dyn]').classList.toggle('on', dyn);
@@ -1078,57 +1076,61 @@ resetDemo(); render();
   new IntersectionObserver((es) => es.forEach((e) => { on = e.isIntersecting; loop(); }), { threshold: .3 }).observe($('.chill'));
 })();
 
-/* ── scroll-linked motion: one rAF per scroll, only CSS variables are written ── */
+/* ── scroll-linked motion: one rAF per scroll, reads first, then writes CSS variables ── */
 (() => {
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce) return;
+  const tall = matchMedia('(min-height: 560px)');
   const clamp = (v) => Math.max(0, Math.min(1, v));
   const ease = (t) => t * t * (3 - 2 * t);
   const hero = $('#hero'), chain = $('.chain'), sts = $$('.chain .st');
   const film = $('#film'), txt = $$('.film-txt li'), desk = $$('.film-desk img'), mob = $$('.film-phone img');
-  film.classList.add('live');
   let scene = 0, queued = false;
+  const live = () => film.classList.contains('live');
   const setScene = (k) => {
     if (k === scene) return; scene = k;
     [txt, desk, mob].forEach((l) => l.forEach((el, j) => el.classList.toggle('on', j === k)));
     [...desk, ...mob].forEach((im) => { im.tabIndex = im.classList.contains('on') ? 0 : -1; });
   };
+  // a step button scrolls to its scene; without the pinned film it just shows it
+  $$('.film-txt button').forEach((bt) => bt.addEventListener('click', () => {
+    const k = +bt.dataset.k;
+    if (!live()) { setScene(k); return; }
+    const top = film.getBoundingClientRect().top + scrollY;
+    scrollTo({ top: top + (film.offsetHeight - innerHeight) * [.2, .56, .88][k], behavior: 'smooth' });
+  }));
+  if (reduce) return;
+  // only work while one of the moving parts is on screen
+  const vis = new Set();
+  const ob = new IntersectionObserver((es) => es.forEach((e) => { e.isIntersecting ? vis.add(e.target) : vis.delete(e.target); if (e.target === chain && !e.isIntersecting) chain.classList.remove('full'); ask(); }));
+  [hero, film, chain].forEach((el) => ob.observe(el));
   const frame = () => {
     queued = false;
     const vh = innerHeight;
-    // hero
-    const hr = hero.getBoundingClientRect();
-    if (hr.bottom > 0) hero.style.setProperty('--hp', clamp(-hr.top / hr.height).toFixed(3));
-    // film
-    const fr = film.getBoundingClientRect();
-    if (fr.top < vh && fr.bottom > 0) {
+    // read
+    const hr = vis.has(hero) && hero.getBoundingClientRect();
+    const fr = vis.has(film) && live() && film.getBoundingClientRect();
+    const cr = vis.has(chain) && chain.getBoundingClientRect();
+    // write
+    if (hr) hero.style.setProperty('--hp', clamp(-hr.top / hr.height).toFixed(3));
+    if (fr) {
       const p = clamp(-fr.top / (fr.height - vh));
-      const e = ease(clamp((vh - fr.top) / (vh * 1.1)));
-      const k = p < .4 ? 0 : p < .72 ? 1 : 2;
-      const start = [0, .4, .72][k], end = [.4, .72, 1][k];
       film.style.setProperty('--p', p.toFixed(3));
-      film.style.setProperty('--e', e.toFixed(3));
-      film.style.setProperty('--k', clamp((p - start) / (end - start)).toFixed(3));
-      setScene(k);
+      film.style.setProperty('--e', ease(clamp((vh - fr.top) / (vh * 1.1))).toFixed(3));
+      setScene(p < .4 ? 0 : p < .72 ? 1 : 2);
     }
-    // how it works
-    const cr = chain.getBoundingClientRect();
-    if (cr.top < vh && cr.bottom > 0) {
+    if (cr) {
       const c = clamp((vh * .95 - cr.top) / (vh * .6));
       chain.style.setProperty('--cp', c.toFixed(3));
       chain.classList.toggle('full', c >= 1);
       sts.forEach((st, i) => st.classList.toggle('lit', c >= i / sts.length + .02));
     }
   };
-  $$('.film-txt button').forEach((bt) => bt.addEventListener('click', () => {
-    const k = +bt.dataset.k, mid = [.2, .56, .88][k];
-    const top = film.getBoundingClientRect().top + scrollY;
-    scrollTo({ top: top + (film.offsetHeight - innerHeight) * mid, behavior: 'smooth' });
-  }));
-  const ask = () => { if (!queued) { queued = true; requestAnimationFrame(frame); } };
+  function ask() { if (!queued) { queued = true; requestAnimationFrame(frame); } }
+  // the pinned film needs a tall enough screen; short landscape phones get the plain layout
+  const mode = () => { film.classList.toggle('live', tall.matches); film.style.setProperty('--e', 1); ask(); };
+  tall.addEventListener('change', mode); mode();
   addEventListener('scroll', ask, { passive: true });
   addEventListener('resize', ask);
-  frame();
 })();
 
 // scroll reveal: elements fade in once as they enter the view
