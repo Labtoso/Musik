@@ -46,6 +46,38 @@ cat <<'BANNER'
                      |___/   server installer
 BANNER
 
+[ "$(id -u)" -eq 0 ] || { echo "Please run as root (sudo)." >&2; exit 1; }
+command -v apt-get >/dev/null || { echo "This installer needs Debian or Ubuntu." >&2; exit 1; }
+
+step() { printf '\n==> %s\n' "$*"; }
+
+step "Installing base packages"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl ca-certificates >/dev/null
+
+case "$(uname -m)" in
+  x86_64|amd64) ARCH=x64 ;;
+  aarch64|arm64) ARCH=arm64 ;;
+  *) echo "Unsupported CPU: $(uname -m)" >&2; exit 1 ;;
+esac
+if [ "$VERSION" = "latest" ]; then
+  URL="https://github.com/$REPO/releases/latest/download/streyn-server-linux-$ARCH"
+else
+  URL="https://github.com/$REPO/releases/download/$VERSION/streyn-server-linux-$ARCH"
+fi
+
+# Download everything first, into a temporary folder: if that fails, the running server
+# (and an older Musik installation) is left exactly as it is.
+step "Downloading Streyn server ($VERSION, $ARCH)"
+DL="$(mktemp -d)"
+trap 'rm -rf -- "$DL"' EXIT
+curl -fL --progress-bar -o "$DL/streyn-server" "$URL"
+[ -s "$DL/streyn-server" ] || { echo "The download of the server is empty." >&2; exit 1; }
+curl -fsSL -o "$DL/streyn-update" "https://raw.githubusercontent.com/$REPO/main/deploy/install.sh"
+{ [ -s "$DL/streyn-update" ] && bash -n "$DL/streyn-update"; } || { echo "The downloaded update script is damaged." >&2; exit 1; }
+chmod +x "$DL/streyn-server" "$DL/streyn-update"
+
 PRE_VERSION=""
 info_version() { # port -> version of the running server, empty if none answers
   command -v curl >/dev/null || return 0
@@ -55,7 +87,6 @@ info_version() { # port -> version of the running server, empty if none answers
 # Musik is now Streyn: an older installation moves to the new names once.
 # Settings, accounts, playlists and the music folder stay as they are.
 if [ ! -e /opt/streyn ] && { [ -d /opt/musik ] || [ -f /etc/musik.env ]; }; then
-  [ "$(id -u)" -eq 0 ] || { echo "Please run as root (sudo)." >&2; exit 1; }
   echo
   echo "==> Moving the Musik installation to its new name Streyn"
   PRE_VERSION="$(info_version "$(awk -F= '/^PORT=/{print $2}' /etc/musik.env 2>/dev/null || true)")"
@@ -80,7 +111,6 @@ fi
 
 # a second, old service would hold the port and keep the old database open
 if [ -f /etc/systemd/system/musik.service ] && { [ -e /opt/streyn ] || [ -f /etc/streyn.env ]; }; then
-  [ "$(id -u)" -eq 0 ] || { echo "Please run as root (sudo)." >&2; exit 1; }
   systemctl stop musik >/dev/null 2>&1 || true
   systemctl disable musik >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/musik.service
@@ -143,31 +173,8 @@ if [ -z "$TAILSCALE" ] && ! grep -q '^REMOTE_URL=' "$ENV_FILE" 2>/dev/null && [ 
   echo
 fi
 
-[ "$(id -u)" -eq 0 ] || { echo "Please run as root (sudo)." >&2; exit 1; }
-command -v apt-get >/dev/null || { echo "This installer needs Debian or Ubuntu." >&2; exit 1; }
-
-step() { printf '\n==> %s\n' "$*"; }
-
-step "Installing base packages"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq curl ca-certificates >/dev/null
-
-case "$(uname -m)" in
-  x86_64|amd64) ARCH=x64 ;;
-  aarch64|arm64) ARCH=arm64 ;;
-  *) echo "Unsupported CPU: $(uname -m)" >&2; exit 1 ;;
-esac
-if [ "$VERSION" = "latest" ]; then
-  URL="https://github.com/$REPO/releases/latest/download/streyn-server-linux-$ARCH"
-else
-  URL="https://github.com/$REPO/releases/download/$VERSION/streyn-server-linux-$ARCH"
-fi
-
-step "Downloading Streyn server ($VERSION, $ARCH)"
 mkdir -p "$APP_DIR"
-# download first: if that fails, the running server is left alone
-curl -fL --progress-bar -o "$APP_DIR/streyn-server.new" "$URL"
+cp "$DL/streyn-server" "$APP_DIR/streyn-server.new"
 chmod +x "$APP_DIR/streyn-server.new"
 
 if [ "$MODE" = update ]; then
@@ -180,7 +187,7 @@ if [ "$MODE" = update ]; then
     for f in "$CUR_DATA"/streyn.db* "$CUR_DATA"/musik.db*; do [ -f "$f" ] && cp -p "$f" "$B/"; done
     echo "Saved to $B"
     # keep the last 5 backups
-    ls -1d "$CUR_DATA"/backups/*/ 2>/dev/null | sort | head -n -5 | xargs -r rm -rf
+    find "$CUR_DATA/backups" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z | head -z -n -5 | xargs -0 -r rm -rf --
   fi
   if [ "$NEEDS_SETUP" = 1 ]; then
     step "Taking your data back from $ORPHAN"
@@ -196,8 +203,10 @@ if [ "$MODE" = update ]; then
   fi
 fi
 mv -f "$APP_DIR/streyn-server.new" "$APP_DIR/streyn-server"
-curl -fsSL -o /usr/local/bin/streyn-update "https://raw.githubusercontent.com/$REPO/main/deploy/install.sh"
-chmod +x /usr/local/bin/streyn-update
+# replaced by a rename, so a running streyn-update is not overwritten while bash reads it
+cp "$DL/streyn-update" /usr/local/bin/streyn-update.new
+chmod +x /usr/local/bin/streyn-update.new
+mv -f /usr/local/bin/streyn-update.new /usr/local/bin/streyn-update
 # the old command name keeps working
 ln -sfn streyn-update /usr/local/bin/musik-update
 
@@ -351,24 +360,38 @@ if [ "$TAILSCALE" = "1" ]; then
     if [ -n "$REMOTE" ]; then setenv REMOTE_URL "$REMOTE"; systemctl restart streyn; fi
   fi
 fi
+# --no-public also takes effect when Tailscale itself was not touched in this run
+if [ "$PUBLIC" = "0" ] && grep -q '^PUBLIC_URL=' "$ENV_FILE" 2>/dev/null; then
+  step "Switching off public links"
+  if command -v tailscale >/dev/null; then tailscale funnel --https=8443 off >/dev/null 2>&1 || true; fi
+  if command -v tailscale >/dev/null && tailscale funnel status 2>/dev/null | grep -q ':8443'; then
+    echo "Tailscale Funnel could not be switched off, public links stay on. Try: tailscale funnel --https=8443 off" >&2
+  else
+    sed -i '/^PUBLIC_URL=/d' "$ENV_FILE"
+    systemctl restart streyn
+  fi
+fi
 REMOTE="$(awk -F= '/^REMOTE_URL=/{print $2}' "$ENV_FILE")"
+# 22/23: each check has a time limit, and an installation that never answers ends with an error
+READY=0
 for _ in $(seq 1 30); do
-  curl -fsS "http://127.0.0.1:${PORT_NOW:-8484}/api/info" >/dev/null 2>&1 && break
+  if curl -fsS --connect-timeout 2 --max-time 3 "http://127.0.0.1:${PORT_NOW:-8484}/api/info" >/dev/null 2>&1; then READY=1; break; fi
   sleep 1
 done
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 NEW_VERSION="$(info_version "${PORT_NOW:-8484}")"
-if [ -n "$NEW_VERSION" ]; then
+if [ "$READY" = 1 ]; then
   if [ "$MODE" = "update" ]; then
-    if [ -n "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then echo "Streyn updated: $OLD_VERSION -> $NEW_VERSION. It is running."
-    else echo "Streyn $NEW_VERSION is up to date and running."; fi
+    if [ -n "$OLD_VERSION" ] && [ -n "$NEW_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then echo "Streyn updated: $OLD_VERSION -> $NEW_VERSION. It is running."
+    else echo "Streyn ${NEW_VERSION:+$NEW_VERSION }is up to date and running."; fi
   else
-    echo "Streyn $NEW_VERSION is installed and running."
+    echo "Streyn ${NEW_VERSION:+$NEW_VERSION }is installed and running."
   fi
 else
-  echo "Streyn did not answer yet. Check: journalctl -u streyn -n 50"
+  echo "Streyn did not answer. Check: journalctl -u streyn -n 50" >&2
+  systemctl --no-pager status streyn 2>&1 | tail -n 15 >&2 || true
 fi
 echo "  Open:          http://${IP:-<server-ip>}:${PORT_NOW:-8484}"
 [ -n "$REMOTE" ] && echo "  On the go:     $REMOTE   (Tailscale on, the apps switch to it by themselves)"
@@ -378,3 +401,4 @@ echo "  Music folder:  $(awk -F= '/^MUSIC_DIRS=/{print $2}' "$ENV_FILE")"
 echo "  Settings:      $ENV_FILE"
 echo "  Update:        streyn-update"
 echo "  Logs:          journalctl -u streyn -f"
+[ "$READY" = 1 ] || exit 1

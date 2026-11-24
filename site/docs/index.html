@@ -230,8 +230,8 @@ details.q > div { padding: 0 16px 6px; }
 @media (max-width: 960px) {
   .burger { display: grid; }
   .brand { width: auto; }
-  .side { transform: translateX(-100%); transition: transform .22s ease; box-shadow: none; width: min(300px, 86vw); }
-  body.nav .side { transform: none; box-shadow: var(--shadow); }
+  .side { transform: translateX(-100%); visibility: hidden; transition: transform .22s ease, visibility 0s linear .22s; box-shadow: none; width: min(300px, 86vw); }
+  body.nav .side { transform: none; visibility: visible; transition: transform .22s ease, visibility 0s; box-shadow: var(--shadow); }
   .scrim { display: block; position: fixed; inset: var(--top) 0 0; background: rgba(0,0,0,.35); z-index: 25; opacity: 0; pointer-events: none; transition: opacity .2s; }
   body.nav .scrim { opacity: 1; pointer-events: auto; }
   .page { margin-left: 0; }
@@ -391,7 +391,7 @@ figure.one { margin: 18px 0 22px; }
     <p>Music goes into <code>music/</code>, data into <code>data/</code>, port 8484.</p>
   </div>
   <div role="tabpanel">
-    <p>In PowerShell: <code>Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.exe; .\streyn-server.exe</code>. That always loads the newest server; run it again to update. Or download <code>streyn-server-windows-x64.exe</code> from the <a href="https://github.com/Labtoso/Musik/releases/latest">latest release</a> and start it. It uses your Music folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> next to the exe.</p>
+    <p>In PowerShell: <code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code>. That always loads the newest server; run it again to update. Or download <code>streyn-server-windows-x64.exe</code> from the <a href="https://github.com/Labtoso/Musik/releases/latest">latest release</a> and start it. It uses your Music folder. For another folder put <code>MUSIC_DIRS=D:\Music</code> into a <code>.env</code> next to the exe.</p>
   </div>
 </div>
 <h2>Proxmox options</h2>
@@ -632,7 +632,7 @@ figure.one { margin: 18px 0 22px; }
   <thead><tr><th>What</th><th>How</th></tr></thead>
   <tbody>
   <tr><td>Proxmox</td><td>Run the installer again</td></tr>
-  <tr><td>Debian / Ubuntu</td><td><code>streyn-update</code></td></tr>
+  <tr><td>Debian / Ubuntu</td><td><code>sudo streyn-update</code></td></tr>
   <tr><td>Docker</td><td><code>git pull && docker compose up -d --build</code></td></tr>
   <tr><td>Apps</td><td>Install the new version from the website over the old one</td></tr>
   </tbody>
@@ -718,7 +718,7 @@ figure.one { margin: 18px 0 22px; }
     <p>Musik in <code>music/</code>, Daten in <code>data/</code>, Port 8484.</p>
   </div>
   <div role="tabpanel">
-    <p>In PowerShell: <code>Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.exe; .\streyn-server.exe</code>. Das lädt immer den neuesten Server; zum Updaten noch mal ausführen. Oder <code>streyn-server-windows-x64.exe</code> vom <a href="https://github.com/Labtoso/Musik/releases/latest">neuesten Release</a> laden und starten. Er nimmt deinen Musik-Ordner. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine <code>.env</code> neben der exe schreiben.</p>
+    <p>In PowerShell: <code>try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</code>. Das lädt immer den neuesten Server; zum Updaten noch mal ausführen. Oder <code>streyn-server-windows-x64.exe</code> vom <a href="https://github.com/Labtoso/Musik/releases/latest">neuesten Release</a> laden und starten. Er nimmt deinen Musik-Ordner. Für einen anderen Ordner <code>MUSIC_DIRS=D:\Musik</code> in eine <code>.env</code> neben der exe schreiben.</p>
   </div>
 </div>
 <h2>Optionen für Proxmox</h2>
@@ -959,7 +959,7 @@ figure.one { margin: 18px 0 22px; }
   <thead><tr><th>Was</th><th>Wie</th></tr></thead>
   <tbody>
   <tr><td>Proxmox</td><td>Installer noch mal ausführen</td></tr>
-  <tr><td>Debian / Ubuntu</td><td><code>streyn-update</code></td></tr>
+  <tr><td>Debian / Ubuntu</td><td><code>sudo streyn-update</code></td></tr>
   <tr><td>Docker</td><td><code>git pull && docker compose up -d --build</code></td></tr>
   <tr><td>Apps</td><td>Neue Version von der Website drüber installieren</td></tr>
   </tbody>
@@ -1025,9 +1025,9 @@ figure.one { margin: 18px 0 22px; }
   let cur = '', spy = null, index = null;
 
   const route = () => {
-    const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
-    const [p, ...rest] = h.split('/');
-    return { p: p || '', a: rest.join('/') };
+    const [p, ...rest] = location.hash.replace(/^#\/?/, '').split('/');
+    const dec = (v) => { try { return decodeURIComponent(v); } catch { return ''; } };
+    return { p: dec(p || ''), a: dec(rest.join('/')) };
   };
 
   function sidebar() {
@@ -1082,8 +1082,15 @@ figure.one { margin: 18px 0 22px; }
     // tabs, the chosen one is kept
     $$('.tabs', doc).forEach((box) => {
       const tabs = $$('[role=tab]', box), panels = $$('[role=tabpanel]', box);
-      const pick = (i) => { tabs.forEach((t, j) => t.setAttribute('aria-selected', i === j)); panels.forEach((p, j) => (p.hidden = i !== j)); };
+      const pick = (i) => { tabs.forEach((t, j) => { t.setAttribute('aria-selected', i === j); t.tabIndex = i === j ? 0 : -1; }); panels.forEach((p, j) => (p.hidden = i !== j)); };
       tabs.forEach((t, i) => t.addEventListener('click', () => { pick(i); store('musik.docs.tab', i); }));
+      tabs.forEach((t, i) => t.addEventListener('keydown', (e) => {
+        const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        const k = (i + d + tabs.length) % tabs.length;
+        pick(k); store('musik.docs.tab', k); tabs[k].focus();
+      }));
       pick(Math.min(+store('musik.docs.tab') || 0, tabs.length - 1));
     });
   }
@@ -1203,7 +1210,14 @@ figure.one { margin: 18px 0 22px; }
       return { e, score };
     }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 12);
     sel = hits.length ? 0 : -1;
-    const hl = (s) => { let out = esc(s); words.forEach((w) => { if (w.length > 1) out = out.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>'); }); return out; };
+    const hl = (s) => {
+      // find all hits in the plain text first, then build the markup once (a word like "mark" never hits a tag)
+      const low = s.toLowerCase(), on = new Array(s.length).fill(false);
+      words.forEach((w) => { if (w.length > 1) for (let k = low.indexOf(w); k !== -1; k = low.indexOf(w, k + 1)) for (let j = k; j < k + w.length && j < s.length; j++) on[j] = true; });
+      let out = '', open = false;
+      for (let j = 0; j < s.length; j++) { if (on[j] !== open) { out += on[j] ? '<mark>' : '</mark>'; open = on[j]; } out += esc(s[j]); }
+      return open ? out + '</mark>' : out;
+    };
     const snip = (t) => { const k = t.toLowerCase().indexOf(words[0]); const s = Math.max(0, k - 50); return (s ? '…' : '') + t.slice(s, s + 150); };
     box.innerHTML = hits.length
       ? hits.map(({ e }, i) => `<a href="#/${e.p}${e.head ? '/' + slug(e.head) : ''}" class="${i === 0 ? 'sel' : ''}" role="option"><b>${hl(e.page)}${e.head ? ` <span>› ${hl(e.head)}</span>` : ''}</b><small>${hl(snip(e.text))}</small></a>`).join('')
@@ -1255,7 +1269,13 @@ figure.one { margin: 18px 0 22px; }
   }
   $$('.lang button').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.l === lang) return;
-    store('musik.site.lang', b.dataset.l); setLang(b.dataset.l); render(false);
+    store('musik.site.lang', b.dataset.l); setLang(b.dataset.l);
+    // ?lang= in the address follows the choice, and a section anchor of the other language is dropped
+    const u = new URL(location.href), r = route();
+    if (u.searchParams.has('lang')) u.searchParams.set('lang', b.dataset.l);
+    if (r.a) u.hash = '#/' + r.p;
+    history.replaceState(history.state, '', u);
+    render(false);
   }));
 
   // Discord invite from links.json, the same file the website and the apps read

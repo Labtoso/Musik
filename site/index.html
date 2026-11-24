@@ -165,7 +165,7 @@ body.set-open .panel { transform: none; }
 .ring:active { cursor: grabbing; }
 .carousel { position: absolute; left: 50%; top: 30px; width: 0; height: 0; transform-style: preserve-3d; }
 .ph { position: absolute; margin: 0; width: 290px; height: 628px; left: -145px; top: 0; border-radius: 34px; padding: 7px; background: linear-gradient(160deg, #2b2f40, #10121b 45%, #1b1e2b); box-shadow: 0 0 0 1px rgba(255,255,255,.07) inset, 0 40px 80px -30px #000; backface-visibility: hidden; transition: filter .3s; }
-.ph img { width: 100%; height: 100%; display: block; border-radius: 28px; object-fit: cover; pointer-events: none; }
+.ph img { width: 100%; height: 100%; display: block; border-radius: 28px; object-fit: cover; -webkit-user-drag: none; }
 .ring-floor { position: absolute; left: 10%; right: 10%; bottom: 20px; height: 90px; border-radius: 50%; background: radial-gradient(closest-side, rgba(var(--acc-rgb), .35), transparent); filter: blur(20px); }
 .drag { text-align: center; color: var(--dim); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; margin: 0 0 70px; }
 .screens { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; perspective: 1400px; max-width: 1400px; margin-left: auto; margin-right: auto; }
@@ -697,7 +697,7 @@ footer { padding: 60px var(--gut) 0; overflow: hidden; }
     </div>
     <div class="pane" data-pane="win">
       <div class="term"><div class="term-h">PowerShell<button data-copy="win" data-t="copy"></button></div>
-<pre><span class="p">&gt;</span> <span data-cmd="win">Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.exe; .\streyn-server.exe</span></pre></div>
+<pre><span class="p">&gt;</span> <span data-cmd="win">try { Invoke-WebRequest https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe -OutFile streyn-server.new.exe -ErrorAction Stop; Move-Item -Force streyn-server.new.exe streyn-server.exe; .\streyn-server.exe } catch { Remove-Item streyn-server.new.exe -ErrorAction Ignore; throw }</span></pre></div>
       <a class="windl" href="https://github.com/Labtoso/Musik/releases/latest/download/streyn-server-windows-x64.exe"><span data-t="winDl"></span> <b data-winver>latest</b></a>
       <ol class="steps"><li data-h="win1"></li><li data-h="win2"></li></ol>
     </div>
@@ -840,6 +840,7 @@ const T = {
 };
 
 const $ = (s, r = document) => r.querySelector(s);
+const escHtml = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return v; };
 let lang = store('musik.site.lang') === 'de' ? 'de' : 'en';
@@ -1014,7 +1015,17 @@ $$('[data-copy]').forEach((b) => b.addEventListener('click', () => {
   clearTimeout(b._t);
   b._t = setTimeout(() => (b.textContent = T[lang].copy), 3500);
 }));
-const openSet = (v) => document.body.classList.toggle('set-open', v);
+// closed menus and panels are only hidden visually, so they are also taken out of the tab order
+const panel = $('#panel');
+panel.inert = true;
+$$('.cat .menu').forEach((m) => (m.inert = true));
+const openSet = (v) => {
+  const was = document.body.classList.contains('set-open');
+  document.body.classList.toggle('set-open', v);
+  panel.inert = !v;
+  if (v && !was) $('#close').focus({ preventScroll: true });
+  else if (!v && was && panel.contains(document.activeElement)) $('#gear').focus({ preventScroll: true });
+};
 $('#gear').addEventListener('click', () => openSet(true));
 $('#close').addEventListener('click', () => openSet(false));
 $('#scrim').addEventListener('click', () => openSet(false));
@@ -1024,14 +1035,18 @@ $('[data-dyn]').addEventListener('click', () => { dyn = !dyn; store('musik.site.
 $$('[data-a]').forEach((b) => b.addEventListener('click', () => { accent = b.dataset.a; dyn = false; store('musik.site.dyn', '0'); store('musik.site.accent', accent); render(); window.__dynApply && window.__dynApply(); if (window.__tt) window.__tt.setAccent(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()); }));
 
 // header categories: click opens, outside click / Escape / a jump closes
-const closeCats = () => $$('.cat').forEach((c) => { c.classList.remove('open'); $('.cbtn', c).setAttribute('aria-expanded', 'false'); });
+const closeCats = () => $$('.cat').forEach((c) => {
+  const m = $('.menu', c), wasOpen = c.classList.contains('open');
+  c.classList.remove('open'); $('.cbtn', c).setAttribute('aria-expanded', 'false'); m.inert = true;
+  if (wasOpen && m.contains(document.activeElement)) $('.cbtn', c).focus({ preventScroll: true });
+});
 $$('.cat').forEach((c) => {
   const b = $('.cbtn', c);
   b.addEventListener('click', (e) => {
     e.stopPropagation();
     const open = !c.classList.contains('open');
     closeCats();
-    if (open) { c.classList.add('open'); b.setAttribute('aria-expanded', 'true'); $('#wpop').classList.remove('open'); }
+    if (open) { c.classList.add('open'); b.setAttribute('aria-expanded', 'true'); $('.menu', c).inert = false; wpOpen(false); }
   });
   $$('.menu a', c).forEach((a) => a.addEventListener('click', closeCats));
 });
@@ -1041,17 +1056,23 @@ addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCats(); });
 // web player: lives on the user's own server, so remember its address and open it
 const wpop = $('#wpop'), wpi = $('#wpi');
 wpi.value = store('musik.site.server') || '';
+wpop.inert = true;
 function wpOpen(on) {
+  const was = wpop.classList.contains('open');
   wpop.classList.toggle('open', on);
+  wpop.inert = !on;
   if (on) setTimeout(() => wpi.focus(), 60);
+  else if (was && wpop.contains(document.activeElement)) $('#wp').focus({ preventScroll: true });
 }
 function wpUrl(v) {
   v = v.trim().replace(/\/+$/, '');
   if (!v) return null;
   if (!/^https?:\/\//i.test(v)) v = (/\.ts\.net$/i.test(v.split('/')[0]) ? 'https://' : 'http://') + v;
+  // a port typed by hand is kept, also :80 (which URL() drops as the default)
+  const typedPort = /^[a-z]+:\/\/[^/?#]*:\d+([/?#]|$)/i.test(v);
   try {
     const u = new URL(v);
-    if (u.protocol === 'http:' && !u.port && /^(\d+\.){3}\d+$|^localhost$/.test(u.hostname)) u.port = '8484';
+    if (u.protocol === 'http:' && !u.port && !typedPort && /^(\d+\.){3}\d+$|^localhost$/.test(u.hostname)) u.port = '8484';
     return u.origin + '/';
   } catch { return null; }
 }
@@ -1080,6 +1101,7 @@ function render() {
   $$('[data-a]').forEach((b) => b.classList.toggle('on', !dyn && b.dataset.a === accent));
   $('[data-dyn]').classList.toggle('on', dyn);
   $('#listen span').textContent = playing ? d.listenStop : d.listen;
+  $('#wp').setAttribute('aria-label', d.wp); // the text is hidden on small screens
   const main = $('#main-dl');
   if (os) {
     $('span', main).textContent = d.dlFor.replace('{os}', names[os]);
@@ -1087,7 +1109,7 @@ function render() {
     $(`[data-os=${os}] .n`).innerHTML = names[os] + `<span class="yours">${d.yours}</span>`;
   } else $('span', main).textContent = d.dlAll;
   const m = [`<span>${d.metaOs}</span>`, `<span>${d.metaFree}</span>`, '<span>LabtosoStudios</span>'];
-  if (release) m.unshift(`<a href="https://github.com/Labtoso/Musik/releases/tag/${release.tag_name}" target="_blank" rel="noopener">${d.metaVer} <b>${release.tag_name.replace(/^v/, '')}</b></a>`);
+  if (release) m.unshift(`<a href="https://github.com/Labtoso/Musik/releases/tag/${encodeURIComponent(release.tag_name)}" target="_blank" rel="noopener">${d.metaVer} <b>${escHtml(String(release.tag_name).replace(/^v/, ''))}</b></a>`);
   $('#meta').innerHTML = m.join('');
   const words = d.marq.map((w) => `<span>${w}</span><span class="d">/</span>`).join('');
   $('#marq').innerHTML = words + words;
@@ -1102,8 +1124,10 @@ resetDemo(); render();
   let rot = 0, vel = 0, drag = null, R = 0;
   const layout = () => { const w = items[0].offsetWidth; R = Math.round((w + 46) / (2 * Math.tan(Math.PI / n))); items.forEach((el, i) => (el.style.transform = `rotateY(${i * 360 / n}deg) translateZ(${R}px)`)); };
   layout(); addEventListener('resize', layout);
-  ring.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, r: rot }; vel = 0; ring.setPointerCapture(e.pointerId); });
-  ring.addEventListener('pointermove', (e) => { if (!drag) return; const nr = drag.r + (e.clientX - drag.x) * 0.25; vel = nr - rot; rot = nr; });
+  // the pointer is only captured once it really drags, so a short click still opens the screenshot
+  ring.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, r: rot, id: e.pointerId, cap: false }; vel = 0; });
+  ring.addEventListener('pointermove', (e) => { if (!drag) return; if (!drag.cap && Math.abs(e.clientX - drag.x) > 6) { drag.cap = true; try { ring.setPointerCapture(drag.id); } catch {} } const nr = drag.r + (e.clientX - drag.x) * 0.25; vel = nr - rot; rot = nr; });
+  ring.addEventListener('dragstart', (e) => e.preventDefault());
   const end = () => (drag = null);
   ring.addEventListener('pointerup', end); ring.addEventListener('pointercancel', end);
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1201,8 +1225,10 @@ fetch('version.json?' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r
 fetch('https://api.github.com/repos/Labtoso/Musik/releases/latest', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then(useRelease).catch(() => {});
 </script>
 <script type="module">
-import { createTurntable } from './turntable.js';
+// loaded inside try: if turntable.js (or three.js) cannot load, the CSS turntable stays
+(async () => {
 try {
+  const { createTurntable } = await import('./turntable.js');
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
   const TRACKS = [
     ['Nightdrive', 'Neon Coast', 'nightdrive'], ['Velvet Hours', 'Mira Vale', 'velvet_hours'], ['Glass City', 'Oktav', 'glass_city'],
@@ -1283,6 +1309,7 @@ try {
   window.__tt = createTurntable(document.getElementById('tt'), { tracks: TRACKS, onTrack, accent, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches });
   document.body.classList.add('has3d');
 } catch (e) { console.warn('3D off', e); document.body.classList.add('no3d'); }
+})();
 </script>
 <script>
 // image viewer: click a screenshot to see it big; click or pinch to zoom, drag to look around, arrows / swipe for the next one

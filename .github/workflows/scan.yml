@@ -10,6 +10,9 @@ on:
         required: false
         default: ''
 
+permissions:
+  contents: read
+
 jobs:
   scan:
     runs-on: windows-latest
@@ -18,11 +21,21 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           mkdir -p scan
-          gh release download ${{ inputs.tag }} -R "$GITHUB_REPOSITORY" -p 'Streyn.exe' -p 'streyn-server-windows-x64.exe' -p 'streyn-desktop-*-windows-x64.exe' -D scan
+          args=()
+          [ -n "$RELEASE_TAG" ] && args=(-- "$RELEASE_TAG")
+          gh release download -R "$GITHUB_REPOSITORY" -p 'Streyn.exe' -p 'streyn-server-windows-x64.exe' -p 'streyn-desktop-*-windows-x64.exe' -D scan "${args[@]}"
           # Streyn.exe is the Rust setup (no archive); the two program files are scanned as release files
           ls -la scan
+          # every Windows file has to be there, otherwise the scan is incomplete
+          missing=0
+          for f in Streyn.exe streyn-server-windows-x64.exe; do [ -f "scan/$f" ] || { echo "::error::$f is missing in the release"; missing=1; }; done
+          compgen -G 'scan/streyn-desktop-server-*-windows-x64.exe' >/dev/null || { echo "::error::streyn-desktop-server-*-windows-x64.exe is missing in the release"; missing=1; }
+          app=0; for f in scan/streyn-desktop-*-windows-x64.exe; do case "$f" in scan/streyn-desktop-server-*) ;; *) [ -f "$f" ] && app=1 ;; esac; done
+          [ "$app" = 1 ] || { echo "::error::streyn-desktop-*-windows-x64.exe (app) is missing in the release"; missing=1; }
+          [ "$missing" = 0 ] || { echo "::error::Incomplete scan: expected Windows files are missing"; exit 1; }
       - name: Defender
         shell: pwsh
         run: |
@@ -34,7 +47,7 @@ jobs:
           foreach ($f in Get-ChildItem -Recurse -File scan -Include *.exe) {
             Write-Host "== $($f.FullName)"
             & $mp -Scan -ScanType 3 -File $f.FullName -DisableRemediation | Out-String | Write-Host
-            if ($LASTEXITCODE -eq 2) { $found = $true; Write-Host "::warning::Defender flags $($f.Name)" }
+            if ($LASTEXITCODE -eq 2) { $found = $true; Write-Host "::warning::Defender scan of $($f.Name) failed or a detection was not cleaned up (exit code 2)" }
           }
           Get-MpThreatDetection | Format-List | Out-String | Write-Host
-          if ($found) { exit 1 }
+          if ($found) { Write-Host '::error::Scan failed or a detection was not cleaned up, see the output above'; exit 1 }

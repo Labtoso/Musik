@@ -35,7 +35,7 @@ step() { printf '\n==> %s\n' "$*"; }
 # ---- existing container? then update it ----
 EXISTING=""
 for id in $(pct list | awk 'NR>1 {print $1}'); do
-  if pct config "$id" 2>/dev/null | grep -Eq '^tags:.*\b(streyn|musik)\b'; then EXISTING="$id"; break; fi
+  if pct config "$id" 2>/dev/null | grep -Eq '^tags:(.*[;, ])? *(streyn|musik)([;, ]|$)'; then EXISTING="$id"; break; fi
 done
 # older containers without the tag: hostname musik or streyn with the server inside
 if [ -z "$EXISTING" ]; then
@@ -72,11 +72,15 @@ ask_tailscale() {
 }
 
 # Tailscale in an unprivileged container needs the tun device
-add_tun() {
-  local id="$1" conf="/etc/pve/lxc/$1.conf"
-  grep -q 'dev/net/tun' "$conf" && return 1
-  printf 'lxc.cgroup2.devices.allow: c 10:200 rwm\nlxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file\n' >> "$conf"
-  return 0
+add_tun() { # returns 0 when a line was added (the container needs a restart), 1 when all was there
+  local conf="/etc/pve/lxc/$1.conf" added=1
+  if ! grep -Eq '^[[:space:]]*lxc\.cgroup2\.devices\.allow[[:space:]]*[:=][[:space:]]*c 10:200 rwm' "$conf"; then
+    printf 'lxc.cgroup2.devices.allow: c 10:200 rwm\n' >> "$conf"; added=0
+  fi
+  if ! grep -Eq '^[[:space:]]*lxc\.mount\.entry[[:space:]]*[:=][[:space:]]*/dev/net/tun[[:space:]]+dev/net/tun' "$conf"; then
+    printf 'lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file\n' >> "$conf"; added=0
+  fi
+  return "$added"
 }
 
 ts_args() {
@@ -90,9 +94,15 @@ ts_args() {
 
 # the notes helper and its timer on this Proxmox host
 install_notes() {
-  curl -fsSL -o /usr/local/bin/streyn-proxmox-notes.new "$RAW/proxmox-notes.sh" \
+  if ! { curl -fsSL -o /usr/local/bin/streyn-proxmox-notes.new "$RAW/proxmox-notes.sh" \
+    && bash -n /usr/local/bin/streyn-proxmox-notes.new \
     && chmod +x /usr/local/bin/streyn-proxmox-notes.new \
-    && mv -f /usr/local/bin/streyn-proxmox-notes.new /usr/local/bin/streyn-proxmox-notes || return 0
+    && mv -f /usr/local/bin/streyn-proxmox-notes.new /usr/local/bin/streyn-proxmox-notes; }; then
+    rm -f /usr/local/bin/streyn-proxmox-notes.new
+    echo "Warning: could not download the notes helper (proxmox-notes.sh)." >&2
+    [ -x /usr/local/bin/streyn-proxmox-notes ] || return 1
+    echo "Warning: keeping the notes helper that is already installed." >&2
+  fi
   cat > /etc/systemd/system/streyn-proxmox-notes.service <<'UNIT'
 [Unit]
 Description=Streyn: keep container notes up to date
@@ -121,6 +131,11 @@ run_inside() {
   pct exec "$id" -- bash -c "$*"
 }
 
+# runs install.sh inside the container only after it was downloaded completely
+install_cmd() { # arguments for install.sh
+  printf 'f="$(mktemp)" && curl -fsSL -o "$f" %q && bash "$f" %s; rc=$?; rm -f "$f"; exit $rc' "$RAW/install.sh" "$*"
+}
+
 show_links() {
   local id="$1" mode="$2" ip port url remote version music when ts
   ip="$(pct exec "$id" -- hostname -I 2>/dev/null | awk '{print $1}' || true)"
@@ -134,8 +149,9 @@ show_links() {
   when="$(date '+%Y-%m-%d %H:%M')"
   # notes shown under the container's Summary in the Proxmox web UI; a timer keeps them in step
   # with the server version, also after updates from the app
-  install_notes
-  /usr/local/bin/streyn-proxmox-notes "$id" "$mode" || true
+  if install_notes; then
+    /usr/local/bin/streyn-proxmox-notes "$id" "$mode" || echo "Warning: the container notes could not be written." >&2
+  fi
   echo
   echo "────────────────────────────────────────────────────────────"
   if [ "$mode" = "update" ]; then echo " Streyn ${version:+$version }updated in container $id."; else echo " Streyn ${version:+$version }installed in new container $id."; fi
@@ -153,10 +169,16 @@ show_links() {
 if [ -n "$EXISTING" ]; then
   step "Updating Streyn in container $EXISTING"
   # more memory for older containers (they started with 512 MB); applies at once, cores stay as they are
-  cur_ram="$(pct config "$EXISTING" | awk '/^memory:/{print $2}')"; cur_swap="$(pct config "$EXISTING" | awk '/^swap:/{print $2}')"
-  if [ "${cur_ram:-512}" -lt "$RAM" ] || [ "${cur_swap:-0}" -lt "$SWAP" ]; then
-    new_ram=$(( ${cur_ram:-512} > RAM ? ${cur_ram:-512} : RAM )); new_swap=$(( ${cur_swap:-0} > SWAP ? ${cur_swap:-0} : SWAP ))
-    pct set "$EXISTING" --memory "$new_ram" --swap "$new_swap" && echo "  Memory: ${new_ram} MB RAM, ${new_swap} MB swap (was ${cur_ram:-512} / ${cur_swap:-0})"
+  cur_ram="$(pct config "$EXISTING" | awk '/^memory:/{print $2}' || true)"; cur_swap="$(pct config "$EXISTING" | awk '/^swap:/{print $2}' || true)"
+  [[ "$cur_ram" =~ ^[0-9]+$ ]] || cur_ram=512
+  [[ "$cur_swap" =~ ^[0-9]+$ ]] || cur_swap=0
+  if [[ "$RAM" =~ ^[0-9]+$ && "$SWAP" =~ ^[0-9]+$ ]] && { [ "$cur_ram" -lt "$RAM" ] || [ "$cur_swap" -lt "$SWAP" ]; }; then
+    new_ram=$(( cur_ram > RAM ? cur_ram : RAM )); new_swap=$(( cur_swap > SWAP ? cur_swap : SWAP ))
+    if pct set "$EXISTING" --memory "$new_ram" --swap "$new_swap"; then
+      echo "  Memory: ${new_ram} MB RAM, ${new_swap} MB swap (was $cur_ram / $cur_swap)"
+    else
+      echo "Warning: could not change the memory of container $EXISTING, the update goes on." >&2
+    fi
   fi
   [ "$(pct status "$EXISTING" | awk '{print $2}')" = "running" ] || pct start "$EXISTING"
   if ! pct exec "$EXISTING" -- test -f /usr/bin/tailscale 2>/dev/null; then
@@ -169,7 +191,7 @@ if [ -n "$EXISTING" ]; then
     TAILSCALE=1
   fi
   sleep 3
-  run_inside "$EXISTING" "curl -fsSL $RAW/install.sh | bash -s -- --update$(ts_args)"
+  run_inside "$EXISTING" "$(install_cmd "--update$(ts_args)")"
   show_links "$EXISTING" update
   exit 0
 fi
@@ -227,5 +249,5 @@ for _ in $(seq 1 60); do
 done
 
 step "Installing Streyn inside the container"
-run_inside "$CTID" "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates >/dev/null && curl -fsSL $RAW/install.sh | bash -s -- --music /srv/streyn$(ts_args)"
+run_inside "$CTID" "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates >/dev/null && { $(install_cmd "--music /srv/streyn$(ts_args)"); }"
 show_links "$CTID" install
