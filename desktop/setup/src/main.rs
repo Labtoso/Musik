@@ -40,17 +40,17 @@ fn payloads() -> [Payload; 2] {
     ]
 }
 
-/// Unpacks one program file and checks it against the hash taken at build time.
-fn unpack(p: &Payload) -> Result<Vec<u8>, String> {
+/// Checks one embedded program file against the hash taken at build time. The files are stored
+/// uncompressed, exactly as they are installed.
+fn unpack(p: &Payload) -> Result<&'static [u8], String> {
     if p.packed.is_empty() {
         return Err(format!("{} is missing in this setup", p.name));
     }
-    let data = miniz_oxide::inflate::decompress_to_vec(p.packed).map_err(|_| format!("{} is damaged", p.name))?;
-    let got = format!("{:x}", Sha256::digest(&data));
+    let got = format!("{:x}", Sha256::digest(p.packed));
     if got != p.sha256 {
         return Err(format!("{} is damaged (checksum)", p.name));
     }
-    Ok(data)
+    Ok(p.packed)
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -130,8 +130,8 @@ fn retire_old_install(old: &Path, new: &Path) {
 }
 
 fn install(dir: &Path) -> Result<bool, String> {
-    // unpack and check everything first: a damaged setup changes nothing
-    let files: Vec<(&str, Vec<u8>)> = payloads().iter().map(|p| unpack(p).map(|d| (p.name, d))).collect::<Result<_, _>>()?;
+    // check everything first: a damaged setup changes nothing
+    let files: Vec<(&str, &[u8])> = payloads().iter().map(|p| unpack(p).map(|d| (p.name, d))).collect::<Result<_, _>>()?;
     let fresh = !dir.join(APP_EXE).exists();
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     clean_leftovers(dir);
@@ -212,13 +212,12 @@ mod tests {
 
     #[test]
     fn checksum_is_enforced() {
-        let data = b"program".to_vec();
-        let packed: &'static [u8] = Box::leak(miniz_oxide::deflate::compress_to_vec(&data, 10).into_boxed_slice());
-        let good: &'static str = Box::leak(format!("{:x}", Sha256::digest(&data)).into_boxed_str());
-        assert_eq!(unpack(&Payload { name: "a", packed, sha256: good }).unwrap(), data);
+        let packed: &'static [u8] = b"program";
+        let good: &'static str = Box::leak(format!("{:x}", Sha256::digest(packed)).into_boxed_str());
+        assert_eq!(unpack(&Payload { name: "a", packed, sha256: good }).unwrap(), packed);
         assert!(unpack(&Payload { name: "a", packed, sha256: "00" }).is_err());
         assert!(unpack(&Payload { name: "a", packed: &[], sha256: good }).is_err());
-        assert!(unpack(&Payload { name: "a", packed: b"not deflate at all", sha256: good }).is_err());
+        assert!(unpack(&Payload { name: "a", packed: b"changed", sha256: good }).is_err());
     }
 
     #[test]
