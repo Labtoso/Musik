@@ -2488,7 +2488,7 @@ function drawSearch(box, loading, done = false) {
   const pods = d.pods || { shows: [], episodes: [] };
   const has = { songs: songs.length, artists: artists.length, albums: albums.length, playlists: playlists.length, podcasts: pods.shows.length, episodes: pods.episodes.length };
   const f = has[state.sfilter] || ['podcasts', 'episodes'].includes(state.sfilter) ? state.sfilter : 'all';
-  const chips = `<div class="sfilters">${SFILTERS.filter((k) => k === 'all' || k === 'podcasts' || k === 'episodes' || has[k]).map((k) => `<button class="sf ${f === k ? 'on' : ''}" data-sfilter="${k}">${t('sf_' + k)}</button>`).join('')}</div>`;
+  const chips = `<div class="sfilters">${SFILTERS.filter((k) => k === 'all' || k === f || has[k]).map((k) => `<button class="sf ${f === k ? 'on' : ''}" data-sfilter="${k}">${t('sf_' + k)}</button>`).join('')}</div>`;
   if (!songs.length && !artists.length && !albums.length && !playlists.length && !pods.shows.length && !pods.episodes.length) {
     box.innerHTML = d.note
       ? `<div class="noresult"><h3>${t(d.note)}</h3><div class="stack"><a class="btn primary" href="#/sources">${t('spotifyConnect')}</a></div></div>`
@@ -2983,11 +2983,87 @@ async function cached(key, fn) {
   return state.cache[key];
 }
 
-const LIB_TABS = ['tracks', 'albums', 'artists', 'playlists', 'podcasts', 'imported'];
+const LIB_TABS = ['overview', 'tracks', 'albums', 'artists', 'playlists', 'podcasts', 'imported'];
+const plCard = (p) => `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`;
+const keptCard = (im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`;
+const importCard = (im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${im.art ? coverImg(artKey('import', im.id, im.art), 'lg') : im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`;
+const showAllLink = (tab, extra = '') => `<a class="link" href="#/library?tab=${tab}${extra}">${t('showAll')}</a>`;
+/** The first page of the library: everything at a glance, each kind in its own row with a link to the full list, like Spotify's start page. */
+async function libOverview() {
+  const none = () => [];
+  const [songs, albums, artists, fol, lists, imps, subs, cont, tops] = await Promise.all([
+    get('/api/tracks?limit=6&sort=added').catch(() => ({ items: [], total: 0 })),
+    get('/api/albums').catch(none),
+    get('/api/artists').catch(none),
+    loadFollows(true).catch(none),
+    get('/api/playlists').catch(none),
+    get('/api/imports').catch(none),
+    loadPodSubs(true).catch(none),
+    get('/api/podcasts/continue').catch(none),
+    loadTopSongs(),
+    loadExtLikes().catch(() => {})
+  ]);
+  const kept = imps.filter((im) => im.kept);
+  const open = imps.filter((im) => !im.kept);
+  for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
+  // own playlists and saved ones in the user's order
+  const pls = byPlOrder([...lists.map((p) => ['playlist:' + p.id, p, plCard]), ...kept.map((im) => ['import:' + im.id, im, keptCard])], (x) => x[0]);
+  const n = songs.total || 0;
+  // quick tiles at the top: liked songs, the newest yearly top songs and the first playlists
+  const tile = (href, cover, name) => `<a class="qt" href="${href}">${cover}<span>${esc(name)}</span></a>`;
+  const tiles = [
+    likedTile(),
+    ...tops.slice(0, 1).map((y) => tile(`#/topsongs/${y.year}`, coverImg(y.cover), y.title)),
+    ...pls.map(([ref, x]) => (ref.startsWith('playlist:') ? tile(`#/playlist/${x.id}`, coverImg(artKey('playlist', x.id, x.art) || x.cover_id), x.name) : tile(`#/imported/${x.id}`, coverImg(artKey('import', x.id, x.art) || (x.cover ? 'impc:' + x.id : x.cover_id)), x.name)))
+  ].slice(0, 8);
+  // counts under the title, each one jumps to its list
+  const stat = (tab, label) => `<a class="libstat" href="#/library?tab=${tab}">${label}</a>`;
+  const stats = [
+    n && stat('tracks', songCount(n)),
+    pls.length && stat('playlists', t('nPlaylists', { n: pls.length })),
+    albums.length && stat('albums', t('nAlbums', { n: albums.length })),
+    artists.length + fol.length && stat('artists', t('nArtists', { n: new Set([...artists.map((a) => a.name.toLowerCase()), ...fol.map((f) => String(f.name || '').toLowerCase())]).size })),
+    subs.length && stat('podcasts', t('nPodcasts', { n: subs.length }))
+  ].filter(Boolean);
+  let html = stats.length ? `<div class="libstats">${stats.join('')}</div>` : '';
+  html += `<div class="quick libquick">${tiles.join('')}</div>`;
+  if (n) html += `<section class="sec libsongs"><div class="sec-head"><h2>${t('recentlyAdded')}</h2><button class="playround sm" data-playlibnew title="${t('playAll')}">${icon('play')}</button>${showAllLink('tracks', '&sort=added')}</div>${trackList(songs.items.slice(0, 5))}</section>`;
+  if (tops.length || pls.length) html += section(t('playlists'), `<div class="cards srow">${[...tops.map(topCard), ...pls.slice(0, 16).map(([, x, card]) => card(x))].join('')}</div>`, showAllLink('playlists'));
+  if (cont.length) html += section(t('podContinue'), episodeList(cont.slice(0, 3), { showName: true }), showAllLink('podcasts'));
+  if (subs.length) html += section(t('podcasts'), plainAlbumCards(subs.slice(0, 16).map(podCard), true), showAllLink('podcasts'));
+  if (albums.length) {
+    const newest = albums.slice().sort((a, b) => (b.added || 0) - (a.added || 0)).slice(0, 16);
+    html += section(t('albums'), albumCards(newest).replace('class="cards"', 'class="cards srow"'), showAllLink('albums'));
+  }
+  // artists you follow first, then the ones in the library, never twice
+  const seenA = new Set();
+  const arts = [
+    ...fol.map(followCard),
+    ...artists.slice().sort((a, b) => (b.tracks || 0) - (a.tracks || 0)).map((a) => ({ name: a.name, cover: a.cover_id, href: `#/artist?name=${encodeURIComponent(a.name)}`, sub: t('artist') }))
+  ].filter((a) => {
+    const k = String(a.name || '').toLowerCase();
+    if (!k || seenA.has(k)) return false;
+    seenA.add(k);
+    return true;
+  });
+  if (arts.length) html += section(t('artists'), artistCards(arts.slice(0, 16), true), showAllLink('artists'));
+  if (open.length) html += section(t('imported'), `<div class="cards srow">${open.slice(0, 16).map(importCard).join('')}</div>`, showAllLink('imported'));
+  if (!n && !extLikes.size && !pls.length && !albums.length && !arts.length && !subs.length && !open.length && !tops.length)
+    html += `<div class="emptystate">${icon('library', 'big')}<p>${t('libOverviewEmpty')}</p><div class="stack"><a class="btn primary" href="#/search">${icon('search')}${t('search')}</a><a class="btn" href="#/add">${icon('download')}${t('importAdd')}</a><a class="btn" href="#/podcasts">${icon('mic')}${t('podBrowse')}</a></div></div>`;
+  return html;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-playlibnew]');
+  // plays the song list of its own section, so button and list always come from the same render
+  const list = b && state.lists?.[b.closest('.libsongs')?.querySelector('[data-list]')?.dataset.list];
+  if (list?.length) player.playList(list, 0);
+});
 views.library = async (params) => {
-  const tab = LIB_TABS.includes(params.get('tab')) ? params.get('tab') : 'tracks';
+  const tab = LIB_TABS.includes(params.get('tab')) ? params.get('tab') : 'overview';
   let body = '';
-  if (tab === 'tracks') {
+  if (tab === 'overview') {
+    body = await libOverview();
+  } else if (tab === 'tracks') {
     const sort = params.get('sort') || 'artist';
     const r = await get(`/api/tracks?limit=1000&sort=${sort}`);
     state.libTracks = r.items;
@@ -3011,19 +3087,22 @@ views.library = async (params) => {
   } else if (tab === 'imported') {
     const list = (await get('/api/imports')).filter((im) => !im.kept);
     body = `<div class="libbar"><a class="sortbtn" href="#/add">${icon('download')}<span>${t('importAdd')}</span></a></div>
-      ${list.length ? `<div class="cards libgrid"> ${list.map((im) => `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${im.art ? coverImg(artKey('import', im.id, im.art), 'lg') : im.cover ? `<div class="cover lg"><img loading="lazy" alt="" src="${esc(im.cover)}"></div>` : coverImg(im.cover_id, 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${srcBadge(im.source)} ${t('importedOf', { local: im.matched, total: im.total })}</div></a>`).join('')}</div>` : `<p class="muted empty">${t('importNone')}</p>`}`;
+      ${list.length ? `<div class="cards libgrid">${list.map(importCard).join('')}</div>` : `<p class="muted empty">${t('importNone')}</p>`}`;
   } else {
     const [lists, imps] = await Promise.all([get('/api/playlists'), get('/api/imports').catch(() => [])]);
     const kept = imps.filter((im) => im.kept);
     for (const im of kept) if (im.cover && !im.art) extCovers.set('impc:' + im.id, im.cover);
     body = `<div class="cards libgrid" data-sortpl><a class="card" href="#/likes"><div class="cover lg liked">${icon('heartFill')}</div><div class="c-title">${t('likes')}</div></a>${(await loadTopSongs()).map(topCard).join('')}
       ${byPlOrder([
-        ...lists.map((p) => ['playlist:' + p.id, `<a class="card" data-ref="playlist:${p.id}" href="#/playlist/${p.id}">${coverImg(artKey('playlist', p.id, p.art) || p.cover_id, 'lg')}<div class="c-title">${esc(p.name)}</div><div class="c-sub">${songCount(p.tracks)}</div></a>`]),
-        ...kept.map((im) => ['import:' + im.id, `<a class="card" data-ref="import:${im.id}" href="#/imported/${im.id}">${coverImg(artKey('import', im.id, im.art) || (im.cover ? 'impc:' + im.id : im.cover_id), 'lg')}<div class="c-title">${esc(im.name)}</div><div class="c-sub">${songCount(im.total)}</div></a>`])
+        ...lists.map((p) => ['playlist:' + p.id, plCard(p)]),
+        ...kept.map((im) => ['import:' + im.id, keptCard(im)])
       ], (x) => x[0]).map((x) => x[1]).join('')}</div>
       ${lists.length + kept.length > 1 ? `<p class="muted small sorthint">${t('dragToSort')}</p>` : ''}`;
   }
-  return `${pageHead(t('yourLibrary'), `<button class="icon-btn" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button>`)}<div class="tabs">${LIB_TABS.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
+  // the Imported tab only while something is still being imported, the rest lives under Playlists
+  const openImports = await get('/api/imports').then((l) => l.filter((im) => !im.kept).length).catch(() => 0);
+  const tabs = LIB_TABS.filter((x) => x !== 'imported' || x === tab || openImports);
+  return `${pageHead(t('yourLibrary'), `<button class="icon-btn" data-newpl title="${t('newPlaylist')}">${icon('plus')}</button>`)}<div class="tabs">${tabs.map((x) => `<a class="tab ${x === tab ? 'on' : ''}" href="#/library?tab=${x}">${t(x)}</a>`).join('')}</div>${body}`;
 };
 document.addEventListener('change', (e) => {
   if (e.target.id === 'sort') go(`#/library?tab=tracks&sort=${e.target.value}`);
@@ -7792,7 +7871,11 @@ function gChipFilter() {
   if (!box) return;
   const want = gOn() ? prefs.gLibChip || '' : '';
   box.querySelectorAll('.side-pl').forEach((a) => (a.hidden = !!want && a.dataset.kind !== want));
-  document.querySelectorAll('[data-glibchip]').forEach((c) => c.classList.toggle('on', c.dataset.glibchip === want));
+  // a chip only shows when there is something behind it
+  document.querySelectorAll('[data-glibchip]').forEach((c) => {
+    c.classList.toggle('on', c.dataset.glibchip === want);
+    c.hidden = c.dataset.glibchip !== want && !box.querySelector(`.side-pl[data-kind="${c.dataset.glibchip}"]`);
+  });
   $('.glib-chips')?.classList.toggle('picked', !!want);
 }
 async function gSideExtras() {

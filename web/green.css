@@ -147,6 +147,8 @@
 [data-theme='green'] .sec-head h2, [data-theme='green'] .sec h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.005em; }
 [data-theme='green'] .sec-head h2 a:hover { text-decoration: underline; }
 [data-theme='green'] .sec-head .link { font-size: 14px; font-weight: 700; color: var(--g-sub); }
+[data-theme='green'] .libstat { color: var(--g-sub); font-size: 14px; }
+[data-theme='green'] .libstat:hover { color: #fff; }
 
 [data-theme='green'] .cards { gap: 0; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); margin: 0 -12px; }
 [data-theme='green'] .card { padding: 12px; border-radius: 6px; background: transparent; transition: background-color 0.3s ease; position: relative; }
@@ -604,6 +606,7 @@
 .gdesk .glib-open .ic { width: 16px; height: 16px; }
 .gdesk .glib-chips { display: flex; gap: 8px; padding: 0 16px 8px; flex: none; overflow: hidden; }
 .gdesk .glib-chips .chip { flex: none; }
+.gdesk .glib-chips .chip[hidden] { display: none; }
 .gdesk .glib-chips.picked .chip:not(.on) { display: none; }
 .gdesk .side-pls { background: none; border-radius: 0; padding: 4px 8px 8px; flex: 1; overflow-y: auto; }
 .gdesk .side-pls:hover { scrollbar-color: rgba(255, 255, 255, 0.3) transparent; }
