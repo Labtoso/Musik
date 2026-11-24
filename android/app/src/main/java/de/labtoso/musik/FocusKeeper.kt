@@ -146,6 +146,8 @@ class FocusKeeper(
                 held = true
                 cancelDecide()
                 watching = false
+                // what plays now next to us is the new starting point for the next loss
+                base = count(am.activePlaybackConfigurations)
                 duck(1f)
                 if (resumeOnGain && !inCall()) {
                     resumeOnGain = false
