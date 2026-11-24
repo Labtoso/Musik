@@ -104,8 +104,8 @@ pub fn is_install_dir(dir: &Path) -> bool {
 }
 
 /// `Streyn.exe --uninstall [/S]`, run from "Installed apps". Removes exactly what the setup wrote:
-/// the program files, the shortcuts and the "Installed apps" entry. Settings and offline downloads
-/// (in %APPDATA% / %LOCALAPPDATA%\de.labtoso.streyn) stay, like with Spotify.
+/// the program files, the shortcuts and the "Installed apps" entry. Settings (%APPDATA%\Streyn\prefs)
+/// and offline downloads (%LOCALAPPDATA%\Streyn\Storage) stay, like with Spotify.
 /// The running Streyn.exe cannot delete itself, so it is moved to %TEMP%, where Windows' own
 /// cleanup removes it. Nothing is started for that: no copy, no shell, no scheduled task.
 pub fn uninstall(silent: bool) {
@@ -122,6 +122,13 @@ pub fn uninstall(silent: bool) {
     }
     for d in [uninstall::programs(), uninstall::desktop()].into_iter().flatten() {
         let _ = std::fs::remove_file(d.join("Streyn.lnk"));
+    }
+    // program files an installation before 1.34 may have left in %LOCALAPPDATA%\Streyn
+    if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+        let old = local.join("Streyn");
+        if old != dir {
+            crate::dirs::retire_old_program(&old);
+        }
     }
     uninstall::delete_key(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Streyn");
     uninstall::delete_key(r"Software\LabtosoStudios\Streyn");

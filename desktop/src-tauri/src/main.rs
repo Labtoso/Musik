@@ -1,6 +1,7 @@
 // Streyn desktop: asks once for the server address, then shows the web app served by the server.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod dirs;
 mod discord;
 #[cfg(windows)]
 mod win;
@@ -21,8 +22,8 @@ struct Config {
     off_key: Option<String>,
 }
 
-fn config_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_config_dir().ok().map(|d| d.join("config.json"))
+fn config_path(_app: &AppHandle) -> Option<PathBuf> {
+    Some(dirs::get().prefs.clone())
 }
 
 fn load_config(app: &AppHandle) -> Config {
@@ -135,7 +136,7 @@ fn do_update(app: &AppHandle, win: &WebviewWindow) -> Result<(), String> {
     #[cfg(windows)]
     {
         // the official installer from the release page, kept in the app's own folder (not in temp)
-        let dir = app.path().app_local_data_dir().map_err(|_| "write".to_string())?.join("updates");
+        let dir = dirs::get().data.join("updates");
         std::fs::create_dir_all(&dir).map_err(|_| "write".to_string())?;
         let installer = dir.join("Streyn-setup.exe");
         download("https://github.com/Labtoso/Musik/releases/latest/download/Streyn.exe", &installer, win)?;
@@ -190,8 +191,8 @@ fn open_browser(url: &str) {
 const LOCAL: &str = "http://127.0.0.1:8485";
 static LOCAL_PROC: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
 
-fn off_dir(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|d| d.join("offline"))
+fn off_dir(_app: &AppHandle) -> Option<PathBuf> {
+    Some(dirs::get().storage.clone())
 }
 fn off_key(app: &AppHandle) -> String {
     let mut cfg = load_config(app);
@@ -376,6 +377,8 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![connect, saved_server, self_update, open_saved, use_offline, can_offline])
         .setup(|app| {
+            // folders like Spotify's, files of earlier versions moved over before anything reads them
+            dirs::init(app.handle());
             let handle = app.handle().clone();
             // Available on every page, also on the server's web app: switch back to the connect page.
             let init = format!(
@@ -390,7 +393,12 @@ fn main() {
                 }
             );
             let wh = app.handle().clone();
-            let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()));
+            if let Some(b) = dirs::get().browser.clone() {
+                // %LOCALAPPDATA%\Streyn\Browser, like Spotify's Browser folder
+                builder = builder.data_directory(b);
+            }
+            let win = builder
                 .title("Streyn")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(380.0, 560.0)
