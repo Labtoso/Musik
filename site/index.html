@@ -988,7 +988,8 @@ resetDemo(); render();
   // arrow keys move between the tabs
   tabs[0].parentElement.addEventListener('keydown', (e) => {
     const d = { ArrowRight: 1, ArrowLeft: -1 }[e.key]; if (!d) return;
-    e.preventDefault(); const t = tabs[(cur + d + tabs.length) % tabs.length]; t.focus(); t.click();
+    const from = tabs.indexOf(e.target); if (from < 0) return;
+    e.preventDefault(); const t = tabs[(from + d + tabs.length) % tabs.length]; t.focus(); t.click();
   });
   // a focused picture never changes under the keyboard
   const hold = (el, stop, start) => {
