@@ -224,8 +224,12 @@ figure.shot figcaption { margin-top: 10px; font-size: 14px; color: var(--dim); }
 .pn a:hover { border-color: var(--accent); }
 .pn small { display: block; font: 500 11.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
 .pn .next { grid-column: 2; text-align: right; }
-.foot { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 56px; padding: 26px 0 40px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--dim); }
-.foot a:hover { color: var(--paper); }
+/* the website's footer, also under every docs page */
+.foot { display: flex; justify-content: space-between; align-items: center; gap: 22px; flex-wrap: wrap; margin-top: 56px; padding: 32px 0 44px; border-top: 1px solid var(--line); }
+.foot .fl { display: flex; gap: 8px 24px; flex-wrap: wrap; font-size: 14px; color: var(--dim); }
+.foot .fl a:hover { color: var(--paper); }
+.foot .word .wm { height: 22px; background: var(--dim); }
+.foot .word .disc { width: 26px; height: 26px; background: var(--dim); }
 
 /* on this page */
 .toc { position: sticky; top: calc(var(--bar) + 44px); align-self: start; max-height: calc(100vh - var(--bar) - 64px); overflow-y: auto; font-size: 14px; }
@@ -725,7 +729,7 @@ sudo systemctl start streyn</code></pre></li></ol>
     doc.insertAdjacentHTML('beforeend', `
       <div class="meta"><a href="https://github.com/Labtoso/Musik/edit/main/site/docs/index.html">${ico.edit}${T[lang].edit}</a></div>
       <nav class="pn">${prev ? `<a class="prev" href="#/${prev.id}"><small>← ${T[lang].prev}</small>${esc(prev.title)}</a>` : ''}${next ? `<a class="next" href="#/${next.id}"><small>${T[lang].next} →</small>${esc(next.title)}</a>` : ''}</nav>
-      <div class="foot"><span>© LabtosoStudios</span><span><a href="../">musik.labtoso.de</a> · <a href="https://github.com/Labtoso/Musik/releases">Releases</a> · <a class="discord-link" href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Discord</a></span></div>`);
+      <footer class="foot"><a class="word" href="../" aria-label="Streyn"><span class="disc" aria-hidden="true"></span><span class="wm" aria-hidden="true"></span></a><div class="fl"><a class="discord-link" href="https://discord.gg/bN2MTKwVaN" target="_blank" rel="noopener">Discord</a><a href="https://github.com/Labtoso/Musik">GitHub</a><a href="../">${T[lang].site}</a><a href="https://github.com/Labtoso/Musik/releases">Releases</a><a href="https://labtoso.de/impressum" target="_blank" rel="noopener">Impressum</a><span>© LabtosoStudios</span></div></footer>`);
     enhance(doc);
     document.title = page.id ? `${page.title} · Streyn Docs` : 'Streyn Docs';
     sidebar();
