@@ -178,9 +178,12 @@ class FocusKeeper(
         r = Runnable {
             // our own output changed meanwhile: wait until the system's list has caught up
             val left = graceUntil - System.currentTimeMillis()
-            if (left > 0) return@Runnable run { main.postDelayed(r, left) }
-            decide = null
-            judge(transient)
+            if (left > 0) {
+                main.postDelayed(r, left)
+            } else {
+                decide = null
+                judge(transient)
+            }
         }
         decide = r
         // the other app usually opens its audio a moment after it asked for focus;
