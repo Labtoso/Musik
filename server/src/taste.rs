@@ -231,6 +231,8 @@ pub struct Taste {
     pub known: HashMap<String, Value>,
     pub liked: HashSet<String>,
     pub followed: HashSet<String>,
+    /// main artists someone has heard at all (also the ones with a negative score)
+    pub heard: HashSet<String>,
     pub genres: Vec<u32>,
     /// on repeat: most played lately
     pub repeat: Vec<(String, f64)>,
@@ -250,7 +252,7 @@ impl Taste {
         v.into_iter().take(n).map(|(k, _)| self.names.get(k).cloned().unwrap_or_else(|| k.clone())).collect()
     }
     pub fn knows(&self, artist: &str) -> bool {
-        self.artists.get(artist).copied().unwrap_or(0.0) > 0.0 || self.followed.contains(artist)
+        self.heard.contains(artist) || self.followed.contains(artist)
     }
     fn add_artist(&mut self, name: &str, w: f64) {
         let k = main_artist(name);
@@ -258,22 +260,34 @@ impl Taste {
             return;
         }
         *self.artists.entry(k.clone()).or_insert(0.0) += w;
+        self.heard.insert(k.clone());
         let first = name.split([',', '&', ';']).next().unwrap_or(name).trim();
         self.names.entry(k).or_insert_with(|| first.to_string());
+    }
+}
+
+/// Runs a read query; an error is logged and gives no rows instead of a panic
+/// (a panic would poison the shared database mutex).
+fn rows_or_log<T, P: rusqlite::Params>(db: &Connection, sql: &str, params: P, f: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>) -> Vec<T> {
+    let res = db.prepare(sql).and_then(|mut st| Ok(st.query_map(params, f)?.filter_map(Result::ok).collect::<Vec<T>>()));
+    match res {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("taste: query failed: {e}");
+            Vec::new()
+        }
     }
 }
 
 pub fn taste(db: &Connection, st_rec: Option<&crate::recommend::Recommender>, user_id: i64, now: i64) -> Taste {
     let mut t = Taste::default();
     // plays of catalog songs
-    let mut s = db
-        .prepare("SELECT key, artist, ts, played, duration, kind, data FROM ext_plays WHERE user_id = ? ORDER BY ts DESC LIMIT 5000")
-        .unwrap();
-    let rows: Vec<(String, String, i64, f64, f64, String, String)> = s
-        .query_map([user_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))
-        .unwrap()
-        .filter_map(Result::ok)
-        .collect();
+    let rows: Vec<(String, String, i64, f64, f64, String, String)> = rows_or_log(
+        db,
+        "SELECT key, artist, ts, played, duration, kind, data FROM ext_plays WHERE user_id = ? ORDER BY ts DESC LIMIT 5000",
+        [user_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
+    );
     let mut repeat: HashMap<String, f64> = HashMap::new();
     // songs the user took out of the taste profile (settings: tasteExclude) do not count
     let left_out = excluded_keys(db, user_id);
@@ -296,8 +310,7 @@ pub fn taste(db: &Connection, st_rec: Option<&crate::recommend::Recommender>, us
         }
     }
     // liked catalog songs
-    let mut s = db.prepare("SELECT data FROM ext_likes WHERE user_id = ?").unwrap();
-    for d in s.query_map([user_id], |r| r.get::<_, String>(0)).unwrap().flatten() {
+    for d in rows_or_log(db, "SELECT data FROM ext_likes WHERE user_id = ?", [user_id], |r| r.get::<_, String>(0)) {
         let Ok(v) = serde_json::from_str::<Value>(&d) else { continue };
         let (a, ti) = (v["artist"].as_str().unwrap_or(""), v["title"].as_str().unwrap_or(""));
         if a.is_empty() || ti.is_empty() {
@@ -313,8 +326,7 @@ pub fn taste(db: &Connection, st_rec: Option<&crate::recommend::Recommender>, us
         t.known.entry(key).or_insert(v);
     }
     // followed artists (also the ones picked in the setup assistant)
-    let mut s = db.prepare("SELECT name FROM follows WHERE user_id = ?").unwrap();
-    for n in s.query_map([user_id], |r| r.get::<_, String>(0)).unwrap().flatten() {
+    for n in rows_or_log(db, "SELECT name FROM follows WHERE user_id = ?", [user_id], |r| r.get::<_, String>(0)) {
         t.add_artist(&n, 4.0);
         t.followed.insert(main_artist(&n));
     }
@@ -338,13 +350,15 @@ pub fn taste(db: &Connection, st_rec: Option<&crate::recommend::Recommender>, us
     }
     // genre tags of the own files played this last year
     if let Ok(mut s) = db.prepare(
-        "SELECT lower(t.genre), COUNT(*) FROM plays p JOIN tracks t ON t.id = p.track_id WHERE p.user_id = ? AND p.ts > ? AND p.kind != 'skip' AND t.genre != '' GROUP BY 1",
+        "SELECT p.track_id, lower(t.genre), COUNT(*) FROM plays p JOIN tracks t ON t.id = p.track_id WHERE p.user_id = ? AND p.ts > ? AND p.kind != 'skip' AND t.genre != '' GROUP BY 1, 2",
     ) {
-        let rows: Vec<(String, i64)> = s
-            .query_map(params![user_id, now - 365 * DAY], |r| Ok((r.get(0)?, r.get(1)?)))
+        let rows: Vec<(i64, String, i64)> = s
+            .query_map(params![user_id, now - 365 * DAY], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .map(|it| it.filter_map(Result::ok).collect())
             .unwrap_or_default();
-        for (tag, n) in rows {
+        // files taken out of the taste profile don't shape the genre mixes either
+        let left_out_tracks = crate::recommend::excluded(db, user_id);
+        for (_, tag, n) in rows.into_iter().filter(|(id, _, _)| !left_out_tracks.contains(id)) {
             if let Some(g) = genre_of_tag(&tag) {
                 *t.lib_genres.entry(g).or_insert(0.0) += n as f64;
             }
@@ -394,7 +408,7 @@ fn judge(t: &Taste, s: &Song, now: i64) -> Option<f64> {
 /// Greedy spread: best first, never the same artist twice in a row, at most `per_artist`
 /// songs of one artist in any 8, no song twice.
 fn spread(mut pool: Vec<Cand>, limit: usize, per_artist: usize, taken: &mut HashSet<String>) -> Vec<Song> {
-    pool.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    pool.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.s.key.cmp(&b.s.key)));
     let mut out: Vec<Song> = Vec::new();
     let mut seen_title: HashSet<String> = HashSet::new();
     while out.len() < limit {
@@ -590,9 +604,12 @@ pub fn genre_mixes(cat: &dyn Catalog, t: &Taste, user: i64, now: i64) -> Vec<Val
         let tops: Vec<Vec<Song>> = parallel(seeds.iter().map(|a| Box::new(move || cat.top(&a.id)) as Box<dyn FnOnce() -> _ + Send>).collect());
         let radio = seeds.first().map(|a| cat.radio(&a.id)).unwrap_or_default();
         let mut pool: HashMap<String, Cand> = HashMap::new();
+        // in key order: the random values handed out per candidate must not depend on HashMap order
         let own: Vec<Song> = t
             .known
             .iter()
+            .collect::<std::collections::BTreeMap<_, _>>()
+            .into_iter()
             .filter(|(k, _)| t.songs.get(*k).copied().unwrap_or(0.0) > 0.5)
             .filter_map(|(_, v)| Song::from(as_catalog(v), 0.0))
             .filter(|s| names.contains(&s.artist))
@@ -673,7 +690,7 @@ pub fn for_you(cat: &dyn Catalog, t: &Taste, extra: &[String], user: i64, now: i
         names.truncate(5);
     }
     if names.is_empty() {
-        return json!({ "rows": [], "artists": [], "playlists": [], "mixes": [], "genreMixes": [], "artistMixes": [], "discover": [], "onRepeat": on_repeat(t) });
+        return json!({ "rows": [], "artists": [], "playlists": [], "mixes": [], "genreMixes": [], "artistMixes": [], "discover": [], "onRepeat": on_repeat(t), "cold": cold });
     }
     // per artist: who they are, similar artists, best songs and the radio
     type Info = ArtistLike;
@@ -723,9 +740,12 @@ pub fn for_you(cat: &dyn Catalog, t: &Taste, extra: &[String], user: i64, now: i
         let near: HashSet<String> = std::iter::once(ak.clone()).chain(inf.related.iter().take(10).map(|r| main_artist(&r.name))).collect();
         let mut pool: HashMap<String, Cand> = HashMap::new();
         // songs this person already loves from this corner
+        // in key order: the random values handed out per candidate must not depend on HashMap order
         let own: Vec<Song> = t
             .known
             .iter()
+            .collect::<std::collections::BTreeMap<_, _>>()
+            .into_iter()
             .filter(|(k, _)| t.songs.get(*k).copied().unwrap_or(0.0) > 0.8)
             .filter_map(|(_, v)| Song::from(as_catalog(v), 0.0))
             .filter(|s| near.contains(&s.artist))
@@ -823,20 +843,21 @@ fn on_repeat(t: &Taste) -> Vec<Value> {
 // ---------- recording plays of catalog songs ----------
 
 /// A play of a catalog song (from POST /api/events). `song` is the song as the app shows it.
-pub fn record(db: &Connection, user_id: i64, song: &Value, kind: &str, played: f64, duration: f64, ts: i64) -> bool {
+/// Stores a play of a catalog song. Ok(false): the input was rejected; Err: the write failed.
+pub fn record(db: &Connection, user_id: i64, song: &Value, kind: &str, played: f64, duration: f64, ts: i64) -> rusqlite::Result<bool> {
     let (artist, title) = (song["artist"].as_str().unwrap_or(""), song["title"].as_str().unwrap_or(""));
     if artist.is_empty() || title.is_empty() || !["complete", "skip", "partial"].contains(&kind) {
-        return false;
+        return Ok(false);
     }
     let data = song.to_string();
     if data.len() > 4096 {
-        return false;
+        return Ok(false);
     }
     db.execute(
         "INSERT INTO ext_plays (user_id, key, artist, ts, played, duration, kind, data) VALUES (?,?,?,?,?,?,?,?)",
         params![user_id, song_key(artist, title), artist, ts, played, duration, kind, data],
-    )
-    .is_ok()
+    )?;
+    Ok(true)
 }
 
 // ---------- HTTP ----------
@@ -886,17 +907,25 @@ async fn radio_route(State(st): State<St>, Auth(u, _): Auth, req: Request) -> R 
         .iter()
         .take(500)
         .filter_map(|x| {
+            // a ready song key ("artist|title") or a song object
+            if let Some(k) = x.as_str() {
+                let k = k.trim();
+                return (!k.is_empty()).then(|| k.to_string());
+            }
             let (a, ti) = (x["artist"].as_str()?, x["title"].as_str()?);
             Some(song_key(a, ti))
         })
         .collect();
     let limit = b["limit"].as_u64().unwrap_or(15).clamp(1, 50) as usize;
     let now = now_ms();
-    let t = {
-        let db = st.db.lock().unwrap();
-        taste(&db, Some(&st.rec), u.id, now)
-    };
-    let out = tokio::task::spawn_blocking(move || radio(&Deezer, &t, &seeds, &exclude, limit, now, now as u64))
+    let uid = u.id;
+    let out = tokio::task::spawn_blocking(move || {
+        let t = {
+            let db = st.db.lock().unwrap();
+            taste(&db, Some(&st.rec), uid, now)
+        };
+        radio(&Deezer, &t, &seeds, &exclude, limit, now, now as u64)
+    })
         .await
         .map_err(|_| ApiError::new(500, "internal"))?;
     Ok(Json(json!(out)))
@@ -935,21 +964,23 @@ async fn foryou_route(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<Ha
         .map(|s| s.split('|').map(|x| x.trim().chars().take(80).collect::<String>()).filter(|x| !x.is_empty()).take(5).collect())
         .unwrap_or_default();
     let now = now_ms();
-    let t = {
-        let db = st.db.lock().unwrap();
-        taste(&db, Some(&st.rec), u.id, now)
-    };
     let uid = u.id;
-    // the Streyn Mixes can be switched off in the settings (account setting "streynMixes")
-    let streyn = {
-        let db = st.db.lock().unwrap();
-        db.query_row("SELECT data FROM user_settings WHERE user_id = ?", [uid], |r| r.get::<_, String>(0))
-            .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            .map(|v| v["streynMixes"].as_bool() != Some(false))
-            .unwrap_or(true)
-    };
-    let out = tokio::task::spawn_blocking(move || for_you(&Deezer, &t, &extra, uid, now, streyn))
+    let out = tokio::task::spawn_blocking(move || {
+        // profile and settings under one lock, released before the catalog requests start
+        let (t, streyn) = {
+            let db = st.db.lock().unwrap();
+            let t = taste(&db, Some(&st.rec), uid, now);
+            // the Streyn Mixes can be switched off in the settings (account setting "streynMixes")
+            let streyn = db
+                .query_row("SELECT data FROM user_settings WHERE user_id = ?", [uid], |r| r.get::<_, String>(0))
+                .ok()
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+                .map(|v| v["streynMixes"].as_bool() != Some(false))
+                .unwrap_or(true);
+            (t, streyn)
+        };
+        for_you(&Deezer, &t, &extra, uid, now, streyn)
+    })
         .await
         .map_err(|_| ApiError::new(500, "internal"))?;
     Ok(Json(out))
@@ -1011,7 +1042,7 @@ mod tests {
         db
     }
     fn play(db: &Connection, a: &str, ti: &str, kind: &str, played: f64, ts: i64) {
-        record(db, 1, &json!({ "title": ti, "artist": a, "ext": { "source": "deezer", "id": "x" } }), kind, played, 200.0, ts);
+        record(db, 1, &json!({ "title": ti, "artist": a, "ext": { "source": "deezer", "id": "x" } }), kind, played, 200.0, ts).unwrap();
     }
 
     #[test]

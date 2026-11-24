@@ -72,10 +72,31 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
         Some(d) => {
             std::fs::create_dir_all(d).ok();
             // the file was called musik.db before the app was renamed
-            let db = d.join("streyn.db");
+            let mut db = d.join("streyn.db");
             if !db.exists() && d.join("musik.db").exists() {
-                for ext in ["", "-wal", "-shm"] {
-                    let _ = std::fs::rename(d.join(format!("musik.db{ext}")), d.join(format!("streyn.db{ext}")));
+                // side files first, the main file last; on any failure undo and keep using musik.db,
+                // so a half-moved database (main file without its WAL) is never opened
+                let mut moved: Vec<&str> = Vec::new();
+                let mut ok = true;
+                for ext in ["-wal", "-shm", ""] {
+                    let (from, to) = (d.join(format!("musik.db{ext}")), d.join(format!("streyn.db{ext}")));
+                    if !from.exists() {
+                        continue;
+                    }
+                    match std::fs::rename(&from, &to) {
+                        Ok(()) => moved.push(ext),
+                        Err(e) => {
+                            eprintln!("could not rename {} to {}: {e}", from.display(), to.display());
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                if !ok {
+                    for ext in moved {
+                        let _ = std::fs::rename(d.join(format!("streyn.db{ext}")), d.join(format!("musik.db{ext}")));
+                    }
+                    db = d.join("musik.db");
                 }
             }
             Connection::open(db)?
@@ -88,6 +109,8 @@ pub fn open(data_dir: Option<&Path>) -> rusqlite::Result<Connection> {
     conn.execute_batch(SCHEMA)?;
     conn.execute_batch(crate::ext::SCHEMA)?;
     conn.execute_batch(crate::offline::SCHEMA)?;
+    // copies that were running when the process ended will not finish any more
+    conn.execute("UPDATE offline_sets SET state = 'error' WHERE state = 'loading'", [])?;
     conn.execute_batch(crate::taste::SCHEMA)?;
     conn.execute_batch(crate::invite::SCHEMA)?;
     conn.execute_batch(crate::podcast::SCHEMA)?;

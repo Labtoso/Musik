@@ -41,7 +41,7 @@ struct Count {
 }
 
 /// Counts plays per year and song. `tz` = minutes east of UTC.
-pub fn top_songs(db: &Connection, user_id: i64, tz: i64) -> Vec<Value> {
+pub fn top_songs(db: &Connection, user_id: i64, tz: i64) -> rusqlite::Result<Vec<Value>> {
     let shift = tz * 60_000;
     let left_out = excluded_keys(db, user_id);
     // year → song key → count
@@ -59,7 +59,7 @@ pub fn top_songs(db: &Connection, user_id: i64, tz: i64) -> Vec<Value> {
             "SELECT p.ts, {} FROM plays p JOIN tracks t ON t.id = p.track_id WHERE p.user_id = ? AND (p.kind = 'complete' OR p.played >= 30)",
             TRACK_COLS.split(", ").map(|c| format!("t.{c}")).collect::<Vec<_>>().join(", ")
         );
-        let mut s = db.prepare(&sql).unwrap();
+        let mut s = db.prepare(&sql)?;
         let rows: Vec<(i64, Value)> = s
             .query_map([user_id], |r| {
                 let ts: i64 = r.get(0)?;
@@ -71,8 +71,7 @@ pub fn top_songs(db: &Connection, user_id: i64, tz: i64) -> Vec<Value> {
                     "duration": r.get::<_, f64>(10)?, "has_cover": r.get::<_, i64>(11)? != 0, "added": r.get::<_, i64>(12)?,
                 });
                 Ok((ts, v))
-            })
-            .unwrap()
+            })?
             .filter_map(Result::ok)
             .collect();
         for (ts, v) in rows {
@@ -88,10 +87,9 @@ pub fn top_songs(db: &Connection, user_id: i64, tz: i64) -> Vec<Value> {
     // catalog songs
     {
         let mut s = db
-            .prepare("SELECT key, ts, data FROM ext_plays WHERE user_id = ? AND kind != 'skip' AND (kind = 'complete' OR played >= 30)")
-            .unwrap();
+            .prepare("SELECT key, ts, data FROM ext_plays WHERE user_id = ? AND (kind = 'complete' OR played >= 30)")?;
         let rows: Vec<(String, i64, String)> =
-            s.query_map([user_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().filter_map(Result::ok).collect();
+            s.query_map([user_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.filter_map(Result::ok).collect();
         for (key, ts, data) in rows {
             if left_out.contains(&key) {
                 continue;
@@ -102,10 +100,8 @@ pub fn top_songs(db: &Connection, user_id: i64, tz: i64) -> Vec<Value> {
     }
 
     let likes: std::collections::HashSet<i64> = db
-        .prepare("SELECT track_id FROM likes WHERE user_id = ?")
-        .unwrap()
-        .query_map([user_id], |r| r.get(0))
-        .unwrap()
+        .prepare("SELECT track_id FROM likes WHERE user_id = ?")?
+        .query_map([user_id], |r| r.get(0))?
         .filter_map(Result::ok)
         .collect();
     let liked: HashMap<i64, Value> = local
@@ -135,7 +131,7 @@ pub fn top_songs(db: &Connection, user_id: i64, tz: i64) -> Vec<Value> {
         })
         .collect();
     out.sort_by(|a, b| b["year"].as_i64().cmp(&a["year"].as_i64()));
-    out
+    Ok(out)
 }
 
 pub fn routes() -> Router<St> {
@@ -144,8 +140,15 @@ pub fn routes() -> Router<St> {
 
 async fn topsongs_route(State(st): State<St>, Auth(u, _): Auth, Query(q): Query<HashMap<String, String>>) -> R {
     let tz = q.get("tz").and_then(|s| s.parse::<i64>().ok()).unwrap_or(0).clamp(-14 * 60, 14 * 60);
-    let db = st.db.lock().unwrap();
-    Ok(Json(json!(top_songs(&db, u.id, tz))))
+    // reads the whole qualifying history: keep it off the async workers
+    let list = tokio::task::spawn_blocking(move || {
+        let db = st.db.lock().unwrap();
+        top_songs(&db, u.id, tz)
+    })
+    .await
+    .map_err(|_| crate::api::ApiError::new(500, "error"))?
+    .map_err(crate::api::db_err)?;
+    Ok(Json(json!(list)))
 }
 
 #[cfg(test)]
@@ -186,11 +189,11 @@ mod tests {
         play(1, y24 + 9900, "skip", 5.0);
         // the same song from the catalog adds to the own file
         let song = json!({ "source": "spotify", "ext_id": "x", "title": "Song 0", "artist": "Band", "cover": "" });
-        crate::taste::record(&db, 1, &song, "complete", 200.0, 200.0, y24 + 20_000);
-        crate::taste::record(&db, 1, &song, "complete", 200.0, 200.0, y24 + 21_000);
+        crate::taste::record(&db, 1, &song, "complete", 200.0, 200.0, y24 + 20_000).unwrap();
+        crate::taste::record(&db, 1, &song, "complete", 200.0, 200.0, y24 + 21_000).unwrap();
         // 2025: too few songs for a list
         play(6, y25, "complete", 200.0);
-        let v = top_songs(&db, 1, 0);
+        let v = top_songs(&db, 1, 0).unwrap();
         assert_eq!(v.len(), 1, "{v:?}");
         assert_eq!(v[0]["year"], 2024);
         let tr = v[0]["tracks"].as_array().unwrap();

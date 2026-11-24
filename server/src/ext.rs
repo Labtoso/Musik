@@ -1,7 +1,7 @@
 //! Other platforms: per-user source settings, imported playlists (matched against the
 //! local library), fetching public playlist data, and share links.
 use crate::api::{
-    body_json, nf, serve_cover, serve_track, set_playlist_tracks, track_json, tracks_by_ids,
+    body_json, nf, serve_cover, serve_track, set_playlist_tracks, tracks_by_ids,
     with_likes, ApiError, Auth, AuthQ, St, R, TRACK_COLS,
 };
 use crate::db::now_ms;
@@ -674,6 +674,9 @@ async fn get_import(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>)
 async fn delete_import(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>) -> R {
     let db = st.db.lock().unwrap();
     own_import(&db, u.id, id)?;
+    // its picture and share links go with it (ids can be reused by the next import)
+    db.execute("DELETE FROM art WHERE kind = 'import' AND ref_id = ?", [id]).ok();
+    db.execute("DELETE FROM shares WHERE kind = 'import' AND ref = ?", [id.to_string()]).ok();
     db.execute("DELETE FROM import_items WHERE import_id = ?", [id])
         .ok();
     db.execute("DELETE FROM imports WHERE id = ?", [id]).ok();
@@ -739,9 +742,9 @@ async fn import_to_playlist(State(st): State<St>, Auth(u, _): Auth, Path(id): Pa
         "INSERT INTO playlists (user_id, name, created, updated) VALUES (?,?,?,?)",
         params![u.id, name, now, now],
     )
-    .ok();
+    .map_err(crate::api::db_err)?;
     let pid = db.last_insert_rowid();
-    set_playlist_tracks(&mut db, pid, &ids);
+    set_playlist_tracks(&mut db, pid, &ids).map_err(crate::api::db_err)?;
     Ok(Json(
         json!({ "id": pid, "name": name, "tracks": ids.len() }),
     ))
@@ -845,15 +848,19 @@ pub fn art_version(db: &Connection, kind: &str, id: i64) -> i64 {
         .unwrap_or(0)
 }
 /// Covers of streaming songs for the device copy (offline): fetched by the server, only from the known image hosts.
-async fn img_proxy(AuthQ(_u): AuthQ, Query(q): Query<HashMap<String, String>>) -> Result<Response, ApiError> {
-    let u = q.get("u").cloned().unwrap_or_default();
+/// Picture hosts of the platforms; the server only fetches cover images from these.
+fn image_host_ok(u: &str) -> bool {
     let host = u.strip_prefix("https://").and_then(|r| r.split('/').next()).unwrap_or("").to_ascii_lowercase();
-    let ok = ["i.scdn.co", "mosaic.scdn.co", "i.ytimg.com", "lh3.googleusercontent.com", "yt3.ggpht.com", "cdn-images.dzcdn.net", "e-cdns-images.dzcdn.net", "i1.sndcdn.com"]
+    ["i.scdn.co", "mosaic.scdn.co", "i.ytimg.com", "lh3.googleusercontent.com", "yt3.ggpht.com", "cdn-images.dzcdn.net", "e-cdns-images.dzcdn.net", "i1.sndcdn.com"]
         .iter()
         .any(|h| host == *h)
         || host.ends_with(".spotifycdn.com")
-        || host.ends_with(".mzstatic.com");
-    if !ok {
+        || host.ends_with(".mzstatic.com")
+}
+
+async fn img_proxy(AuthQ(_u): AuthQ, Query(q): Query<HashMap<String, String>>) -> Result<Response, ApiError> {
+    let u = q.get("u").cloned().unwrap_or_default();
+    if !image_host_ok(&u) {
         return Err(ApiError::new(400, "bad_request"));
     }
     let data = tokio::task::spawn_blocking(move || -> Option<Vec<u8>> {
@@ -2096,15 +2103,7 @@ pub(crate) fn resolve_share(
     let owner: String = db
         .query_row("SELECT name FROM users WHERE id = ?", [uid], |r| r.get(0))
         .unwrap_or_default();
-    let q = |sql: &str, args: Vec<rusqlite::types::Value>| -> Vec<Value> {
-        let mut s = db.prepare(sql).unwrap();
-        let v = s
-            .query_map(rusqlite::params_from_iter(args.iter()), track_json)
-            .unwrap()
-            .filter_map(Result::ok)
-            .collect();
-        v
-    };
+    let q = |sql: &str, args: Vec<rusqlite::types::Value>| -> Vec<Value> { crate::api::query_tracks(db, sql, &args) };
     // an invitation shows the same playlist as a listening link
     let kind = if kind == "collab" || kind == "listener" { "playlist".to_string() } else { kind };
     match kind.as_str() {
@@ -2144,23 +2143,17 @@ pub(crate) fn resolve_share(
         }
         "playlist" => {
             let id: i64 = reference.parse().map_err(|_| nf())?;
+            // only while the playlist still belongs to whoever shared it (ids can be reused)
             let name: String = db
-                .query_row("SELECT name FROM playlists WHERE id = ?", [id], |r| {
+                .query_row("SELECT name FROM playlists WHERE id = ? AND user_id = ?", params![id, uid], |r| {
                     r.get(0)
                 })
                 .map_err(|_| nf())?;
             let ids: Vec<i64> = {
-                let mut s = db
-                    .prepare(
-                        "SELECT track_id FROM playlist_tracks WHERE playlist_id = ? ORDER BY pos",
-                    )
-                    .unwrap();
-                let v = s
-                    .query_map([id], |r| r.get(0))
-                    .unwrap()
-                    .filter_map(Result::ok)
-                    .collect();
-                v
+                let v: rusqlite::Result<Vec<i64>> = db
+                    .prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id = ? ORDER BY pos")
+                    .and_then(|mut s| Ok(s.query_map([id], |r| r.get(0))?.filter_map(Result::ok).collect()));
+                v.map_err(crate::api::db_err)?
             };
             Ok((
                 name,
@@ -2173,7 +2166,7 @@ pub(crate) fn resolve_share(
         "import" => {
             let id: i64 = reference.parse().map_err(|_| nf())?;
             let name: String = db
-                .query_row("SELECT name FROM imports WHERE id = ?", [id], |r| r.get(0))
+                .query_row("SELECT name FROM imports WHERE id = ? AND user_id = ?", params![id, uid], |r| r.get(0))
                 .map_err(|_| nf())?;
             let user = crate::auth::User {
                 id: uid,
@@ -2212,7 +2205,7 @@ async fn public_share(State(st): State<St>, Path(token): Path<String>) -> R {
 }
 fn share_description(db: &Connection, token: &str) -> String {
     db.query_row(
-        "SELECT p.description FROM shares s JOIN playlists p ON p.id = CAST(s.ref AS INTEGER) WHERE s.token = ? AND s.kind IN ('playlist','collab')",
+        "SELECT p.description FROM shares s JOIN playlists p ON p.id = CAST(s.ref AS INTEGER) AND p.user_id = s.user_id WHERE s.token = ? AND s.kind IN ('playlist','collab')",
         [token],
         |r| r.get(0),
     )
@@ -2355,9 +2348,9 @@ async fn save_share(State(st): State<St>, Auth(u, _): Auth, Path(token): Path<St
             "INSERT INTO playlists (user_id, name, created, updated) VALUES (?,?,?,?)",
             params![u.id, clip(&title, 120), now, now],
         )
-        .ok();
+        .map_err(crate::api::db_err)?;
         let pid = db.last_insert_rowid();
-        set_playlist_tracks(&mut db, pid, &ids);
+        set_playlist_tracks(&mut db, pid, &ids).map_err(crate::api::db_err)?;
         return Ok(Json(
             json!({ "kind": "playlist", "id": pid, "name": title, "tracks": ids.len() }),
         ));
@@ -2514,7 +2507,7 @@ async fn store_start(State(st): State<St>, Auth(u, _): Auth, Path(id): Path<i64>
                 let dest = folder.join(format!("{name}.{ext}"));
                 std::fs::copy(&file, &dest).ok()?;
                 write_tags(&dest, &title, &artist, &album);
-                if cover.starts_with("https://") && !folder.join("cover.jpg").exists() {
+                if image_host_ok(&cover) && !folder.join("cover.jpg").exists() {
                     if let Ok(r) = ureq::get(&cover).timeout(Duration::from_secs(15)).call() {
                         let mut buf = Vec::new();
                         if r.into_reader().take(8 << 20).read_to_end(&mut buf).is_ok() && !buf.is_empty() {

@@ -158,17 +158,22 @@ async fn add(State(st): State<St>, h: HeaderMap, req: Request) -> R {
     let st2 = st.clone();
     let k2 = key.clone();
     std::thread::spawn(move || {
-        let res = if list {
-            let pl = json!({ "name": if b.name.trim().is_empty() { "Playlist" } else { b.name.trim() }, "description": "", "tracks": b.items });
-            copy_tracks(&st2, &k2, &server, &b.token, b.id, &b.ip, pl)
-        } else {
-            copy_playlist(&st2, &k2, &server, &b.token, b.id, &b.ip)
-        };
+        // a panic while copying must not leave the set on "loading" for good
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if list {
+                let pl = json!({ "name": if b.name.trim().is_empty() { "Playlist" } else { b.name.trim() }, "description": "", "tracks": b.items });
+                copy_tracks(&st2, &k2, &server, &b.token, b.id, &b.ip, pl)
+            } else {
+                copy_playlist(&st2, &k2, &server, &b.token, b.id, &b.ip)
+            }
+        }));
         let state = match res {
-            Ok(()) => "ready",
-            Err(e) => e,
+            Ok(Ok(())) => "ready",
+            Ok(Err(e)) => e,
+            Err(_) => "error",
         };
-        st2.db.lock().unwrap().execute("UPDATE offline_sets SET state = ?, updated = ? WHERE key = ?", params![state, now_ms(), k2]).ok();
+        let db = st2.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.execute("UPDATE offline_sets SET state = ?, updated = ? WHERE key = ?", params![state, now_ms(), k2]).ok();
     });
     Ok(Json(json!({ "key": key, "state": "loading" })))
 }
@@ -411,7 +416,9 @@ fn copy_tracks(st: &St, key: &str, server: &str, token: &str, id: i64, ip: &str,
             db.last_insert_rowid()
         }
     };
-    crate::api::set_playlist_tracks(&mut db, lid, &ids);
+    if let Err(e) = crate::api::set_playlist_tracks(&mut db, lid, &ids) {
+        eprintln!("offline: could not save the playlist: {e}");
+    }
     if let Some(a) = art {
         db.execute(
             "INSERT INTO art (user_id, kind, ref_id, data, updated) VALUES (?, 'playlist', ?, ?, ?)
@@ -441,14 +448,19 @@ async fn remove(State(st): State<St>, h: HeaderMap, req: Request) -> R {
     let b: RemoveBody = body_json(req).await?;
     let gone: Vec<String> = {
         let db = st.db.lock().unwrap();
+        // still copying: the copy thread would go on writing into what is removed here
+        let state: Option<String> = db.query_row("SELECT state FROM offline_sets WHERE key = ?", [&b.key], |r| r.get(0)).optional().unwrap_or(None);
+        if state.as_deref() == Some("loading") {
+            return Err(ApiError::new(409, "busy"));
+        }
         let local: Option<i64> = db.query_row("SELECT local_id FROM offline_sets WHERE key = ?", [&b.key], |r| r.get(0)).optional().unwrap_or(None).flatten();
         if let Some(l) = local {
             db.execute("DELETE FROM playlists WHERE id = ?", [l]).ok();
         }
-        let mut s = db
+        let paths: Vec<String> = db
             .prepare("SELECT path FROM offline_files WHERE set_key = ?1 AND path NOT IN (SELECT path FROM offline_files WHERE set_key != ?1)")
-            .unwrap();
-        let paths: Vec<String> = s.query_map([&b.key], |r| r.get(0)).unwrap().filter_map(Result::ok).collect();
+            .and_then(|mut s| Ok(s.query_map([&b.key], |r| r.get(0))?.filter_map(Result::ok).collect()))
+            .map_err(crate::api::db_err)?;
         db.execute("DELETE FROM offline_files WHERE set_key = ?", [&b.key]).ok();
         db.execute("DELETE FROM offline_sets WHERE key = ?", [&b.key]).ok();
         paths
@@ -465,7 +477,13 @@ async fn remove(State(st): State<St>, h: HeaderMap, req: Request) -> R {
     }
     let st2 = st.clone();
     tokio::task::spawn_blocking(move || {
-        st2.library.scan(&st2.db);
+        // a scan already running may have listed the removed files: wait for a fresh one
+        for _ in 0..150 {
+            if st2.library.scan(&st2.db).is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(400));
+        }
         st2.rec.invalidate();
     });
     Ok(Json(json!({ "ok": true, "sets": sets(&st.db.lock().unwrap()) })))
