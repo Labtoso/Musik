@@ -1262,7 +1262,7 @@ export class Player extends EventTarget {
       const upcoming = this.#localShuffle(this.queue.slice(this.index + 1));
       this.shuffled = true;
       this.#replaceUpcoming(upcoming);
-      if (!this.queue.some((t) => t.ext)) this.#smartShuffle(this.queue.map((t) => t.id), this.index);
+      if (this.engine !== this.dormant && !this.queue.some((t) => t.ext)) this.#smartShuffle(this.queue.map((t) => t.id), this.index);
     } else {
       this.shuffled = false;
       if (this.original && this.current) {
