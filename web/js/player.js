@@ -764,6 +764,11 @@ export class Player extends EventTarget {
     this.queueSeq = (this.queueSeq || 0) + 1;
     this.shuffleSeq = (this.shuffleSeq || 0) + 1;
     this.dormant = null;
+    // the browser engine stops too (Android may have used it for a song), so nothing plays on after logout
+    try {
+      this.htmlEngine?.pause();
+      this.htmlEngine?.setQueue([], -1, 0, false);
+    } catch {}
     this.engine = this.native ? this.nativeEngine : this.#html();
     try {
       this.engine.pause();
@@ -801,11 +806,10 @@ export class Player extends EventTarget {
       finished = true;
       let ok = false;
       // the background player still has songs (it kept playing): that queue wins
-      if (!nativeCount) {
-        try {
-          ok = this.#restore(scope);
-        } catch {}
-      }
+      try {
+        if (!nativeCount) ok = this.#restore(scope);
+        else ok = this.#adoptSettings(scope);
+      } catch {}
       this.sessionReady = true;
       done(ok);
     };
@@ -823,6 +827,24 @@ export class Player extends EventTarget {
       finish(this.queue.length);
     }
     setTimeout(() => finish(this.queue.length), 6000);
+  }
+  /** The background player kept its queue: still take back repeat, shuffle order and source of the kept session. */
+  #adoptSettings(scope) {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    if (!s || s.v !== 1 || (s.scope || '') !== scope || !Array.isArray(s.queue)) return false;
+    if (['off', 'all', 'one'].includes(s.repeat)) {
+      this.repeat = s.repeat;
+      this.engine.setRepeat(this.repeat);
+    }
+    // shuffle order and source only when the kept queue is the one the background player holds
+    const off = Math.max(0, Number(s.offset) || 0);
+    const same = s.queue.length > 0 && s.queue.every((x, n) => x && this.queue[off + n] && String(this.queue[off + n].id) === String(x.id));
+    if (!same) return false;
+    this.shuffled = !!s.shuffled;
+    this.original = this.shuffled && Array.isArray(s.original) ? s.original : null;
+    if (s.meta && typeof s.meta === 'object') this.meta = s.meta;
+    this.#emit('state');
+    return true;
   }
   #restore(scope) {
     if (this.queue.length) return false;
