@@ -54,6 +54,7 @@
   .toast { position:fixed; left:50%; bottom:110px; transform:translateX(-50%); background:var(--surface2); padding:10px 16px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.on { opacity:1; }
   .foot { margin-top:30px; color:var(--muted); font-size:13px; text-align:center; }
+  .foot a { color:inherit; text-decoration:underline; text-underline-offset:3px; }
   .join-box { margin:0 0 18px; padding:16px; border-radius:12px; background:var(--surface); border:1px solid var(--line); display:none; }
   .join-box.on { display:block; }
   .join-box h2 { font-size:17px; margin:0 0 4px; }
@@ -163,7 +164,7 @@
         <div class="err" id="jerr"></div><button class="go" id="jgo">${L('create')}</button></form>`;
     h += list.map((x, i) => `<div class="row" data-i="${i}"><span class="n">${i + 1}</span><span class="c" style="${x.cover ? `background-image:url('${cssUrl(x.cover)}')` : ''}"></span>
       <div style="min-width:0"><div class="t">${esc(x.title)}</div><div class="a">${x.badge ? `<span class="src">${esc(x.badge)}</span>` : ''}${esc(x.artist)}</div></div><span class="d">${x.duration ? fmt(x.duration) : ''}</span></div>`).join('');
-    h += `<div class="foot">${T.on} ${esc(d.server || 'Streyn')}</div>`;
+    h += `<div class="foot">${T.on} ${esc(d.server || 'Streyn')} · <a href="https://labtoso.de/impressum" target="_blank" rel="noopener">Impressum</a></div>`;
     $('root').innerHTML = h;
     if (firstCover) tint(firstCover);
     $('playall')?.addEventListener('click', () => (cur >= 0 ? toggle() : play(0)));

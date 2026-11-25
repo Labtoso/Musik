@@ -222,6 +222,37 @@ fn open_browser(url: &str) {
     }
 }
 
+/// Pages that belong in the app window: its own pages, the offline server and the saved server
+/// addresses (home and on the go). Everything else on the web opens in the system browser.
+fn is_app_page(app: &AppHandle, url: &Url) -> bool {
+    if !matches!(url.scheme(), "http" | "https") {
+        return true;
+    }
+    if url.host_str() == Some("tauri.localhost") {
+        return true;
+    }
+    let origin = url.origin().ascii_serialization();
+    if origin == LOCAL {
+        return true;
+    }
+    let cfg = load_config(app);
+    [cfg.server, cfg.remote].iter().flatten().any(|s| s.trim_end_matches('/') == origin)
+}
+
+/// Shown on top of an outside page if one ever ends up in the app window: one arrow back to Streyn.
+const BACK_BUTTON: &str = r#"(function () {
+  if (document.getElementById('streyn-back')) return;
+  var b = document.createElement('button');
+  b.id = 'streyn-back';
+  b.type = 'button';
+  b.title = 'Back to Streyn';
+  b.setAttribute('aria-label', 'Back to Streyn');
+  b.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>';
+  b.style.cssText = 'position:fixed;top:14px;left:14px;z-index:2147483647;width:40px;height:40px;border-radius:50%;border:0;display:grid;place-items:center;background:rgba(18,18,20,.88);color:#fff;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.4);backdrop-filter:blur(8px)';
+  b.onclick = function () { if (history.length > 1) history.back(); else location.href = 'musik-win://home'; };
+  (document.body || document.documentElement).appendChild(b);
+})();"#;
+
 // ---- offline mode: the Streyn server runs on this computer (sidecar "streyn-server") and keeps copies of playlists
 const LOCAL: &str = "http://127.0.0.1:8485";
 static LOCAL_PROC: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
@@ -437,7 +468,7 @@ fn main() {
             let handle = app.handle().clone();
             // Available on every page, also on the server's web app: switch back to the connect page.
             let init = format!(
-                "window.musikDesktop = {{ version: {:?}, frameless: true, changeServer: function () {{ location.href = {:?} + '?change=1'; }}, update: function () {{ location.href = {:?} + '?update=1'; }}, win: function (a) {{ location.href = 'musik-win://' + a; }}, offlineCall: {}, openFolder: function () {{ location.href = 'musik-win://folder'; return true; }}, goOnline: function () {{ location.href = 'musik-win://goonline'; }}, discord: function (j) {{ location.href = 'musik-win://discord?d=' + encodeURIComponent(j); }} }};",
+                "window.musikDesktop = {{ version: {:?}, frameless: true, changeServer: function () {{ location.href = {:?} + '?change=1'; }}, update: function () {{ location.href = {:?} + '?update=1'; }}, win: function (a) {{ location.href = 'musik-win://' + a; }}, offlineCall: {}, openFolder: function () {{ location.href = 'musik-win://folder'; return true; }}, goOnline: function () {{ location.href = 'musik-win://goonline'; }}, discord: function (j) {{ location.href = 'musik-win://discord?d=' + encodeURIComponent(j); }}, awake: function (on) {{ location.href = 'musik-win://awake?on=' + (on ? 1 : 0); }}, open: function (u) {{ location.href = 'musik-win://open?u=' + encodeURIComponent(u); }} }};",
                 app.package_info().version.to_string(),
                 home_url(),
                 home_url(),
@@ -491,6 +522,26 @@ fn main() {
                                     let d = query_param(url, "d");
                                     std::thread::spawn(move || discord::update(&d));
                                 }
+                                // Chillscreen room open: the screen stays on (Windows; the call needs the long-lived UI thread)
+                                "awake" => {
+                                    let _on = query_param(url, "on") == "1";
+                                    #[cfg(windows)]
+                                    let _ = wh.run_on_main_thread(move || win::keep_display_on(_on));
+                                }
+                                // outside links (Discord, Impressum, …) always in the system browser
+                                "open" => open_browser(&query_param(url, "u")),
+                                // back arrow on an outside page: to the server, else to the connect page
+                                "home" => {
+                                    let cfg = load_config(&wh);
+                                    match cfg.server {
+                                        Some(s) => open_server(&w, &s),
+                                        None => {
+                                            if let Ok(u) = Url::parse(home_url()) {
+                                                let _ = w.navigate(u);
+                                            }
+                                        }
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -500,7 +551,33 @@ fn main() {
                         open_browser(url.as_str());
                         return false;
                     }
+                    // Windows reports only navigations of the window itself here (frames have their own event),
+                    // so an outside page never replaces Streyn: it opens in the browser. On Linux frames come
+                    // through here too (YouTube, Spotify players), so there the back arrow below is the safety net.
+                    #[cfg(windows)]
+                    if !is_app_page(&wh, url) {
+                        open_browser(url.as_str());
+                        return false;
+                    }
                     true
+                })
+                // links with target=_blank and window.open: the system browser, never a second window
+                .on_new_window(|url, _| {
+                    open_browser(url.as_str());
+                    tauri::webview::NewWindowResponse::Deny
+                })
+                .on_page_load({
+                    let ph = app.handle().clone();
+                    move |w, p| {
+                        // a new page never inherits "screen stays on" from the room of the page before (reload, server switch)
+                        #[cfg(windows)]
+                        if matches!(p.event(), tauri::webview::PageLoadEvent::Started) {
+                            let _ = ph.run_on_main_thread(|| win::keep_display_on(false));
+                        }
+                        if matches!(p.event(), tauri::webview::PageLoadEvent::Finished) && !is_app_page(&ph, p.url()) {
+                            let _ = w.eval(BACK_BUTTON);
+                        }
+                    }
                 })
                 .initialization_script(&init)
                 .build()?;

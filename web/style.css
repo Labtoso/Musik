@@ -301,6 +301,10 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
 .switch input:checked + span::after { transform: translateX(18px); }
 .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .set-none { text-align: center; padding: 40px 0; }
+/* legal link at the very end of the settings: quiet, readable, never moves anything above it */
+.set-legal { margin: 8px 0 0; text-align: center; font-size: 12.5px; }
+.set-legal a { color: var(--muted); text-decoration: none; padding: 6px 8px; border-radius: 6px; }
+.set-legal a:hover, .set-legal a:focus-visible { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 760px) {
   .set-top { padding: 10px 16px 0; }
   .set-head h2 { font-size: 22px; }
