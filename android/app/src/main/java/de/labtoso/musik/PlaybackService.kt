@@ -59,6 +59,21 @@ class PlaybackService : MediaSessionService() {
         }
     }
     private val prefs by lazy { getSharedPreferences("musik", Context.MODE_PRIVATE) }
+    /** Where the music is (song, place in the queue, position), kept so the app finds it again after it was closed completely. */
+    private fun saveSpot() {
+        val p = PlaybackService.player ?: return
+        if (p.mediaItemCount == 0) return
+        val id = p.currentMediaItem?.mediaId ?: return
+        val spot = JSONObject().put("id", id).put("i", p.currentMediaItemIndex).put("pos", p.currentPosition.coerceAtLeast(0)).put("at", System.currentTimeMillis())
+        prefs.edit().putString("lastSpot", spot.toString()).apply()
+    }
+    /** While music plays, the position is written down every ten seconds. */
+    private val spotTick = object : Runnable {
+        override fun run() {
+            saveSpot()
+            if (PlaybackService.player?.isPlaying == true) ui.postDelayed(this, 10_000)
+        }
+    }
     private val eqListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "eq") applyEq()
         if (key == "userVol") {
@@ -146,13 +161,22 @@ class PlaybackService : MediaSessionService() {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 // a song that runs into the next one, or into itself again (repeat one), fades in
                 fadeIn = reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+                saveSpot()
             }
             override fun onPositionDiscontinuity(oldPosition: androidx.media3.common.Player.PositionInfo, newPosition: androidx.media3.common.Player.PositionInfo, reason: Int) {
-                if (reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK || reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) VizTap.seeked()
+                if (reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK || reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+                    VizTap.seeked()
+                    saveSpot()
+                }
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 VizTap.playing(isPlaying)
-                if (!isPlaying) return
+                ui.removeCallbacks(spotTick)
+                if (!isPlaying) {
+                    saveSpot()
+                    return
+                }
+                ui.postDelayed(spotTick, 10_000)
                 applyOpts()
                 if (eq == null && audioSession > 0) eq = runCatching { Equalizer(1000, audioSession) }.getOrNull()
                 applyEq()
@@ -258,6 +282,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        saveSpot()
         val p = session?.player
         if (p == null || !p.playWhenReady || p.mediaItemCount == 0) stopSelf()
     }
@@ -270,6 +295,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        saveSpot()
+        ui.removeCallbacks(spotTick)
         audioSession = 0
         player = null
         prefs.unregisterOnSharedPreferenceChangeListener(eqListener)

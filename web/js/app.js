@@ -1753,6 +1753,17 @@ function loadForYou(h) {
   if (!fyLoad || fyLoad.h !== h) fyLoad = { h, p: favouriteArtists(h).then((names) => get('/api/catalog/foryou?artists=' + encodeURIComponent(names.join('|')))).catch(() => null) };
   return fyLoad.p;
 }
+/** "Mix für dich" on the start page: the first ten songs, the rest behind "See more" (phone and desktop). */
+function mixList(tracks, opts) {
+  const long = tracks.length > 10;
+  return `<div class="mixlist${long ? ' short' : ''}">${trackList(tracks, opts)}${long ? `<button class="link morebtn" data-mixmore>${t('seeMore')}</button>` : ''}</div>`;
+}
+document.addEventListener('click', (e) => {
+  const more = e.target.closest('[data-mixmore]');
+  if (!more) return;
+  const short = more.parentElement.classList.toggle('short');
+  more.textContent = t(short ? 'seeMore' : 'seeLess');
+});
 /** "Mix für dich" from the catalog when the own files give too little: the Daily Mixes woven together. */
 async function catalogMixSection(h) {
   const r = await loadForYou(h);
@@ -1767,7 +1778,7 @@ async function catalogMixSection(h) {
     }
   state.homeMixExt = out;
   if (!out.length) return '';
-  return `<section class="sec home-mix"><div class="sec-head"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(out.slice(0, 12))}</section>`;
+  return `<section class="sec home-mix"><div class="sec-head"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${mixList(out.slice(0, 30))}</section>`;
 }
 async function forYouSections(h) {
   const r = await loadForYou(h);
@@ -2151,7 +2162,7 @@ async function buildHome() {
     html += `<div class="quick">${likedTile()}${await pinnedTiles()}</div>`;
     const mixPart = await catalogMixSection(null);
     html += mixPart;
-    if (recentExt.length) html += section(t('recent'), trackCards(recentExt, 'recentext'));
+    if (recentExt.length) html += section(t('recent'), trackCards(recentExt, 'recentext'), `<a class="link" href="#/recent">${t('showAll')}</a>`);
     if (fol.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
     const fy = (await forYouSections(null)) + '';
     if (mixPart && !fy) return html;
@@ -2182,10 +2193,10 @@ async function buildHome() {
     <div class="hero-text"><h1>${t('mixForYou')}</h1><p class="muted">${h.cold ? t('coldHint') : esc(h.mix.slice(0, 4).map(artistName).filter((v, i, a) => a.indexOf(v) === i).join(', '))}</p></div>
     <button class="btn primary" data-playmix>${icon('play')}${t('playAll')}</button></div>`;
   html += ownMix
-    ? `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${trackList(h.mix, { reasons: true })}</section>`
+    ? `<section class="sec home-mix"><div class="sec-head m-only"><h2>${t('mixForYou')}</h2><button class="playcircle" data-playmix title="${t('playAll')}">${icon('play')}</button></div>${mixList(h.mix, { reasons: true })}</section>`
     : laterSection(() => catalogMixSection(h));
   const recentAll = [...h.recent, ...recentExt].slice(0, 14);
-  if (recentAll.length) html += section(t('recent'), trackCards(recentAll, 'recent'));
+  if (recentAll.length) html += section(t('recent'), trackCards(recentAll, 'recent'), `<a class="link" href="#/recent">${t('showAll')}</a>`);
   if (fol.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
   html += laterSection(() => forYouSections(h));
   if (h.rediscover.length) html += section(t('rediscover'), trackCards(h.rediscover, 'rediscover'));
@@ -3234,6 +3245,18 @@ document.addEventListener('click', (e) => {
     startRadio(list[Math.floor(Math.random() * list.length)]);
   }
 });
+
+// ---------- recently played: everything heard lately, own files and other platforms, like Spotify's Recents ----------
+views.recent = async () => {
+  const own = await get('/api/history?limit=500').catch(() => []);
+  const seen = new Set();
+  const tracks = [...(Array.isArray(own) ? own : []).map((x) => ({ at: Number(x.ts) || 0, tr: x.track })), ...extHistory().map((x) => ({ at: Number(x.at) || 0, tr: histTrack(x) }))]
+    .sort((a, b) => b.at - a.at)
+    .filter((x) => x.tr && x.tr.id != null && !seen.has(String(x.tr.id)) && seen.add(String(x.tr.id)))
+    .slice(0, 300)
+    .map((x) => x.tr);
+  return pageHead(t('recent')) + (tracks.length ? trackList(tracks) : `<div class="emptystate">${icon('note', 'big')}<p>${t('recentEmpty')}</p></div>`);
+};
 
 views.likes = async () => {
   const [local] = await Promise.all([get('/api/likes'), loadExtLikes()]);
@@ -5175,7 +5198,8 @@ function bindPlayer() {
   });
   player.addEventListener('change', renderPlayer);
   podBindPlayer();
-  player.addEventListener('change', () => rememberPlay(player.current));
+  // a song that only came back paused after a restart is not played yet: it counts once it starts
+  player.addEventListener('change', () => !player.dormant && rememberPlay(player.current));
   player.addEventListener('state', renderState);
   player.addEventListener('state', paintPlayButtons);
   player.addEventListener('change', paintPlayButtons);
@@ -7447,6 +7471,7 @@ function logout() {
   if (player) {
     player.pause();
     player.dropEvents();
+    player.forgetSession();
   }
   showLogin();
 }
@@ -8156,7 +8181,7 @@ views.gnew = async () => {
   const recent = extHistory().slice(0, 12).map(histTrack);
   if (albums.length) html += section(t('newAlbums') !== 'newAlbums' ? t('newAlbums') : t('albums'), `<div class="cards">${albums.map((a) => `<a class="card" href="${albumHref(a.album || a.name, a.artist)}">${coverImg(a.cover_id, 'lg')}<div class="c-title">${esc(a.album || a.name || '')}</div><div class="c-sub">${esc(a.artist || '')}</div></a>`).join('')}</div>`);
   if (fol?.length) html += section(t('followedArtists'), artistCards(fol.map(followCard), true));
-  if (recent.length) html += section(t('recent'), trackCards(recent, 'gnewrecent'));
+  if (recent.length) html += section(t('recent'), trackCards(recent, 'gnewrecent'), `<a class="link" href="#/recent">${t('showAll')}</a>`);
   if (!albums.length && !fol?.length && !recent.length) html += `<div class="emptystate">${icon('bell', 'big')}<p>${t('empty')}</p></div>`;
   return html;
 };
@@ -8399,6 +8424,16 @@ async function offlineEmptyNote() {
   el.closest('.offbar')?.classList.add('empty');
 }
 
+/** The last session came back after a start: its page name for the play buttons and the queue panel. */
+function restoredSession(ok) {
+  if (!ok) return;
+  const m = player.meta || {};
+  if (m.src?.key) playSrc = { key: m.src.key, queue: player.queue, name: m.src.name || '' };
+  if (m.g) gCtx = { queue: player.queue, name: m.g };
+  renderPlayer();
+  paintPlayButtons();
+}
+
 function startApp() {
   document.body.classList.remove('auth');
   if (!player) {
@@ -8409,7 +8444,16 @@ function startApp() {
     player.setOptions(playOptions());
     buildShell();
     bindPlayer();
-  } else buildShell();
+    // like Spotify: after the app was closed completely it still knows the song, the position and the queue
+    player.sessionMeta = () => ({
+      src: playSrc.queue === player.queue && playSrc.key ? { key: playSrc.key, name: playSrc.name || '' } : null,
+      g: gCtx.queue === player.queue ? gCtx.name || '' : ''
+    });
+    player.restoreSession(conn.server || location.origin, restoredSession);
+  } else {
+    buildShell();
+    player.restoreSession(conn.server || location.origin, restoredSession);
+  }
   renderPlayer();
   if (offlineMode) offlineEmptyNote();
   loadSettings()
