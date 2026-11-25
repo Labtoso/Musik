@@ -89,6 +89,8 @@ export function extTrack(it) {
 export const isExt = (t) => !!t?.ext;
 /** Invite link of the Streyn Discord server. The Discord buttons in the apps only show while it is set. */
 export const DISCORD_URL = 'https://discord.gg/bN2MTKwVaN';
+/** Central legal notice of LabtosoStudios; only linked, there is no own copy in the app. */
+export const IMPRESSUM_URL = 'https://labtoso.de/impressum';
 
 /** Open a page in the system browser: Android and the desktop app hand it over, a browser opens a tab. */
 export function openExternal(url) {
@@ -96,7 +98,10 @@ export function openExternal(url) {
     if (window.MusikAndroid?.openExternal) return window.MusikAndroid.openExternal(url);
   } catch {}
   if (window.musikDesktop) {
-    // the desktop app catches this navigation and opens the browser instead
+    if (!/^https?:\/\//.test(url)) return;
+    // the desktop app hands the page to the system browser; the app window itself never leaves Streyn
+    if (window.musikDesktop.open) return window.musikDesktop.open(url);
+    // older desktop apps catch this navigation and open the browser instead
     location.href = url;
     return;
   }

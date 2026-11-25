@@ -198,3 +198,12 @@ pub fn uninstall(silent: bool) -> bool {
     }
     true
 }
+
+/// Keeps the screen on while the Chillscreen room is open, the way video players do it: one documented
+/// call for this app's own UI thread, nothing else is touched. `false` hands it back to Windows.
+pub fn keep_display_on(on: bool) {
+    use windows_sys::Win32::System::Power::{SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED};
+    let flags = if on { ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED } else { ES_CONTINUOUS };
+    // SAFETY: plain flag call without pointers; it only changes the power request of the calling thread.
+    unsafe { SetThreadExecutionState(flags) };
+}
