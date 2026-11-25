@@ -626,7 +626,8 @@ class MainActivity : ComponentActivity() {
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         @JavascriptInterface fun openExternal(url: String) {
-            if (!url.startsWith("https://")) return
+            val scheme = Uri.parse(url).scheme?.lowercase()
+            if (scheme != "https" && scheme != "http") return
             main.post { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
         }
         /** Settings → Offline → folder button: the downloaded songs in the system's Files app. */

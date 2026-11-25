@@ -569,6 +569,11 @@ fn main() {
                 .on_page_load({
                     let ph = app.handle().clone();
                     move |w, p| {
+                        // a new page never inherits "screen stays on" from the room of the page before (reload, server switch)
+                        #[cfg(windows)]
+                        if matches!(p.event(), tauri::webview::PageLoadEvent::Started) {
+                            let _ = ph.run_on_main_thread(|| win::keep_display_on(false));
+                        }
                         if matches!(p.event(), tauri::webview::PageLoadEvent::Finished) && !is_app_page(&ph, p.url()) {
                             let _ = w.eval(BACK_BUTTON);
                         }

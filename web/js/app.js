@@ -5427,8 +5427,11 @@ function chillAwake(on, c = chill) {
   const room = c;
   navigator.wakeLock?.request('screen').then((lock) => {
     // the room was closed while the lock was asked for: give it back at once
-    if (room && chill === room && !room.lock) room.lock = lock;
-    else lock.release().catch(() => {});
+    if (room && chill === room && !room.lock) {
+      room.lock = lock;
+      // the browser lets go of it when the tab is hidden: forget it, so coming back asks again
+      lock.addEventListener?.('release', () => { if (room.lock === lock) room.lock = null; });
+    } else lock.release().catch(() => {});
   }).catch(() => {});
 }
 // the browser drops its wake lock when the tab is hidden: ask again when the room is back in view
